@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
@@ -85,67 +86,24 @@ func (e *Engine) SetupNetworkListener() {
 // Observe navigates to the URL and captures the screenshot and spatial tree.
 func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 	var buf []byte
-	var treeJSON string
-
-	// This payload extracts visible, interactable elements into our JSON structure.
-	const extractTreeJS = `
-		(() => {
-			const tree = [];
-			let idCounter = 0;
-		
-			// Helper to check if an element is actually scrollable
-			const getScrollState = (el) => {
-				const canScrollDown = el.scrollHeight > el.clientHeight && 
-									 (el.scrollTop + el.clientHeight) < el.scrollHeight;
-				const canScrollUp = el.scrollTop > 0;
-				
-				if (!canScrollDown && !canScrollUp) return null;
-		
-				return {
-					can_scroll_down: canScrollDown,
-					can_scroll_up: canScrollUp,
-					current_percentage: Math.round((el.scrollTop / (el.scrollHeight - el.clientHeight)) * 100) || 0
-				};
-			};
-		
-			// Include the body/document as a potential scroll target
-			const candidates = [document.documentElement, ...document.querySelectorAll('a, button, input, textarea, select, [role="button"], [role="link"], div[style*="overflow: scroll"], div[style*="overflow: auto"]')];
-		
-			candidates.forEach(el => {
-				const rect = el.getBoundingClientRect();
-				// Visibility Check: Only include if it has size and is within the viewport (roughly)
-				if (rect.width > 0 && rect.height > 0) {
-					const node = {
-						node_id: "node_" + (idCounter++),
-						role: el.tagName ? el.tagName.toLowerCase() : "root",
-						name: el.innerText ? el.innerText.trim().substring(0, 50) : (el.value || ""),
-						bounds: {
-							x: rect.x,
-							y: rect.y,
-							width: rect.width,
-							height: rect.height
-						}
-					};
-		
-					const scroll = getScrollState(el);
-					if (scroll) node.scroll_state = scroll;
-		
-					tree.push(node);
-				}
-			});
-			return JSON.stringify(tree);
-		})();
-		`
+	var nodes []*accessibility.Node
 
 	err := chromedp.Run(e.ctx,
 		// Enable network events
 		network.Enable(),
 
+		// Enable AX domain
+		accessibility.Enable(),
+
 		// Wait for body to ensure basic rendering is done
 		chromedp.WaitVisible(`body`, chromedp.ByQuery),
 
-		// 1. Capture the spatial tree via JS evaluation
-		chromedp.Evaluate(extractTreeJS, &treeJSON),
+		// 1. Capture the full AX tree
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			var err error
+			nodes, err = accessibility.GetFullAXTree().Do(ctx)
+			return err
+		}),
 
 		// 2. Capture the screenshot via pure CDP
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -162,12 +120,8 @@ func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 		return nil, err
 	}
 
-	// Parse the JS payload back into our Go Protocol struct
-	var spatialTree []protocol.SpatialNode
-	err = json.Unmarshal([]byte(treeJSON), &spatialTree)
-	if err != nil {
-		return nil, err
-	}
+	// Transform AXNodes into the protocols SpatialNode format
+	spatialTree := e.parseAXTree(nodes)
 
 	// Encode screenshot to Base64
 	b64Img := base64.StdEncoding.EncodeToString(buf)
@@ -190,4 +144,81 @@ func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 
 func (e *Engine) Navigate(url string) error {
 	return chromedp.Run(e.ctx, chromedp.Navigate(url))
+}
+
+// parseAXTree transforms accessibility nodes into SpatialNodes, extracting
+// visible interactive elements based on their role and bounding box.
+func (e *Engine) parseAXTree(nodes []*accessibility.Node) []protocol.SpatialNode {
+	var result []protocol.SpatialNode
+
+	for _, node := range nodes {
+		if node.Ignored {
+			continue
+		}
+
+		// role comes from node.Role.Value – treat it as a JSON string
+		roleStr := axValueToString(node.Role)
+		if roleStr == "" || !isInteractive(roleStr) {
+			continue
+		}
+
+		nameStr := axValueToString(node.Name)
+
+		// The accessibility tree often stores bounding box in a property named "bounds"
+		// Its value is a JSON array of four numbers: [x, y, width, height]
+		var bounds protocol.Bounds
+		boundsFound := false
+		for _, prop := range node.Properties {
+			if prop.Name == "bounds" {
+				var arr []float64
+				if err := json.Unmarshal(prop.Value.Value, &arr); err == nil && len(arr) >= 4 {
+					bounds = protocol.Bounds{
+						X:      arr[0],
+						Y:      arr[1],
+						Width:  arr[2],
+						Height: arr[3],
+					}
+					boundsFound = true
+				}
+				break
+			}
+		}
+		if !boundsFound {
+			continue
+		}
+
+		sn := protocol.SpatialNode{
+			NodeID: string(node.NodeID), // NodeID is a type alias for string
+			Role:   roleStr,
+			Name:   nameStr,
+			Bounds: bounds,
+		}
+		result = append(result, sn)
+	}
+	return result
+}
+
+// axValueToString safely extracts a string value from an accessibility AXValue.
+func axValueToString(v *accessibility.Value) string {
+	if v == nil {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(v.Value, &s); err != nil {
+		return ""
+	}
+	return s
+}
+
+func isInteractive(role string) bool {
+	interactiveRoles := map[string]bool{
+		"button":   true,
+		"checkbox": true,
+		"link":     true,
+		"radio":    true,
+		"textbox":  true,
+		"menuitem": true,
+		"tab":      true,
+	}
+	return interactiveRoles[role]
 }

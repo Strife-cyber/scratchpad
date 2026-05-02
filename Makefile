@@ -1,6 +1,6 @@
 .PHONY: build run tidy clean test
 
-BINARY_NAME=scratchpad
+BINARY_NAME=scratchpad.exe
 
 # Build the binary
 build:
