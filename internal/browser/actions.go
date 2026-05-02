@@ -67,6 +67,22 @@ func (e *Engine) ExecuteAction(req protocol.ActionRequest) error {
 		// chromedp.KeyEvent simulates raw hardware keystrokes.
 		return chromedp.Run(ctx, chromedp.KeyEvent(req.Text))
 
+	case protocol.ActionScroll:
+		return chromedp.Run(ctx,
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				// We simulate a mouse wheel event at the current X/Y
+				// or at the center of the viewport if not specified.
+				x, y := float64(req.X), float64(req.Y)
+				if x == 0 && y == 0 {
+					x, y = 640, 360
+				}
+
+				return input.DispatchMouseEvent(input.MouseWheel, x, y).
+					WithDeltaX(0).
+					WithDeltaY(float64(req.DeltaY)).
+					Do(ctx)
+			}))
+
 	default:
 		return fmt.Errorf("unsupported action: %s", req.Action)
 	}

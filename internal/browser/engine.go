@@ -90,30 +90,52 @@ func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 	// This payload extracts visible, interactable elements into our JSON structure.
 	const extractTreeJS = `
 		(() => {
-			const elements = document.querySelectorAll('a, button, input, textarea, select, [role="button"], [role="link"]');
 			const tree = [];
 			let idCounter = 0;
-
-			elements.forEach(el => {
+		
+			// Helper to check if an element is actually scrollable
+			const getScrollState = (el) => {
+				const canScrollDown = el.scrollHeight > el.clientHeight && 
+									 (el.scrollTop + el.clientHeight) < el.scrollHeight;
+				const canScrollUp = el.scrollTop > 0;
+				
+				if (!canScrollDown && !canScrollUp) return null;
+		
+				return {
+					can_scroll_down: canScrollDown,
+					can_scroll_up: canScrollUp,
+					current_percentage: Math.round((el.scrollTop / (el.scrollHeight - el.clientHeight)) * 100) || 0
+				};
+			};
+		
+			// Include the body/document as a potential scroll target
+			const candidates = [document.documentElement, ...document.querySelectorAll('a, button, input, textarea, select, [role="button"], [role="link"], div[style*="overflow: scroll"], div[style*="overflow: auto"]')];
+		
+			candidates.forEach(el => {
 				const rect = el.getBoundingClientRect();
-				// Only grab elements that are actually visible on screen
+				// Visibility Check: Only include if it has size and is within the viewport (roughly)
 				if (rect.width > 0 && rect.height > 0) {
-					tree.push({
+					const node = {
 						node_id: "node_" + (idCounter++),
-						role: el.tagName.toLowerCase(),
-						name: el.innerText ? el.innerText.trim() : (el.value || ""),
+						role: el.tagName ? el.tagName.toLowerCase() : "root",
+						name: el.innerText ? el.innerText.trim().substring(0, 50) : (el.value || ""),
 						bounds: {
 							x: rect.x,
 							y: rect.y,
 							width: rect.width,
 							height: rect.height
 						}
-					});
+					};
+		
+					const scroll = getScrollState(el);
+					if (scroll) node.scroll_state = scroll;
+		
+					tree.push(node);
 				}
 			});
 			return JSON.stringify(tree);
 		})();
-	`
+		`
 
 	err := chromedp.Run(e.ctx,
 		// Enable network events
