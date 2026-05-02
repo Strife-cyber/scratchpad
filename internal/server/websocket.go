@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"scratchpad/internal/browser"
 	"scratchpad/internal/protocol"
+	"scratchpad/internal/sandbox"
 
 	"github.com/gorilla/websocket"
 )
@@ -16,7 +17,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // HandleWS creates a closure that holds our engine instance and handle WS traffic
-func HandleWS(engine *browser.Engine) http.HandlerFunc {
+func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		conn, err := upgrader.Upgrade(writer, request, nil)
 		if err != nil {
@@ -29,7 +30,16 @@ func HandleWS(engine *browser.Engine) http.HandlerFunc {
 				log.Println("Websocket close failed:", err)
 			}
 		}(conn)
-		log.Println("Agent connected to WebSocket!")
+
+		// Create a dedicated session for this connection
+		session, err := mgr.CreateSession()
+		if err != nil {
+			log.Println("Failed to create session:", err)
+			return
+		}
+		defer mgr.DeleteSession(session.ID)
+
+		log.Printf("Agent connected. Assigned Session: %s\n", session.ID)
 
 		// The infinite message loop
 		for {
@@ -44,12 +54,12 @@ func HandleWS(engine *browser.Engine) http.HandlerFunc {
 			if err := json.Unmarshal(message, &initReq); err == nil && initReq.URL != "" {
 				log.Printf("Initializing session for URL: %s", initReq.URL)
 
-				if err := engine.Navigate(initReq.URL); err != nil {
+				if err := session.Engine.Navigate(initReq.URL); err != nil {
 					log.Printf("Navigation failed: %v", err)
 					continue
 				}
 
-				sendObservation(conn, engine)
+				sendObservation(conn, session.Engine)
 				continue
 			}
 
@@ -58,13 +68,13 @@ func HandleWS(engine *browser.Engine) http.HandlerFunc {
 			if err := json.Unmarshal(message, &actionReq); err == nil && actionReq.Action != "" {
 				log.Printf("Executing AI Action: %s at X: %d, Y: %d", actionReq.Action, actionReq.X, actionReq.Y)
 
-				if err := engine.ExecuteAction(actionReq); err != nil {
+				if err := session.Engine.ExecuteAction(actionReq); err != nil {
 					log.Printf("Action execution failed: %v", err)
 					continue
 				}
 
 				// Send the new state back after the action completes
-				sendObservation(conn, engine)
+				sendObservation(conn, session.Engine)
 				continue
 			}
 
