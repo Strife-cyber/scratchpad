@@ -36,8 +36,10 @@ func (e *Engine) ExecuteAction(req protocol.ActionRequest) error {
 				}
 			}
 		}
-		// Simple time-based wait
-		time.Sleep(time.Duration(req.TimeoutMS) * time.Millisecond)
+		// Generic time-based wait (when condition is not network_idle)
+		if req.TimeoutMS > 0 {
+			time.Sleep(time.Duration(req.TimeoutMS) * time.Millisecond)
+		}
 		return nil
 	case protocol.ActionClick:
 		return chromedp.Run(ctx,

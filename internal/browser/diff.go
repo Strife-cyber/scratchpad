@@ -14,9 +14,11 @@ func ComputeDiff(oldTree, newTree []protocol.SpatialNode) *protocol.TreeDelta {
 
 	for _, newNode := range newTree {
 		newMap[newNode.NodeID] = newNode
-		if oldNode, exists := oldMap[newNode.NodeID]; exists {
+		if oldNode, exists := oldMap[newNode.NodeID]; !exists {
+			// Node is brand-new — not in the previous tree
 			delta.Added = append(delta.Added, newNode)
 		} else if isChanged(oldNode, newNode) {
+			// Node exists but has changed
 			delta.Updated = append(delta.Updated, newNode)
 		}
 	}
