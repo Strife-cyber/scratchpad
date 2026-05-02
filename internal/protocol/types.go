@@ -45,6 +45,7 @@ type ObservationResponse struct {
 	Viewport    Viewport      `json:"viewport"`
 	Visual      string        `json:"visual_context,omitempty"`
 	SpatialTree []SpatialNode `json:"spatial_tree,omitempty"`
+	Delta       *TreeDelta    `json:"delta,omitempty"`
 	Logs        []ConsoleLog  `json:"logs,omitempty"`
 }
 
@@ -80,4 +81,10 @@ type ConsoleLog struct {
 	Level     string `json:"level"`
 	Message   string `json:"message"`
 	Timestamp int64  `json:"timestamp"`
+}
+
+type TreeDelta struct {
+	Added   []SpatialNode `json:"added,omitempty"`
+	Removed []string      `json:"removed,omitempty"`
+	Updated []SpatialNode `json:"updated,omitempty"`
 }

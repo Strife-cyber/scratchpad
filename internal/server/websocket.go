@@ -93,18 +93,31 @@ func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
 
 // sendObservation is a helper to grab the engine state and push it over the socket.
 func sendObservation(conn *websocket.Conn, session *sandbox.Session) {
-	obs, err := session.Engine.Observe()
+	newObs, err := session.Engine.Observe()
 	if err != nil {
 		log.Printf("Failed to observe state: %v", err)
 		return
 	}
 
+	if len(session.LastTree) > 0 {
+		delta := browser.ComputeDiff(session.LastTree, newObs.SpatialTree)
+
+		// If the delta is significantly smaller than the full tree
+		if len(delta.Added)+len(delta.Updated)+len(delta.Removed) < len(newObs.SpatialTree) {
+			newObs.Type = "delta"
+			newObs.Delta = delta
+			newObs.SpatialTree = nil // Wipe the full tree to save tokens/bandwidth
+		}
+	}
+
+	session.LastTree = newObs.SpatialTree
+
 	session.LogMu.Lock()
-	obs.Logs = session.SessionLogs
+	newObs.Logs = session.SessionLogs
 	session.SessionLogs = []protocol.ConsoleLog{}
 	session.LogMu.Unlock()
 
-	if err := conn.WriteJSON(obs); err != nil {
+	if err := conn.WriteJSON(newObs); err != nil {
 		log.Printf("Failed to send observation to the agent: %v", err)
 	}
 }
