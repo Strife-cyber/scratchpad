@@ -5,15 +5,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"scratchpad/internal/protocol"
+	"sync/atomic"
 
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
 
 type Engine struct {
-	allocCtx context.Context
-	ctx      context.Context
-	cancel   context.CancelFunc
+	allocCtx      context.Context
+	ctx           context.Context
+	cancel        context.CancelFunc
+	inflightCount int32
 }
 
 // NewEngine initializes the headless browser.
@@ -27,16 +30,36 @@ func NewEngine() *Engine {
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
 	ctx, cancel := chromedp.NewContext(allocCtx)
 
-	return &Engine{
+	e := &Engine{
 		allocCtx: allocCtx,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+
+	// Start listening to network events immediately
+	e.SetupNetworkListener()
+
+	return e
 }
 
 // Close gracefully shuts down the browser process.
 func (e *Engine) Close() {
 	e.cancel()
+}
+
+func (e *Engine) SetupNetworkListener() {
+	chromedp.ListenTarget(e.ctx, func(ev interface{}) {
+		switch ev.(type) {
+		case *network.EventRequestWillBeSent:
+			atomic.AddInt32(&e.inflightCount, 1)
+		case *network.EventLoadingFinished, *network.EventLoadingFailed:
+			// Ensure we don't go below zero
+			if atomic.LoadInt32(&e.inflightCount) > 0 {
+				atomic.AddInt32(&e.inflightCount, -1)
+			}
+
+		}
+	})
 }
 
 // Observe navigates to the URL and captures the screenshot and spatial tree.
@@ -73,6 +96,9 @@ func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 	`
 
 	err := chromedp.Run(e.ctx,
+		// Enable network events
+		network.Enable(),
+
 		// Wait for body to ensure basic rendering is done
 		chromedp.WaitVisible(`body`, chromedp.ByQuery),
 
@@ -115,7 +141,7 @@ func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 		},
 		SystemState: protocol.SystemState{
 			DocumentStatus:   "interactive",
-			InflightRequests: 0, // Hardcoded for MVP
+			InflightRequests: int(atomic.LoadInt32(&e.inflightCount)),
 		},
 	}, nil
 }
