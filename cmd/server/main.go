@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
-	"scratchpad/internal/browser"
+	"scratchpad/internal/sandbox"
 	"scratchpad/internal/server"
 )
 
@@ -11,11 +11,10 @@ func main() {
 	log.Println("Starting Browser Engine Server...")
 
 	// 1. Boot up the headless browser
-	engine := browser.NewEngine()
-	defer engine.Close()
+	manager := sandbox.NewManager()
 
 	// 2. Register the WebSocket route
-	http.HandleFunc("/ws", server.HandleWS(engine))
+	http.HandleFunc("/ws", server.HandleWS(manager))
 
 	// 3. Start the server
 	port := ":8080"

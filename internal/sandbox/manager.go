@@ -7,7 +7,7 @@ type Manager struct {
 	sessions map[string]*Session
 }
 
-func (s Session) NewManager() *Manager {
+func NewManager() *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
 	}

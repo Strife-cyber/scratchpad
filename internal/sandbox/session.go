@@ -13,6 +13,7 @@ type Session struct {
 	Engine      *browser.Engine
 	SessionLogs []protocol.ConsoleLog
 	LogMu       sync.Mutex
+	LastTree    []protocol.SpatialNode
 }
 
 // CreateSession initializes a brand-new browser instance for a new agent
