@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"scratchpad/internal/protocol"
+	"sync/atomic"
 	"time"
 
 	"github.com/chromedp/cdproto/input"
@@ -12,10 +13,32 @@ import (
 
 func (e *Engine) ExecuteAction(req protocol.ActionRequest) error {
 	// Add a safety timeout so a hanging action doesn't block the engine
-	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(e.ctx, time.Duration(req.TimeoutMS)*time.Millisecond)
+	if req.TimeoutMS == 0 {
+		ctx, cancel = context.WithTimeout(e.ctx, 10*time.Second)
+	}
 	defer cancel()
 
 	switch req.Action {
+	case protocol.ActionWait:
+		if req.Condition == "network_idle" {
+			// Polling loop to check our atomic counter
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("wait for network_idle timed out")
+				case <-ticker.C:
+					if atomic.LoadInt32(&e.inflightCount) == 0 {
+						return nil
+					}
+				}
+			}
+		}
+		// Simple time-based wait
+		time.Sleep(time.Duration(req.TimeoutMS) * time.Millisecond)
+		return nil
 	case protocol.ActionClick:
 		return chromedp.Run(ctx,
 			chromedp.ActionFunc(func(ctx context.Context) error {
