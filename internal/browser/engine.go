@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"scratchpad/internal/protocol"
+	"sync"
 	"sync/atomic"
 
 	"github.com/chromedp/cdproto/network"
@@ -17,6 +18,24 @@ type Engine struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	inflightCount int32
+	listeners     []EventHandler
+	mu            sync.RWMutex
+}
+
+func (e *Engine) AddListener(handler EventHandler) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.listeners = append(e.listeners, handler)
+}
+
+func (e *Engine) SetupEventDispatcher() {
+	chromedp.ListenTarget(e.ctx, func(ev interface{}) {
+		e.mu.RLock()
+		defer e.mu.RUnlock()
+		for _, listener := range e.listeners {
+			listener(ev)
+		}
+	})
 }
 
 // NewEngine initializes the headless browser.
@@ -37,6 +56,7 @@ func NewEngine() *Engine {
 	}
 
 	// Start listening to network events immediately
+	e.SetupEventDispatcher()
 	e.SetupNetworkListener()
 
 	return e

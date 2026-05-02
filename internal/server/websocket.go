@@ -20,6 +20,7 @@ var upgrader = websocket.Upgrader{
 func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		conn, err := upgrader.Upgrade(writer, request, nil)
+
 		if err != nil {
 			log.Println("Websocket upgrade failed:", err)
 			return
@@ -38,6 +39,13 @@ func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
 			return
 		}
 		defer mgr.DeleteSession(session.ID)
+
+		// Tell the engine to send events to this session's log collector
+		logHandler := browser.NewConsoleLogger(&session.SessionLogs, &session.LogMu)
+		session.Engine.AddListener(logHandler)
+
+		// Start the engine's dispatcher if not already started
+		session.Engine.SetupEventDispatcher()
 
 		log.Printf("Agent connected. Assigned Session: %s\n", session.ID)
 
@@ -59,7 +67,7 @@ func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
 					continue
 				}
 
-				sendObservation(conn, session.Engine)
+				sendObservation(conn, session)
 				continue
 			}
 
@@ -74,7 +82,7 @@ func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
 				}
 
 				// Send the new state back after the action completes
-				sendObservation(conn, session.Engine)
+				sendObservation(conn, session)
 				continue
 			}
 
@@ -84,12 +92,17 @@ func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
 }
 
 // sendObservation is a helper to grab the engine state and push it over the socket.
-func sendObservation(conn *websocket.Conn, engine *browser.Engine) {
-	obs, err := engine.Observe()
+func sendObservation(conn *websocket.Conn, session *sandbox.Session) {
+	obs, err := session.Engine.Observe()
 	if err != nil {
 		log.Printf("Failed to observe state: %v", err)
 		return
 	}
+
+	session.LogMu.Lock()
+	obs.Logs = session.SessionLogs
+	session.SessionLogs = []protocol.ConsoleLog{}
+	session.LogMu.Unlock()
 
 	if err := conn.WriteJSON(obs); err != nil {
 		log.Printf("Failed to send observation to the agent: %v", err)

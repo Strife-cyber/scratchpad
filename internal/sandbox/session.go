@@ -2,16 +2,20 @@ package sandbox
 
 import (
 	"scratchpad/internal/browser"
+	"scratchpad/internal/protocol"
+	"sync"
 
 	"github.com/google/uuid"
 )
 
 type Session struct {
-	ID     string
-	Engine *browser.Engine
+	ID          string
+	Engine      *browser.Engine
+	SessionLogs []protocol.ConsoleLog
+	LogMu       sync.Mutex
 }
 
-// CreateSession initializes a brand new browser instance for a new agent
+// CreateSession initializes a brand-new browser instance for a new agent
 func (m *Manager) CreateSession() (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

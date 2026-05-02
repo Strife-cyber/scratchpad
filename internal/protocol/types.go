@@ -45,6 +45,7 @@ type ObservationResponse struct {
 	Viewport    Viewport      `json:"viewport"`
 	Visual      string        `json:"visual_context,omitempty"`
 	SpatialTree []SpatialNode `json:"spatial_tree,omitempty"`
+	Logs        []ConsoleLog  `json:"logs,omitempty"`
 }
 
 type SystemState struct {
@@ -73,4 +74,10 @@ type ScrollState struct {
 	CanScrollDown     bool `json:"can_scroll_down"`
 	CanScrollUp       bool `json:"can_scroll_up"`
 	CurrentPercentage int  `json:"current_percentage"`
+}
+
+type ConsoleLog struct {
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+	Timestamp int64  `json:"timestamp"`
 }
