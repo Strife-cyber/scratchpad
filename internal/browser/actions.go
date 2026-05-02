@@ -1,1 +1,50 @@
 package browser
+
+import (
+	"context"
+	"fmt"
+	"scratchpad/internal/protocol"
+	"time"
+
+	"github.com/chromedp/cdproto/input"
+	"github.com/chromedp/chromedp"
+)
+
+func (e *Engine) ExecuteAction(req protocol.ActionRequest) error {
+	// Add a safety timeout so a hanging action doesn't block the engine
+	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
+	defer cancel()
+
+	switch req.Action {
+	case protocol.ActionClick:
+		return chromedp.Run(ctx,
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				// 1. Press the mouse button down
+				p := input.DispatchMouseEvent(input.MousePressed, float64(req.X), float64(req.Y)).
+					WithButton(input.Left).
+					WithClickCount(1)
+
+				if err := p.Do(ctx); err != nil {
+					return err
+				}
+
+				// Small delay to simulate a human click duration
+				time.Sleep(50 * time.Millisecond)
+
+				// 2. Release the mouse button
+				r := input.DispatchMouseEvent(input.MouseReleased, float64(req.X), float64(req.Y)).
+					WithButton(input.Left).
+					WithClickCount(1)
+
+				return r.Do(ctx)
+			}))
+
+	case protocol.ActionType:
+		// We assume the AI already clicked the text box to focus it.
+		// chromedp.KeyEvent simulates raw hardware keystrokes.
+		return chromedp.Run(ctx, chromedp.KeyEvent(req.Text))
+
+	default:
+		return fmt.Errorf("unsupported action: %s", req.Action)
+	}
+}

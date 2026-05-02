@@ -40,7 +40,7 @@ func (e *Engine) Close() {
 }
 
 // Observe navigates to the URL and captures the screenshot and spatial tree.
-func (e *Engine) Observe(url string) (*protocol.ObservationResponse, error) {
+func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 	var buf []byte
 	var treeJSON string
 
@@ -73,7 +73,6 @@ func (e *Engine) Observe(url string) (*protocol.ObservationResponse, error) {
 	`
 
 	err := chromedp.Run(e.ctx,
-		chromedp.Navigate(url),
 		// Wait for body to ensure basic rendering is done
 		chromedp.WaitVisible(`body`, chromedp.ByQuery),
 
@@ -119,4 +118,8 @@ func (e *Engine) Observe(url string) (*protocol.ObservationResponse, error) {
 			InflightRequests: 0, // Hardcoded for MVP
 		},
 	}, nil
+}
+
+func (e *Engine) Navigate(url string) error {
+	return chromedp.Run(e.ctx, chromedp.Navigate(url))
 }
