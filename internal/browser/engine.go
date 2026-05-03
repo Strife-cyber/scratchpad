@@ -1,3 +1,5 @@
+// Package browser implements the Engine interface using Chrome DevTools Protocol
+// via chromedp. It self-registers as engine.KindChrome in its init() function.
 package browser
 
 import (
@@ -5,10 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"scratchpad/internal/protocol"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"scratchpad/internal/engine"
+	"scratchpad/internal/protocol"
 
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
@@ -18,107 +22,122 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-type Engine struct {
-	allocCtx      context.Context
-	ctx           context.Context
-	cancel        context.CancelFunc
-	inflightCount int32
-	listeners     []EventHandler
-	mu            sync.RWMutex
-}
+// Ensure ChromeEngine satisfies the engine.Engine interface at compile time.
+var _ engine.Engine = (*ChromeEngine)(nil)
 
-func (e *Engine) AddListener(handler EventHandler) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.listeners = append(e.listeners, handler)
-}
-
-func (e *Engine) SetupEventDispatcher() {
-	chromedp.ListenTarget(e.ctx, func(ev interface{}) {
-		e.mu.RLock()
-		defer e.mu.RUnlock()
-		for _, listener := range e.listeners {
-			listener(ev)
-		}
+func init() {
+	engine.Register(engine.KindChrome, func() engine.Engine {
+		return NewChromeEngine()
 	})
 }
 
-// NewEngine initializes the headless browser.
-func NewEngine() *Engine {
-	// Set up the Chrome allocator with a strict viewport
+// ChromeEngine drives a headless (or headful) Chrome instance over CDP.
+type ChromeEngine struct {
+	allocCtx     context.Context
+	ctx          context.Context
+	cancel       context.CancelFunc
+	inFlightCount int32
+	listeners    []engine.EventHandler
+	mu           sync.RWMutex
+}
+
+// NewChromeEngine initialises a new headless Chrome instance.
+func NewChromeEngine() *ChromeEngine {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.WindowSize(1280, 720),
 		chromedp.Flag("hide-scrollbars", false),
-		chromedp.Flag("headless", false), // Run headful to see the browser
 	)
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
 	ctx, cancel := chromedp.NewContext(allocCtx)
 
-	e := &Engine{
+	e := &ChromeEngine{
 		allocCtx: allocCtx,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
 
-	// Start listening to network events immediately
-	e.SetupEventDispatcher()
-	e.SetupNetworkListener()
+	// Wire up internal listeners before any external code can add its own.
+	e.setupEventDispatcher()
+	e.setupNetworkListener()
 
 	return e
 }
 
-// Close gracefully shuts down the browser process.
-func (e *Engine) Close() {
+// Close gracefully shuts down the Chrome process and all associated resources.
+func (e *ChromeEngine) Close() {
 	e.cancel()
 }
 
-func (e *Engine) SetupNetworkListener() {
-	chromedp.ListenTarget(e.ctx, func(ev interface{}) {
-		switch ev.(type) {
-		case *network.EventRequestWillBeSent:
-			atomic.AddInt32(&e.inflightCount, 1)
-		case *network.EventLoadingFinished, *network.EventLoadingFailed:
-			// Ensure we don't go below zero
-			if atomic.LoadInt32(&e.inflightCount) > 0 {
-				atomic.AddInt32(&e.inflightCount, -1)
-			}
+// AddListener registers an EventHandler that will receive every raw CDP event.
+// Implements engine.Engine.
+func (e *ChromeEngine) AddListener(handler engine.EventHandler) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.listeners = append(e.listeners, handler)
+}
 
+// setupEventDispatcher wires chromedp's event loop into our listener slice.
+// Called once from the constructor; intentionally unexported.
+func (e *ChromeEngine) setupEventDispatcher() {
+	chromedp.ListenTarget(e.ctx, func(ev any) {
+		e.mu.RLock()
+		defer e.mu.RUnlock()
+		for _, h := range e.listeners {
+			h(ev)
 		}
 	})
 }
 
-// Observe navigates to the URL and captures the screenshot and spatial tree.
-func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
-	var buf []byte
-	var nodes []*accessibility.Node
-	var spatialTree []protocol.SpatialNode
+// setupNetworkListener tracks in-flight network requests via CDP events so
+// that ExecuteAction("wait", condition="network_idle") knows when to unblock.
+func (e *ChromeEngine) setupNetworkListener() {
+	chromedp.ListenTarget(e.ctx, func(ev any) {
+		switch ev.(type) {
+		case *network.EventRequestWillBeSent:
+			atomic.AddInt32(&e.inFlightCount, 1)
+		case *network.EventLoadingFinished, *network.EventLoadingFailed:
+			if atomic.LoadInt32(&e.inFlightCount) > 0 {
+				atomic.AddInt32(&e.inFlightCount, -1)
+			}
+		}
+	})
+}
+
+// Navigate loads the given URL. Implements engine.Engine.
+func (e *ChromeEngine) Navigate(url string) error {
+	return chromedp.Run(e.ctx, chromedp.Navigate(url))
+}
+
+// Observe captures a JPEG screenshot plus the interactive AX spatial tree.
+// Implements engine.Engine.
+func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
+	var (
+		buf         []byte
+		axNodes     []*accessibility.Node
+		spatialTree []protocol.SpatialNode
+	)
 
 	err := chromedp.Run(e.ctx,
-		// Enable network events
 		network.Enable(),
-
-		// Enable AX domain
 		accessibility.Enable(),
 		dom.Enable(),
-
-		// Wait for body to ensure basic rendering is done
 		chromedp.WaitVisible(`body`, chromedp.ByQuery),
 
-		// 1. Capture the full AX tree
+		// Capture the full accessibility tree first.
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var err error
-			nodes, err = accessibility.GetFullAXTree().Do(ctx)
+			axNodes, err = accessibility.GetFullAXTree().Do(ctx)
 			return err
 		}),
 
-		// 1.5 Transform AX nodes while command context is valid for DOM calls.
+		// Transform AX nodes while the CDP command context is still valid.
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			spatialTree = e.parseAXTree(ctx, nodes)
+			spatialTree = e.parseAXTree(ctx, axNodes)
 			return nil
 		}),
 
-		// 2. Capture the screenshot via pure CDP
+		// Capture screenshot last (most expensive step).
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var err error
 			buf, err = page.CaptureScreenshot().
@@ -128,40 +147,32 @@ func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 			return err
 		}),
 	)
-
 	if err != nil {
 		return nil, err
 	}
-
-	// Encode screenshot to Base64
 	if len(buf) == 0 {
-		return nil, fmt.Errorf("screenshot buffer is empty")
+		return nil, fmt.Errorf("chrome: screenshot buffer is empty")
 	}
-	b64Img := base64.StdEncoding.EncodeToString(buf)
 
 	return &protocol.ObservationResponse{
 		Type:        "observation",
-		Visual:      b64Img,
+		Visual:      base64.StdEncoding.EncodeToString(buf),
 		SpatialTree: spatialTree,
-		Viewport: protocol.Viewport{
-			Width:  1280,
-			Height: 720,
-			// DeviceScaleFactor: 1, removed - not present in the struct
-		},
+		Viewport:    protocol.Viewport{Width: 1280, Height: 720},
 		SystemState: protocol.SystemState{
 			DocumentStatus:   "interactive",
-			InflightRequests: int(atomic.LoadInt32(&e.inflightCount)),
+			InflightRequests: int(atomic.LoadInt32(&e.inFlightCount)),
 		},
 	}, nil
 }
 
-func (e *Engine) Navigate(url string) error {
-	return chromedp.Run(e.ctx, chromedp.Navigate(url))
-}
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
 
-// parseAXTree transforms accessibility nodes into SpatialNodes, extracting
-// visible interactive elements based on their role and bounding box.
-func (e *Engine) parseAXTree(ctx context.Context, nodes []*accessibility.Node) []protocol.SpatialNode {
+// parseAXTree walks the accessibility tree and returns a flat list of
+// interactive SpatialNodes with best-effort bounding-box information.
+func (e *ChromeEngine) parseAXTree(ctx context.Context, nodes []*accessibility.Node) []protocol.SpatialNode {
 	var result []protocol.SpatialNode
 
 	for _, node := range nodes {
@@ -169,36 +180,31 @@ func (e *Engine) parseAXTree(ctx context.Context, nodes []*accessibility.Node) [
 			continue
 		}
 
-		// role comes from node.Role.Value – treat it as a JSON string
-		roleStr := axValueToString(node.Role)
-		if roleStr == "" || !isInteractive(roleStr) {
+		role := axValueToString(node.Role)
+		if role == "" || !isInteractive(role) {
 			continue
 		}
 
-		nameStr := axValueToString(node.Name)
-
-		// Best-effort bounds: skip only when backendID is present but lookup fails.
-		// Nodes with backendID==0 still get emitted with zero Bounds, so the agent
-		// can act on them by role/name even without coordinates.
 		var bounds protocol.Bounds
 		if node.BackendDOMNodeID != 0 {
 			if b, ok := boundsFromBackendNode(ctx, node.BackendDOMNodeID); ok {
 				bounds = b
 			}
-			// If the lookup failed, we still keep the node (bounds stays zero)
+			// Lookup failure is non-fatal; we still emit the node with zero bounds.
 		}
 
-		sn := protocol.SpatialNode{
-			NodeID: string(node.NodeID), // NodeID is a type alias for string
-			Role:   roleStr,
-			Name:   nameStr,
+		result = append(result, protocol.SpatialNode{
+			NodeID: string(node.NodeID),
+			Role:   role,
+			Name:   axValueToString(node.Name),
 			Bounds: bounds,
-		}
-		result = append(result, sn)
+		})
 	}
 	return result
 }
 
+// boundsFromBackendNode resolves the bounding box of a DOM node using
+// DOM.getBoxModel. Returns false when backendID is zero or the call fails.
 func boundsFromBackendNode(ctx context.Context, backendID cdp.BackendNodeID) (protocol.Bounds, bool) {
 	if backendID == 0 {
 		return protocol.Bounds{}, false
@@ -227,33 +233,25 @@ func boundsFromBackendNode(ctx context.Context, backendID cdp.BackendNodeID) (pr
 		}
 	}
 
-	width := maxX - minX
-	height := maxY - minY
-	if width <= 0 || height <= 0 {
+	w, h := maxX-minX, maxY-minY
+	if w <= 0 || h <= 0 {
 		return protocol.Bounds{}, false
 	}
-
-	return protocol.Bounds{
-		X:      minX,
-		Y:      minY,
-		Width:  width,
-		Height: height,
-	}, true
+	return protocol.Bounds{X: minX, Y: minY, Width: w, Height: h}, true
 }
 
-// axValueToString safely extracts a string value from an accessibility AXValue.
-// Chrome may encode the role as a quoted JSON string OR as a raw identifier;
-// we try both so that roles like "button" and "link" are always captured.
+// axValueToString extracts a plain string from an AXValue.
+// Chrome may encode values as a quoted JSON string ("button") or as a raw
+// identifier (button); both forms are handled.
 func axValueToString(v *accessibility.Value) string {
 	if v == nil {
 		return ""
 	}
-	// Fast path: proper JSON string e.g. "\"button\""
 	var s string
 	if err := json.Unmarshal(v.Value, &s); err == nil {
 		return s
 	}
-	// Fallback: raw bytes may be an unquoted identifier – strip surrounding whitespace
+	// Fallback: treat raw bytes as an unquoted identifier.
 	raw := strings.TrimSpace(string(v.Value))
 	if raw != "" && raw != "null" {
 		return raw
@@ -261,6 +259,7 @@ func axValueToString(v *accessibility.Value) string {
 	return ""
 }
 
+// isInteractive returns true for ARIA roles that represent actionable elements.
 func isInteractive(role string) bool {
 	switch role {
 	case "button", "checkbox", "link", "radio", "textbox",

@@ -1,38 +1,48 @@
 package sandbox
 
 import (
-	"scratchpad/internal/browser"
-	"scratchpad/internal/protocol"
 	"sync"
+
+	"scratchpad/internal/engine"
+	"scratchpad/internal/protocol"
 
 	"github.com/google/uuid"
 )
 
+// Session holds all state for a single connected agent.
 type Session struct {
 	ID          string
-	Engine      *browser.Engine
+	Kind        engine.Kind
+	Engine      engine.Engine // interface — could be Chrome, Android, etc.
 	SessionLogs []protocol.ConsoleLog
 	LogMu       sync.Mutex
 	LastTree    []protocol.SpatialNode
 }
 
-// CreateSession initializes a brand-new browser instance for a new agent
-func (m *Manager) CreateSession() (*Session, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	id := uuid.New().String()
-	engine := browser.NewEngine() // Later this will trigger a Docker container
-
-	session := &Session{
-		ID:     id,
-		Engine: engine,
+// CreateSession instantiates a brand-new engine of the requested Kind and
+// registers the session in the manager's map.
+// The caller is responsible for calling DeleteSession when the agent disconnects.
+func (m *Manager) CreateSession(kind engine.Kind) (*Session, error) {
+	eng, err := engine.New(kind)
+	if err != nil {
+		return nil, err
 	}
 
-	m.sessions[id] = session
-	return session, nil
+	id := uuid.New().String()
+	s := &Session{
+		ID:     id,
+		Kind:   kind,
+		Engine: eng,
+	}
+
+	m.mu.Lock()
+	m.sessions[id] = s
+	m.mu.Unlock()
+
+	return s, nil
 }
 
+// GetSession retrieves an active session by ID.
 func (m *Manager) GetSession(id string) (*Session, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -40,11 +50,17 @@ func (m *Manager) GetSession(id string) (*Session, bool) {
 	return s, ok
 }
 
+// DeleteSession shuts down the engine and removes the session from the map.
 func (m *Manager) DeleteSession(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if s, ok := m.sessions[id]; ok {
-		s.Engine.Close()
+	s, ok := m.sessions[id]
+	if ok {
 		delete(m.sessions, id)
+	}
+	m.mu.Unlock()
+
+	// Close outside the lock so a slow driver doesn't stall other operations.
+	if ok {
+		s.Engine.Close()
 	}
 }

@@ -3,6 +3,12 @@ package main
 import (
 	"log"
 	"net/http"
+
+	// Blank imports trigger each driver's init(), registering it with engine.New.
+	_ "scratchpad/internal/android"
+	_ "scratchpad/internal/browser"
+
+	"scratchpad/internal/engine"
 	"scratchpad/internal/sandbox"
 	"scratchpad/internal/server"
 )
@@ -10,15 +16,17 @@ import (
 func main() {
 	log.Println("Starting Browser Engine Server...")
 
-	// 1. Boot up the headless browser
-	manager := sandbox.NewManager()
+	mgr := sandbox.NewManager()
 
-	// 2. Register the WebSocket route
-	http.HandleFunc("/ws", server.HandleWS(manager))
+	// /ws  — Chrome CDP driver (default for web agents)
+	http.HandleFunc("/ws", server.HandleWS(mgr, engine.KindChrome))
 
-	// 3. Start the server
+	// /ws/android — Android UIAutomator2 driver (stub, ready for the next phase)
+	http.HandleFunc("/ws/android", server.HandleWS(mgr, engine.KindAndroid))
+
 	port := ":8080"
-	log.Printf("Listening for Agent connections on ws://localhost%s/ws", port)
+	log.Printf("Listening on ws://localhost%s/ws  (chrome)", port)
+	log.Printf("Listening on ws://localhost%s/ws/android  (android stub)", port)
 
 	if err := http.ListenAndServe(port, nil); err != nil {
 		log.Fatalf("Server crashed: %v", err)

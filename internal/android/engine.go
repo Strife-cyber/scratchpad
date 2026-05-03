@@ -1,3 +1,5 @@
+// Package android implements the Engine interface by driving a connected Android
+// device or emulator over ADB + UIAutomator2.
 package android
 
 import (
@@ -5,114 +7,165 @@ import (
 	"encoding/xml"
 	"fmt"
 	"regexp"
-	"scratchpad/internal/protocol"
 	"strconv"
+	"sync"
+
+	"scratchpad/internal/engine"
+	"scratchpad/internal/protocol"
 )
 
+// Ensure AndroidEngine satisfies engine.Engine at compile time.
+var _ engine.Engine = (*AndroidEngine)(nil)
+
+func init() {
+	engine.Register(engine.KindAndroid, func() engine.Engine {
+		return NewAndroidEngine()
+	})
+}
+
+// boundsRegex parses UIAutomator's "[x1,y1][x2,y2]" bounds attribute.
 var boundsRegex = regexp.MustCompile(`\[(\d+),(\d+)]\[(\d+),(\d+)]`)
 
-type AndroidEngine struct{}
+// sizeRegex parses `adb shell wm size` output: "Physical size: 1080x2400".
+var sizeRegex = regexp.MustCompile(`size:\s*(\d+)x(\d+)`)
 
-func NewEngine() *AndroidEngine {
+// AndroidEngine drives a real Android device or emulator via ADB / UIAutomator2.
+type AndroidEngine struct {
+	listeners []engine.EventHandler
+	mu        sync.RWMutex
+}
+
+// NewAndroidEngine returns a ready-to-use AndroidEngine.
+// ADB must be on PATH and a device must be connected (or an emulator running).
+func NewAndroidEngine() *AndroidEngine {
 	return &AndroidEngine{}
 }
 
-func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
-	// Force android to dump the UI layout into a temp file
-	_, err := runADB("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml")
+// Close is a no-op for Android — ADB connections are stateless per-command.
+func (e *AndroidEngine) Close() {}
+
+// AddListener registers a handler that receives Android platform events.
+// Implements engine.Engine.
+func (e *AndroidEngine) AddListener(handler engine.EventHandler) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.listeners = append(e.listeners, handler)
+}
+
+// Navigate launches the given URL on the device via an implicit VIEW Intent,
+// mirroring ChromeEngine's Navigate semantics.
+// Implements engine.Engine.
+func (e *AndroidEngine) Navigate(url string) error {
+	_, err := runADB(
+		"shell", "am", "start",
+		"-a", "android.intent.action.VIEW",
+		"-d", url,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to dump UI: %v", err)
+		return fmt.Errorf("android: Navigate to %q failed: %w", url, err)
+	}
+	return nil
+}
+
+// Observe dumps the UIAutomator2 accessibility tree, flattens it into
+// SpatialNodes, and captures a screenshot — matching ChromeEngine's contract.
+// Implements engine.Engine.
+func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
+	// Ask UIAutomator2 to dump the current view hierarchy to the device.
+	if _, err := runADB("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml"); err != nil {
+		return nil, fmt.Errorf("android: UI dump failed: %w", err)
 	}
 
-	// Read the XML file directly from the device
 	xmlData, err := runADB("shell", "cat", "/data/local/tmp/window_dump.xml")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read UI dump: %v", err)
+		return nil, fmt.Errorf("android: read UI dump failed: %w", err)
 	}
 
-	// Parse the XML data
 	var hierarchy protocol.Hierarchy
 	if err := xml.Unmarshal([]byte(xmlData), &hierarchy); err != nil {
-		return nil, fmt.Errorf("failed to parse XML: %v", err)
+		return nil, fmt.Errorf("android: XML parse failed: %w", err)
 	}
 
-	// Flatten the Android tree into our universal Spatial Node format
 	var spatialTree []protocol.SpatialNode
 	flattenAndroidTree(hierarchy.Node, &spatialTree)
 
-	// Grab the screenshot
+	// Screenshot is best-effort — a missing screenshot is non-fatal.
 	imgBytes, _ := captureScreen()
 	b64Img := base64.StdEncoding.EncodeToString(imgBytes)
 
-	// Fetch the actual viewport size
-	viewport := getViewport()
-
 	return &protocol.ObservationResponse{
-		Type: "observation",
-		SystemState: protocol.SystemState{
-			DocumentStatus: "interactive",
-		},
-		Viewport:    viewport,
+		Type:        "observation",
+		SystemState: protocol.SystemState{DocumentStatus: "interactive"},
+		Viewport:    getViewport(),
 		Visual:      b64Img,
 		SpatialTree: spatialTree,
-		Delta:       nil,
-		Logs:        nil,
 	}, nil
 }
 
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+// flattenAndroidTree recursively walks the UIAutomator XML hierarchy and
+// appends every actionable node (clickable, has text/desc, or scrollable) to
+// tree as a protocol.SpatialNode.
 func flattenAndroidTree(node protocol.UINode, tree *[]protocol.SpatialNode) {
-	// Only add nodes that the AI can actually interact with or read
 	if node.Clickable == "true" || node.Text != "" || node.Desc != "" || node.Scrollable == "true" {
 		name := node.Text
 		if name == "" {
 			name = node.Desc
 		}
 
-		// Convert [x1,y1][x2,y2] to X, Y, W, H
-		matches := boundsRegex.FindStringSubmatch(node.Bounds)
-		if len(matches) == 5 {
-			x1, _ := strconv.Atoi(matches[1])
-			y1, _ := strconv.Atoi(matches[2])
-			x2, _ := strconv.Atoi(matches[3])
-			y2, _ := strconv.Atoi(matches[4])
+		// Parse "[x1,y1][x2,y2]" → X, Y, Width, Height.
+		if m := boundsRegex.FindStringSubmatch(node.Bounds); len(m) == 5 {
+			x1, _ := strconv.Atoi(m[1])
+			y1, _ := strconv.Atoi(m[2])
+			x2, _ := strconv.Atoi(m[3])
+			y2, _ := strconv.Atoi(m[4])
 
-			isScrollable := node.Scrollable == "true"
+			// Include class in NodeID to avoid collisions when two nodes share
+			// the same top-left corner (e.g. overlapping layouts).
+			nodeID := fmt.Sprintf("android_%s_%d_%d", node.Class, x1, y1)
 
+			scrollable := node.Scrollable == "true"
 			*tree = append(*tree, protocol.SpatialNode{
-				NodeID: fmt.Sprintf("android_%d_%d", x1, y1),
+				NodeID: nodeID,
 				Role:   node.Class,
 				Name:   name,
-				Bounds: protocol.Bounds{X: float64(x1), Y: float64(y1), Width: float64(x2 - x1), Height: float64(y2 - y1)},
+				Bounds: protocol.Bounds{
+					X:      float64(x1),
+					Y:      float64(y1),
+					Width:  float64(x2 - x1),
+					Height: float64(y2 - y1),
+				},
 				ScrollState: protocol.ScrollState{
-					CanScrollDown: isScrollable,
-					CanScrollUp:   isScrollable,
+					CanScrollDown: scrollable,
+					CanScrollUp:   scrollable,
 				},
 				Children: []protocol.SpatialNode{},
 			})
 		}
 	}
 
-	// Recursively parse children
 	for _, child := range node.Children {
 		flattenAndroidTree(child, tree)
 	}
 }
 
+// getViewport queries the device's screen resolution via `adb shell wm size`.
+// Falls back to 1080×1920 if ADB is unavailable or output is unparseable.
 func getViewport() protocol.Viewport {
+	// BUG FIX: was checking err != nil (only ran regex on failure). Fixed to err == nil.
 	out, err := runADB("shell", "wm", "size")
-	if err != nil {
-		// Matches "Physical size: 1080x2400" or "Override size: 1080x1920"
-		re := regexp.MustCompile(`size:\s*(\d+)x(\d+)`)
-		matches := re.FindAllStringSubmatch(out, -1)
-
-		if len(matches) > 0 {
-			// Get the last match in case the emulator has an "Override size"
-			lastMatch := matches[len(matches)-1]
-			w, _ := strconv.Atoi(lastMatch[1])
-			h, _ := strconv.Atoi(lastMatch[2])
+	if err == nil {
+		// Prefer the last match — devices with an override size report both
+		// "Physical size: WxH" and "Override size: WxH" on separate lines.
+		if matches := sizeRegex.FindAllStringSubmatch(out, -1); len(matches) > 0 {
+			last := matches[len(matches)-1]
+			w, _ := strconv.Atoi(last[1])
+			h, _ := strconv.Atoi(last[2])
 			return protocol.Viewport{Width: w, Height: h}
 		}
 	}
-	// Safe fallback if ADB fails
-	return protocol.Viewport{Width: 1000, Height: 1920}
+	return protocol.Viewport{Width: 1080, Height: 1920}
 }

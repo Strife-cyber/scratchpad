@@ -2,46 +2,50 @@ package android
 
 import (
 	"fmt"
+	"time"
+
 	"scratchpad/internal/protocol"
 )
 
+// ExecuteAction dispatches a single agent action to the connected Android device.
+// Implements engine.Engine.
 func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 	switch req.Action {
+
 	case protocol.ActionClick:
 		// adb shell input tap <x> <y>
-		_, err := runADB("shell", "input", "tap", fmt.Sprintf("%d", req.X), fmt.Sprintf("%d", req.Y))
+		_, err := runADB("shell", "input", "tap",
+			fmt.Sprintf("%d", req.X),
+			fmt.Sprintf("%d", req.Y),
+		)
 		if err != nil {
-			return fmt.Errorf("failed to execute click action: %v", err)
-		}
-	case protocol.ActionType:
-		// adb shell input text "<text>"
-		// Note: ADB text input requires replacing spaces with %s
-		safeText := req.Text
-		_, err := runADB("shell", "input", "text", safeText)
-		if err != nil {
-			return fmt.Errorf("android type failed: %v", err)
+			return fmt.Errorf("android: click at (%d,%d) failed: %w", req.X, req.Y, err)
 		}
 
-		// Usually, we want to hit "Enter" after typing in a mobile app
-		// 66 is the Android KeyCode for ENTER
+	case protocol.ActionType:
+		// adb shell input text "<text>"
+		_, err := runADB("shell", "input", "text", req.Text)
+		if err != nil {
+			return fmt.Errorf("android: type %q failed: %w", req.Text, err)
+		}
+		// Send ENTER (keycode 66) after typing — standard mobile UX expectation.
 		_, _ = runADB("shell", "input", "keyevent", "66")
 
 	case protocol.ActionScroll:
-		// adb shell input swipe <x1> <y1> <x2> <y2> [duration(ms)]
-		// If the AI doesn't specify coordinates, default to the center of a standard 1080x1920 screen
+		// Map logical DeltaX/DeltaY to an ADB swipe gesture.
+		// If the agent omits start coords, default to the viewport centre.
 		startX, startY := req.X, req.Y
 		if startX == 0 && startY == 0 {
-			viewport := getViewport()
-			startX, startY = viewport.Width/2, viewport.Height/2
+			vp := getViewport()
+			startX, startY = vp.Width/2, vp.Height/2
 		}
 
-		// Calculate swipe end point based on DeltaY.
-		// If DeltaY is positive (scroll down), we must swipe UP (negative Y direction).
-		// To scroll the viewing area RIGHT (positive DeltaX), the finger must swipe LEFT (negative X).
+		// Scrolling DOWN means the finger swipes UP (subtract DeltaY).
+		// Scrolling RIGHT means the finger swipes LEFT (subtract DeltaX).
 		endX := startX - req.DeltaX
 		endY := startY - req.DeltaY
 
-		// Safety check to ensure we don't swipe out of bounds, which causes ADB to ignore the command
+		// Clamp endpoints so ADB doesn't silently discard out-of-bounds swipes.
 		if endX < 0 {
 			endX = 10
 		}
@@ -50,23 +54,31 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}
 
 		_, err := runADB("shell", "input", "swipe",
-			fmt.Sprintf("%d", startX), fmt.Sprintf("%d", startY),
-			fmt.Sprintf("%d", endX), fmt.Sprintf("%d", endY),
-			"300", // 300ms swipe duration for a natural feel
+			fmt.Sprintf("%d", startX),
+			fmt.Sprintf("%d", startY),
+			fmt.Sprintf("%d", endX),
+			fmt.Sprintf("%d", endY),
+			"300", // 300 ms duration for a natural swipe feel
 		)
 		if err != nil {
-			return fmt.Errorf("android scroll failed: %v", err)
+			return fmt.Errorf("android: scroll failed: %w", err)
+		}
+
+	case protocol.ActionWait:
+		// Android has no network-idle equivalent, so we always do a time-based
+		// wait — matching ChromeEngine's generic wait branch.
+		if req.TimeoutMS > 0 {
+			time.Sleep(time.Duration(req.TimeoutMS) * time.Millisecond)
 		}
 
 	default:
-		// Android-Specific Fallback: KeyEvents (Home, Back, Volume, etc.)
-		// E.g., if req.Action == "keyevent" and req.Text == "4" (BACK button)
+		// Android-specific keyevent passthrough (BACK=4, HOME=3, VOLUME_UP=24, …)
+		// e.g. ActionRequest{Action: "keyevent", Text: "4"} → BACK button.
 		if req.Action == "keyevent" {
 			_, err := runADB("shell", "input", "keyevent", req.Text)
 			return err
 		}
-
-		return fmt.Errorf("unsupported android action: %s", req.Action)
+		return fmt.Errorf("android: unsupported action %q", req.Action)
 	}
 
 	return nil

@@ -4,126 +4,114 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
 	"scratchpad/internal/browser"
+	"scratchpad/internal/engine"
 	"scratchpad/internal/protocol"
 	"scratchpad/internal/sandbox"
 
 	"github.com/gorilla/websocket"
 )
 
-// Upgrader upgrades HTTP connections to WebSockets
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// HandleWS creates a closure that holds our engine instance and handle WS traffic
-func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
-	return func(writer http.ResponseWriter, request *http.Request) {
-		conn, err := upgrader.Upgrade(writer, request, nil)
-
+// HandleWS returns an http.HandlerFunc that upgrades the connection to
+// WebSocket, creates a dedicated engine session, and drives the agent loop.
+func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Println("Websocket upgrade failed:", err)
+			log.Println("websocket: upgrade failed:", err)
 			return
 		}
-		defer func(conn *websocket.Conn) {
-			err := conn.Close()
-			if err != nil {
-				log.Println("Websocket close failed:", err)
-			}
-		}(conn)
+		defer conn.Close()
 
-		// Create a dedicated session for this connection
-		session, err := mgr.CreateSession()
+		// Each WebSocket connection gets its own isolated engine session.
+		session, err := mgr.CreateSession(kind)
 		if err != nil {
-			log.Println("Failed to create session:", err)
+			log.Println("websocket: failed to create session:", err)
 			return
 		}
 		defer mgr.DeleteSession(session.ID)
 
-		// Tell the engine to send events to this session's log collector
-		logHandler := browser.NewConsoleLogger(&session.SessionLogs, &session.LogMu)
-		session.Engine.AddListener(logHandler)
+		// Attach the Chrome console-log collector only for Chrome sessions.
+		// On Android, AddListener is a no-op for CDP-specific event types,
+		// so registering it is harmless but we skip it to keep intent clear.
+		if kind == engine.KindChrome {
+			session.Engine.AddListener(
+				browser.NewConsoleLogger(&session.SessionLogs, &session.LogMu),
+			)
+		}
 
-		// Start the engine's dispatcher if not already started
-		session.Engine.SetupEventDispatcher()
+		log.Printf("websocket: agent connected — session=%s kind=%s", session.ID, session.Kind)
 
-		log.Printf("Agent connected. Assigned Session: %s\n", session.ID)
-
-		// The infinite message loop
 		for {
-			_, message, err := conn.ReadMessage()
+			_, msg, err := conn.ReadMessage()
 			if err != nil {
-				log.Println("Agent disconnected or read error:", err)
+				log.Printf("websocket: agent disconnected — session=%s err=%v", session.ID, err)
 				break
 			}
 
-			// 1. Check if the message is an InitializeRequest
+			// Try to parse as an InitializeRequest first.
 			var initReq protocol.InitializeRequest
-			if err := json.Unmarshal(message, &initReq); err == nil && initReq.URL != "" {
-				log.Printf("Initializing session for URL: %s", initReq.URL)
-
+			if err := json.Unmarshal(msg, &initReq); err == nil && initReq.URL != "" {
+				log.Printf("websocket: navigate — session=%s url=%s", session.ID, initReq.URL)
 				if err := session.Engine.Navigate(initReq.URL); err != nil {
-					log.Printf("Navigation failed: %v", err)
+					log.Printf("websocket: navigate failed — session=%s err=%v", session.ID, err)
 					continue
 				}
-
 				sendObservation(conn, session)
 				continue
 			}
 
-			// 2. Check if the message is an ActionRequest
+			// Then try an ActionRequest.
 			var actionReq protocol.ActionRequest
-			if err := json.Unmarshal(message, &actionReq); err == nil && actionReq.Action != "" {
-				log.Printf("Executing AI Action: %s at X: %d, Y: %d", actionReq.Action, actionReq.X, actionReq.Y)
-
+			if err := json.Unmarshal(msg, &actionReq); err == nil && actionReq.Action != "" {
+				log.Printf("websocket: action — session=%s action=%s x=%d y=%d",
+					session.ID, actionReq.Action, actionReq.X, actionReq.Y)
 				if err := session.Engine.ExecuteAction(actionReq); err != nil {
-					log.Printf("Action execution failed: %v", err)
+					log.Printf("websocket: action failed — session=%s err=%v", session.ID, err)
 					continue
 				}
-
-				// Send the new state back after the action completes
 				sendObservation(conn, session)
 				continue
 			}
 
-			// 3. Empty message or pure observe request
-			if string(message) == "{}" || len(message) == 0 {
-				sendObservation(conn, session)
-				continue
-			}
-
-			log.Println("Received unknown or malformed payload.")
+			log.Printf("websocket: unknown payload — session=%s", session.ID)
 		}
 	}
 }
 
-// sendObservation is a helper to grab the engine state and push it over the socket.
+// sendObservation captures the current engine state and pushes it over the
+// WebSocket. It sends a delta when the diff is smaller than the full tree,
+// saving bandwidth for both Chrome and Android sessions.
 func sendObservation(conn *websocket.Conn, session *sandbox.Session) {
-	newObs, err := session.Engine.Observe()
+	obs, err := session.Engine.Observe()
 	if err != nil {
-		log.Printf("Failed to observe state: %v", err)
+		log.Printf("websocket: observe failed — session=%s err=%v", session.ID, err)
 		return
 	}
 
+	// Send a diff when it would be smaller than the full tree.
 	if len(session.LastTree) > 0 {
-		delta := browser.ComputeDiff(session.LastTree, newObs.SpatialTree)
-
-		// If the delta is significantly smaller than the full tree
-		if len(delta.Added)+len(delta.Updated)+len(delta.Removed) < len(newObs.SpatialTree) {
-			newObs.Type = "delta"
-			newObs.Delta = delta
-			newObs.SpatialTree = nil // Wipe the full tree to save tokens/bandwidth
+		delta := engine.ComputeDiff(session.LastTree, obs.SpatialTree)
+		if len(delta.Added)+len(delta.Updated)+len(delta.Removed) < len(obs.SpatialTree) {
+			obs.Type = "delta"
+			obs.Delta = delta
+			obs.SpatialTree = nil
 		}
 	}
+	session.LastTree = obs.SpatialTree
 
-	session.LastTree = newObs.SpatialTree
-
+	// Drain and attach any buffered console logs (Chrome only; nil for Android).
 	session.LogMu.Lock()
-	newObs.Logs = session.SessionLogs
-	session.SessionLogs = []protocol.ConsoleLog{}
+	obs.Logs = session.SessionLogs
+	session.SessionLogs = nil
 	session.LogMu.Unlock()
 
-	if err := conn.WriteJSON(newObs); err != nil {
-		log.Printf("Failed to send observation to the agent: %v", err)
+	if err := conn.WriteJSON(obs); err != nil {
+		log.Printf("websocket: write failed — session=%s err=%v", session.ID, err)
 	}
 }
