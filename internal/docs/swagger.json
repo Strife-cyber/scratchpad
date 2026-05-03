@@ -1,0 +1,170 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Scratchpad Engine API",
+    "version": "1.0.0",
+    "description": "Multi-platform automation API for Chrome (CDP) and Android (ADB)"
+  },
+  "servers": [
+    {
+      "url": "ws://localhost:8080",
+      "description": "WebSocket endpoints"
+    },
+    {
+      "url": "http://localhost:8080",
+      "description": "HTTP endpoints"
+    }
+  ],
+  "paths": {
+    "/docs": {
+      "get": {
+        "summary": "API Documentation",
+        "description": "Returns this Swagger UI",
+        "responses": {
+          "200": {
+            "description": "HTML documentation page"
+          }
+        }
+      }
+    },
+    "/ws": {
+      "get": {
+        "summary": "Chrome WebSocket",
+        "description": "WebSocket endpoint for Chrome DevTools Protocol automation",
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade successful"
+          }
+        }
+      }
+    },
+    "/ws/android": {
+      "get": {
+        "summary": "Android WebSocket",
+        "description": "WebSocket endpoint for Android UIAutomator2 automation",
+        "responses": {
+          "101": {
+            "description": "WebSocket upgrade successful"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "NavigateRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to open (http://...) or Android package name (com.example.app)",
+            "examples": ["https://google.com", "com.lsahatech.braidsbook.androidxstartup"]
+          }
+        },
+        "required": ["url"]
+      },
+      "ClickRequest": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["click"] },
+          "x": { "type": "integer", "description": "Screen X coordinate" },
+          "y": { "type": "integer", "description": "Screen Y coordinate" }
+        },
+        "required": ["action", "x", "y"],
+        "example": { "action": "click", "x": 100, "y": 1400 }
+      },
+      "TypeRequest": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["type"] },
+          "text": { "type": "string", "description": "Text to input" }
+        },
+        "required": ["action", "text"],
+        "example": { "action": "type", "text": "2500*dark" }
+      },
+      "ScrollRequest": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["scroll"] },
+          "x": { "type": "integer", "description": "Start X (omit to use center)" },
+          "y": { "type": "integer", "description": "Start Y (omit to use center)" },
+          "delta_x": { "type": "integer", "description": "Horizontal scroll amount" },
+          "delta_y": { "type": "integer", "description": "Vertical scroll amount" }
+        },
+        "required": ["action"],
+        "examples": [
+          { "action": "scroll", "delta_x": 0, "delta_y": 500 },
+          { "action": "scroll", "x": 1105, "y": 1740, "delta_x": 500, "delta_y": 0 }
+        ]
+      },
+      "WaitRequest": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["wait"] },
+          "timeout_ms": { "type": "integer", "description": "Wait duration in milliseconds" },
+          "condition": { "type": "string", "enum": ["network_idle"], "description": "Chrome only: wait for network idle" }
+        },
+        "required": ["action"]
+      },
+      "KeyeventRequest": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["keyevent"] },
+          "text": { "type": "string", "description": "Android key code: 3=HOME, 4=BACK, 66=ENTER, 24=VOL_UP, 25=VOL_DOWN" }
+        },
+        "required": ["action", "text"],
+        "example": { "action": "keyevent", "text": "4" }
+      },
+      "ObservationResponse": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["observation", "delta"] },
+          "system_state": {
+            "type": "object",
+            "properties": {
+              "document_status": { "type": "string" },
+              "inflight_requests": { "type": "integer" }
+            }
+          },
+          "viewport": {
+            "type": "object",
+            "properties": {
+              "width": { "type": "integer" },
+              "height": { "type": "integer" }
+            }
+          },
+          "visual": { "type": "string", "description": "Base64-encoded screenshot" },
+          "spatial_tree": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SpatialNode" }
+          }
+        }
+      },
+      "SpatialNode": {
+        "type": "object",
+        "properties": {
+          "node_id": { "type": "string" },
+          "role": { "type": "string", "description": "Element class/role (Android: class name, Chrome: ARIA role)" },
+          "name": { "type": "string", "description": "Text or description" },
+          "bounds": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "width": { "type": "number" },
+              "height": { "type": "number" }
+            }
+          },
+          "scroll_state": {
+            "type": "object",
+            "properties": {
+              "can_scroll_down": { "type": "boolean" },
+              "can_scroll_up": { "type": "boolean" },
+              "current_percentage": { "type": "integer" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
