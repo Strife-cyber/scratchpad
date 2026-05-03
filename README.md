@@ -22,11 +22,11 @@ A headless browser automation system with MCP (Model Context Protocol) support. 
 
 ## Available Tools
 
-| Tool | Description |
-|------|-------------|
-| `browser_navigate` | Load a URL into the browser |
-| `browser_observe` | Capture current page state (screenshot + spatial tree) |
-| `browser_action` | Interact with elements (click, type, scroll, wait) |
+| Tool               | Description                                            |
+|--------------------|--------------------------------------------------------|
+| `browser_navigate` | Load a URL into the browser                            |
+| `browser_observe`  | Capture current page state (screenshot + spatial tree) |
+| `browser_action`   | Interact with elements (click, type, scroll, wait)     |
 
 ## Building
 
@@ -93,7 +93,7 @@ Chrome will open visibly at 1280x720. Useful for debugging interactions.
 
 ### Actions
 - `click` - Click at coordinates or on target element
-- `type` - Type text into target element
+- `type` - Type text into a target element
 - `scroll` - Scroll page or element
 - `wait` - Wait for condition or timeout
 

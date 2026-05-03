@@ -10,8 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/accessibility"
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
@@ -178,14 +178,14 @@ func (e *Engine) parseAXTree(ctx context.Context, nodes []*accessibility.Node) [
 		nameStr := axValueToString(node.Name)
 
 		// Best-effort bounds: skip only when backendID is present but lookup fails.
-		// Nodes with backendID==0 still get emitted with zero Bounds so the agent
+		// Nodes with backendID==0 still get emitted with zero Bounds, so the agent
 		// can act on them by role/name even without coordinates.
 		var bounds protocol.Bounds
 		if node.BackendDOMNodeID != 0 {
 			if b, ok := boundsFromBackendNode(ctx, node.BackendDOMNodeID); ok {
 				bounds = b
 			}
-			// If the lookup failed we still keep the node (bounds stays zero)
+			// If the lookup failed, we still keep the node (bounds stays zero)
 		}
 
 		sn := protocol.SpatialNode{

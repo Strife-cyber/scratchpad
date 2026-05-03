@@ -80,7 +80,7 @@ func (e *Engine) ExecuteAction(req protocol.ActionRequest) error {
 				}
 
 				return input.DispatchMouseEvent(input.MouseWheel, x, y).
-					WithDeltaX(0).
+					WithDeltaX(float64(req.DeltaX)).
 					WithDeltaY(float64(req.DeltaY)).
 					Do(ctx)
 			}))

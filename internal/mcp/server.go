@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"context" // Don't forget this import!
+	"context"
 	"encoding/json"
 	"fmt"
 	"scratchpad/internal/protocol"

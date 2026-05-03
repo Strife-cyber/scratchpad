@@ -1,5 +1,7 @@
 package protocol
 
+import "encoding/xml"
+
 // =====================================================
 // Action payloads (Agent -> Engine)
 // =====================================================
@@ -18,6 +20,7 @@ type ActionRequest struct {
 	X         int    `json:"x,omitempty"`
 	Y         int    `json:"y,omitempty"`
 	Text      string `json:"text,omitempty"`
+	DeltaX    int    `json:"delta_x,omitempty"`
 	DeltaY    int    `json:"delta_y,omitempty"`
 	Condition string `json:"condition,omitempty"`
 	TimeoutMS int    `json:"timeout_ms,omitempty"`
@@ -87,4 +90,19 @@ type TreeDelta struct {
 	Added   []SpatialNode `json:"added,omitempty"`
 	Removed []string      `json:"removed,omitempty"`
 	Updated []SpatialNode `json:"updated,omitempty"`
+}
+
+type UINode struct {
+	Text       string   `xml:"text,attr"`
+	Class      string   `xml:"class,attr"`
+	Desc       string   `xml:"content-desc,attr"`
+	Bounds     string   `xml:"bounds,attr"`
+	Clickable  string   `xml:"clickable,attr"`
+	Children   []UINode `xml:"node"`
+	Scrollable string   `xml:"scrollable,attr"`
+}
+
+type Hierarchy struct {
+	XMLName xml.Name `xml:"hierarchy"`
+	Node    UINode   `xml:"node"`
 }
