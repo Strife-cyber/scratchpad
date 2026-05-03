@@ -26,7 +26,12 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 			log.Println("websocket: upgrade failed:", err)
 			return
 		}
-		defer conn.Close()
+		defer func(conn *websocket.Conn) {
+			err := conn.Close()
+			if err != nil {
+				return
+			}
+		}(conn)
 
 		// Each WebSocket connection gets its own isolated engine session.
 		session, err := mgr.CreateSession(kind)

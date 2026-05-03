@@ -1,22 +1,26 @@
-# Scratchpad Browser Engine
+# Scratchpad Engine
 
-A headless browser automation system with MCP (Model Context Protocol) support. Provides AI agents with visual observation and interaction capabilities via Chrome DevTools Protocol (CDP).
+A multi-platform automation system with MCP (Model Context Protocol) support. Provides AI agents with visual observation and interaction capabilities for both web browsers (Chrome/CDP) and mobile devices (Android/ADB+UIAutomator2).
 
 ## Architecture
 
 ```
-┌─────────────┐      WebSocket       ┌──────────────┐      Stdio       ┌─────────────┐
-│   Browser   │◄─────────────────────►│   Engine     │◄─────────────────►│   MCP       │
-│   (Chrome)  │      (Port 8080)      │   Server     │      (JSON-RPC)  │   Client    │
-└─────────────┘                       └──────────────┘                   └─────────────┘
-                                            │
-                                    ┌───────┴───────┐
-                                    │   Sandbox     │
-                                    │   Manager     │
-                                    └───────────────┘
+                         ┌─────────────────┐
+┌─────────────┐          │   Engine        │         ┌─────────────┐
+│   Chrome    │◄─────────►│   Interface     │◄────────►│   MCP       │
+│   (CDP)     │  /ws     │   (Factory)     │  stdio  │   Client    │
+└─────────────┘          │                 │         └─────────────┘
+                         │                 │
+┌─────────────┐          │   Sandbox       │
+│   Android   │◄────────►│   Manager       │
+│   (ADB)     │ /ws/andr..└─────────────────┘
+└─────────────┘
 ```
 
-- **Engine Server** (`cmd/server`): WebSocket server managing browser sessions
+- **Engine Interface** (`internal/engine`): Platform-agnostic interface with factory pattern
+- **Chrome Driver** (`internal/browser`): Chrome DevTools Protocol (CDP) implementation
+- **Android Driver** (`internal/android`): ADB + UIAutomator2 implementation
+- **Engine Server** (`cmd/server`): WebSocket server with multi-platform endpoints
 - **MCP Bridge** (`cmd/mcp`): STDIO adapter exposing browser tools to AI agents
 - **Sandbox Manager**: Isolated session management per connection
 
@@ -49,12 +53,16 @@ make run
 # or
 ./scratchpad.exe
 ```
-Server listens on `ws://localhost:8080/ws`
+
+**Endpoints:**
+- `ws://localhost:8080/ws` — Chrome CDP driver (default for web agents)
+- `ws://localhost:8080/ws/android` — Android UIAutomator2 driver (requires ADB device)
 
 ### 2. Connect MCP Bridge
 ```bash
 ./scratchpad-mcp.exe
 ```
+Connects to Chrome endpoint by default. The MCP bridge uses the WebSocket API to drive automation.
 
 ### Docker
 ```bash
@@ -80,7 +88,9 @@ Chrome will open visibly at 1280x720. Useful for debugging interactions.
 │   ├── server/          # WebSocket engine server
 │   └── mcp/             # MCP protocol bridge
 ├── internal/
-│   ├── browser/         # CDP automation logic
+│   ├── engine/          # Engine interface + factory registry
+│   ├── browser/         # Chrome CDP driver implementation
+│   ├── android/         # Android ADB/UIAutomator2 driver
 │   ├── mcp/             # MCP tool handlers
 │   ├── protocol/        # Request/response types
 │   ├── sandbox/         # Session management
@@ -119,7 +129,8 @@ Chrome will open visibly at 1280x720. Useful for debugging interactions.
 ## Requirements
 
 - Go 1.26+
-- Chrome/Chromium (auto-downloaded or set via `CHROME_PATH`)
+- **For Chrome:** Chrome/Chromium (auto-downloaded or set via `CHROME_PATH`)
+- **For Android:** ADB on PATH with a connected device or running emulator
 
 ## Commands
 

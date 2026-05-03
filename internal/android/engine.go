@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 
 	"scratchpad/internal/engine"
@@ -52,10 +53,22 @@ func (e *AndroidEngine) AddListener(handler engine.EventHandler) {
 	e.listeners = append(e.listeners, handler)
 }
 
-// Navigate launches the given URL on the device via an implicit VIEW Intent,
-// mirroring ChromeEngine's Navigate semantics.
+// Navigate launches the given URL or app package on the device.
+// URLs (http/https) open in the default browser.
+// Package names (e.g., "com.example.app") launch the app directly.
 // Implements engine.Engine.
 func (e *AndroidEngine) Navigate(url string) error {
+	// Check if it's a package name (no scheme, looks like com.something.app)
+	if !strings.Contains(url, "://") && strings.Contains(url, ".") {
+		// Launch app by package name using monkey
+		_, err := runADB("shell", "monkey", "-p", url, "-c", "android.intent.category.LAUNCHER", "1")
+		if err != nil {
+			return fmt.Errorf("android: Launch app %q failed: %w", url, err)
+		}
+		return nil
+	}
+
+	// Otherwise treat as URL
 	_, err := runADB(
 		"shell", "am", "start",
 		"-a", "android.intent.action.VIEW",
@@ -72,8 +85,13 @@ func (e *AndroidEngine) Navigate(url string) error {
 // Implements engine.Engine.
 func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
 	// Ask UIAutomator2 to dump the current view hierarchy to the device.
-	if _, err := runADB("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml"); err != nil {
-		return nil, fmt.Errorf("android: UI dump failed: %w", err)
+	dumpOut, err := runADB("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml")
+	if err != nil {
+		return nil, fmt.Errorf("android: UI dump command failed: %w", err)
+	}
+	// uiautomator prints "UI hierchary dumped to: <path>" on success
+	if !strings.Contains(dumpOut, "dumped") {
+		return nil, fmt.Errorf("android: UI dump failed: %s", dumpOut)
 	}
 
 	xmlData, err := runADB("shell", "cat", "/data/local/tmp/window_dump.xml")
