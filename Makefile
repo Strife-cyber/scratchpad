@@ -1,10 +1,15 @@
 .PHONY: build run tidy clean test
 
 BINARY_NAME=scratchpad.exe
+MCP_BINARY_NAME=scratchpad-mcp.exe
 
 # Build the binary
 build:
 		go build -o $(BINARY_NAME) cmd/server/main.go
+
+# Build the mcp binary
+build-mcp:
+		go build -o $(MCP_BINARY_NAME) cmd/mcp/main.go
 
 # Run the server (builds first)
 run: build
