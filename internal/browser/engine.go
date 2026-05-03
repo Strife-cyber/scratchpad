@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"scratchpad/internal/protocol"
 	"strings"
 	"sync"
@@ -48,6 +49,7 @@ func NewEngine() *Engine {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.WindowSize(1280, 720),
 		chromedp.Flag("hide-scrollbars", false),
+		chromedp.Flag("headless", false), // Run headful to see the browser
 	)
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -132,6 +134,9 @@ func (e *Engine) Observe() (*protocol.ObservationResponse, error) {
 	}
 
 	// Encode screenshot to Base64
+	if len(buf) == 0 {
+		return nil, fmt.Errorf("screenshot buffer is empty")
+	}
 	b64Img := base64.StdEncoding.EncodeToString(buf)
 
 	return &protocol.ObservationResponse{

@@ -95,7 +95,7 @@ func (s *Server) readObservation() (*mcp.ToolResponse, error) {
 		return mcp.NewToolResponse(
 			mcp.NewTextContent(displayText),
 			mcp.NewTextContent(string(cleanMessage)),
-			mcp.NewImageContent("image/jpeg", b64Images)), nil
+			mcp.NewImageContent(b64Images, "image/jpeg")), nil
 	}
 
 	return mcp.NewToolResponse(

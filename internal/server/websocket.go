@@ -86,6 +86,12 @@ func HandleWS(mgr *sandbox.Manager) http.HandlerFunc {
 				continue
 			}
 
+			// 3. Empty message or pure observe request
+			if string(message) == "{}" || len(message) == 0 {
+				sendObservation(conn, session)
+				continue
+			}
+
 			log.Println("Received unknown or malformed payload.")
 		}
 	}
