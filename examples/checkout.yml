@@ -1,0 +1,6 @@
+- navigate: https://example.com/checkout
+- assert: {selector: "h1", text: "Checkout", contains: true}
+- click: "#place-order"
+- wait: {selector: "#order-confirmation", timeout: 10000}
+- assert: {selector: "#order-confirmation", text: "Order confirmed", contains: true}
+

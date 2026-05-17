@@ -45,6 +45,17 @@ make build-mcp
 go build ./...
 ```
 
+### CLI test runner
+
+This repo also includes `scratchpad-cli`, a simple non-AI test runner that
+executes YAML/JSON suites over the HTTP API.
+
+Examples:
+
+```bash
+go run ./cmd/cli run -i examples/login.yml --parallel 2 --format json
+```
+
 ## Running
 
 ### 1. Start the Engine Server

@@ -1,0 +1,5 @@
+- navigate: https://example.com/signup
+- type: {selector: "#email", text: "invalid-email"}
+- click: {selector: "#submit"}
+- assert: {selector: ".error", text: "valid email", contains: true}
+

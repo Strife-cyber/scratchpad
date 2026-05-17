@@ -1,0 +1,7 @@
+- navigate: https://example.com/login
+- wait: {selector: "#username", timeout: 5000}
+- type: {selector: "#username", text: "admin"}
+- type: {selector: "#password", text: "password"}
+- click: {selector: "#login-button"}
+- assert: {selector: ".welcome", text: "Hello", contains: true}
+
