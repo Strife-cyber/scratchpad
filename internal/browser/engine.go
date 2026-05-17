@@ -10,10 +10,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"scratchpad/internal/engine"
 	"scratchpad/internal/protocol"
 
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
@@ -43,6 +45,34 @@ type ChromeEngine struct {
 	inFlightCount int32
 	listeners    []engine.EventHandler
 	mu           sync.RWMutex
+
+	// Phase 1 diagnostics (populated by ExecuteAction and emitted via Observe).
+	lastAssertionResult   *protocol.AssertionResult
+	lastActionDiagnostics *protocol.ActionDiagnostics
+
+	// Phase 1 assertions can inspect console errors. We capture them from CDP
+	// at the engine layer (in addition to the session-level collector).
+	consoleMu   sync.Mutex
+	consoleLogs []protocol.ConsoleLog
+
+	// Phase 1 network assertions.
+	networkMu        sync.Mutex
+	networkReqStarts map[network.RequestID]time.Time
+	networkReqMeta   map[network.RequestID]struct {
+		URL    string
+		Method string
+	}
+	networkRequests []struct {
+		URL        string
+		Method     string
+		Status     int
+		DurationMS int64
+	}
+
+	// activeIframeSelector scopes selector-driven actions to an iframe's
+	// document (Phase 1 primitive; currently only CSS-based iframe selection is
+	// supported).
+	activeIframeSelector *protocol.Selector
 }
 
 // NewChromeEngine initialises a new headless Chrome instance.
@@ -60,6 +90,11 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 		allocCtx: allocCtx,
 		ctx:      ctx,
 		cancel:   cancel,
+		networkReqStarts: make(map[network.RequestID]time.Time),
+		networkReqMeta:   make(map[network.RequestID]struct {
+			URL    string
+			Method string
+		}),
 	}
 
 	// Wire up internal listeners before any external code can add its own.
@@ -86,6 +121,21 @@ func (e *ChromeEngine) AddListener(handler engine.EventHandler) {
 // Called once from the constructor; intentionally unexported.
 func (e *ChromeEngine) setupEventDispatcher() {
 	chromedp.ListenTarget(e.ctx, func(ev any) {
+		// Capture console logs for assertions (error counts, etc.).
+		if c, ok := ev.(*runtime.EventConsoleAPICalled); ok {
+			msg := ""
+			if len(c.Args) > 0 {
+				msg = fmt.Sprintf("%v", c.Args[0].Value)
+			}
+			e.consoleMu.Lock()
+			e.consoleLogs = append(e.consoleLogs, protocol.ConsoleLog{
+				Level:     string(c.Type),
+				Message:   msg,
+				Timestamp: time.Now().Unix(),
+			})
+			e.consoleMu.Unlock()
+		}
+
 		e.mu.RLock()
 		defer e.mu.RUnlock()
 		for _, h := range e.listeners {
@@ -101,6 +151,46 @@ func (e *ChromeEngine) setupNetworkListener() {
 		switch ev.(type) {
 		case *network.EventRequestWillBeSent:
 			atomic.AddInt32(&e.inFlightCount, 1)
+			// Record start time + request metadata for Phase 1 network assertions.
+			ev2 := ev.(*network.EventRequestWillBeSent)
+			e.networkMu.Lock()
+			e.networkReqStarts[ev2.RequestID] = time.Now()
+			e.networkReqMeta[ev2.RequestID] = struct {
+				URL    string
+				Method string
+			}{
+				URL:    ev2.Request.URL,
+				Method: ev2.Request.Method,
+			}
+			e.networkMu.Unlock()
+
+		case *network.EventResponseReceived:
+			ev2 := ev.(*network.EventResponseReceived)
+			e.networkMu.Lock()
+			start, ok := e.networkReqStarts[ev2.RequestID]
+			meta := e.networkReqMeta[ev2.RequestID]
+			if ok {
+				duration := time.Since(start).Milliseconds()
+				// ResponseReceived fires early; it's still useful for resilient
+				// assertions (status + approx duration).
+				e.networkRequests = append(e.networkRequests, struct {
+					URL        string
+					Method     string
+					Status     int
+					DurationMS int64
+				}{
+					URL:        meta.URL,
+					Method:     meta.Method,
+					Status:     int(ev2.Response.Status),
+					DurationMS: duration,
+				})
+				// Keep a small ring buffer.
+				if len(e.networkRequests) > 200 {
+					e.networkRequests = e.networkRequests[len(e.networkRequests)-200:]
+				}
+			}
+			e.networkMu.Unlock()
+
 		case *network.EventLoadingFinished, *network.EventLoadingFailed:
 			if atomic.LoadInt32(&e.inFlightCount) > 0 {
 				atomic.AddInt32(&e.inFlightCount, -1)
@@ -159,7 +249,7 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 		return nil, fmt.Errorf("chrome: screenshot buffer is empty")
 	}
 
-	return &protocol.ObservationResponse{
+	obs := &protocol.ObservationResponse{
 		Type:        "observation",
 		Visual:      base64.StdEncoding.EncodeToString(buf),
 		SpatialTree: spatialTree,
@@ -168,7 +258,32 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 			DocumentStatus:   "interactive",
 			InflightRequests: int(atomic.LoadInt32(&e.inFlightCount)),
 		},
-	}, nil
+
+		AssertionResult:   e.lastAssertionResult,
+		ActionDiagnostics: e.lastActionDiagnostics,
+	}
+
+	// Emit diagnostics/assertions once per observation.
+	e.lastAssertionResult = nil
+	e.lastActionDiagnostics = nil
+
+	// Clear per-step console logs so subsequent assertions can measure fresh
+	// errors after new actions/waits.
+	e.consoleMu.Lock()
+	e.consoleLogs = nil
+	e.consoleMu.Unlock()
+
+	// Clear per-step network request history.
+	e.networkMu.Lock()
+	e.networkRequests = nil
+	e.networkReqStarts = make(map[network.RequestID]time.Time)
+	e.networkReqMeta = make(map[network.RequestID]struct {
+		URL    string
+		Method string
+	})
+	e.networkMu.Unlock()
+
+	return obs, nil
 }
 
 // ---------------------------------------------------------------------------

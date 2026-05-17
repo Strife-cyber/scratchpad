@@ -56,6 +56,10 @@ type ObserveArgs struct {
 	_ string `json:"-"`
 }
 
+type AssertArgs struct {
+	Assertion protocol.AssertionRequest `json:"assertion"`
+}
+
 func (s *Server) RegisterTools(srv *mcp.Server) {
 	// 1. Tool: Navigate (Note the added ctx context.Context)
 	err := srv.RegisterTool("browser_navigate", "Loads a URL into the browser", func(ctx context.Context, args NavigateArgs) (*mcp.ToolResponse, error) {
@@ -86,6 +90,18 @@ func (s *Server) RegisterTools(srv *mcp.Server) {
 	})
 	if err != nil {
 		fmt.Printf("Failed to register action: %v\n", err)
+	}
+
+	// 4. Tool: Assert
+	err = srv.RegisterTool("browser_assert", "Assert page state (selectors/text/attributes/screenshot)", func(ctx context.Context, args AssertArgs) (*mcp.ToolResponse, error) {
+		req := protocol.ActionRequest{
+			Action:    "assert",
+			Assertion: &args.Assertion,
+		}
+		return s.requestAction(req)
+	})
+	if err != nil {
+		fmt.Printf("Failed to register assert tool: %v\n", err)
 	}
 }
 

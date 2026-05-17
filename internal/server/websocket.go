@@ -93,6 +93,14 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 				continue
 			}
 
+			// Phase 1: allow empty payloads ({}), used by the MCP bridge's
+			// browser_observe tool, to mean "send current observation".
+			var m map[string]any
+			if err := json.Unmarshal(msg, &m); err == nil && len(m) == 0 {
+				sendObservation(conn, session)
+				continue
+			}
+
 			log.Printf("websocket: unknown payload — session=%s", session.ID)
 		}
 	}
