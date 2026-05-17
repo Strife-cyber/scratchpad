@@ -35,6 +35,10 @@ var sizeRegex = regexp.MustCompile(`size:\s*(\d+)x(\d+)`)
 type AndroidEngine struct {
 	listeners []engine.EventHandler
 	mu        sync.RWMutex
+
+	// Phase 1/5 diagnostics/assertions (emitted via Observe()).
+	lastAssertionResult   *protocol.AssertionResult
+	lastActionDiagnostics *protocol.ActionDiagnostics
 }
 
 // NewAndroidEngine returns a ready-to-use AndroidEngine.
@@ -85,6 +89,34 @@ func (e *AndroidEngine) Navigate(url string) error {
 // SpatialNodes, and captures a screenshot — matching ChromeEngine's contract.
 // Implements engine.Engine.
 func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
+	spatialTree, err := e.dumpSpatialTree()
+	if err != nil {
+		return nil, err
+	}
+
+	// Screenshot is best-effort — a missing screenshot is non-fatal.
+	imgBytes, _ := captureScreen()
+	b64Img := base64.StdEncoding.EncodeToString(imgBytes)
+
+	obs := &protocol.ObservationResponse{
+		Type:        "observation",
+		SystemState: protocol.SystemState{DocumentStatus: "interactive"},
+		Viewport:    getViewport(),
+		Visual:      b64Img,
+		SpatialTree: spatialTree,
+
+		AssertionResult:   e.lastAssertionResult,
+		ActionDiagnostics: e.lastActionDiagnostics,
+	}
+
+	// Clear per-step diagnostics/assertions after emission.
+	e.lastAssertionResult = nil
+	e.lastActionDiagnostics = nil
+
+	return obs, nil
+}
+
+func (e *AndroidEngine) dumpSpatialTree() ([]protocol.SpatialNode, error) {
 	// Ask UIAutomator2 to dump the current view hierarchy to the device.
 	dumpOut, err := runADB("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml")
 	if err != nil {
@@ -107,18 +139,7 @@ func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
 
 	var spatialTree []protocol.SpatialNode
 	flattenAndroidTree(hierarchy.Node, &spatialTree)
-
-	// Screenshot is best-effort — a missing screenshot is non-fatal.
-	imgBytes, _ := captureScreen()
-	b64Img := base64.StdEncoding.EncodeToString(imgBytes)
-
-	return &protocol.ObservationResponse{
-		Type:        "observation",
-		SystemState: protocol.SystemState{DocumentStatus: "interactive"},
-		Viewport:    getViewport(),
-		Visual:      b64Img,
-		SpatialTree: spatialTree,
-	}, nil
+	return spatialTree, nil
 }
 
 // ---------------------------------------------------------------------------

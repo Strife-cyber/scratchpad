@@ -43,6 +43,7 @@ func runCmd(args []string) {
 		inputPath  = fs.String("i", "", "path to test suite YAML or JSON")
 		serverURL  = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
 		headless   = fs.Bool("headless", true, "override headless for session creation")
+		platform   = fs.String("platform", "web", "platform target: web|android")
 		parallel   = fs.Int("parallel", 1, "max parallel suite executions")
 		retries    = fs.Int("retries", 0, "retries per suite on failure")
 		timeoutMS  = fs.Int("timeout-ms", 60000, "per suite HTTP timeout (ms)")
@@ -63,6 +64,7 @@ func runCmd(args []string) {
 		InputPath:  *inputPath,
 		ServerURL:  strings.TrimRight(*serverURL, "/"),
 		Headless:   *headless,
+		Platform:   strings.ToLower(strings.TrimSpace(*platform)),
 		Parallel:   *parallel,
 		Retries:    *retries,
 		TimeoutMS:  *timeoutMS,

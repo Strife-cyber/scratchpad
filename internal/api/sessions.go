@@ -14,12 +14,22 @@ type handler struct {
 }
 
 func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
-	var opts engine.Options
-	// Optional request body: {"headless": false}
+	// Optional request body:
+	// {
+	//   "headless": false,
+	//   "platform": "web"|"android",
+	//   "kind": "chrome"|"android"
+	// }
+	type createSessionReq struct {
+		Headless *bool  `json:"headless,omitempty"`
+		Platform string `json:"platform,omitempty"`
+		Kind     string `json:"kind,omitempty"`
+	}
+
+	var reqBody createSessionReq
 	// If the body is empty, Decoder returns EOF which is fine.
 	if err := func() error {
-		// Decode into opts to allow partial inputs; ignore EOF for empty bodies.
-		if err := json.NewDecoder(r.Body).Decode(&opts); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			if err == io.EOF {
 				return nil
 			}
@@ -31,7 +41,26 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := h.mgr.CreateSession(engine.KindChrome, opts)
+	platform := reqBody.Platform
+	kindStr := reqBody.Kind
+
+	opts := engine.Options{
+		Headless: reqBody.Headless,
+	}
+
+	kind := engine.KindChrome
+	switch platform {
+	case "android":
+		kind = engine.KindAndroid
+	}
+	switch kindStr {
+	case "android":
+		kind = engine.KindAndroid
+	case "chrome":
+		kind = engine.KindChrome
+	}
+
+	sess, err := h.mgr.CreateSession(kind, opts)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

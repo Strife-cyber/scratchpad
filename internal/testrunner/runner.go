@@ -22,6 +22,7 @@ type RunOptions struct {
 	InputPath string
 	ServerURL string
 	Headless  bool
+	Platform  string
 
 	Parallel int
 	Retries  int
@@ -34,8 +35,9 @@ type RunOptions struct {
 }
 
 type Suite struct {
-	Name  string
-	Steps []Step
+	Name     string
+	Platform string
+	Steps    []Step
 }
 
 type SuiteResult struct {
@@ -67,6 +69,9 @@ func RunSuites(opts RunOptions) error {
 	}
 	if opts.Format == "" {
 		opts.Format = "json"
+	}
+	if opts.Platform == "" {
+		opts.Platform = "web"
 	}
 
 	suites, err := loadSuites(opts.InputPath)
@@ -159,7 +164,11 @@ func runAttempt(ctx context.Context, suite Suite, opts RunOptions) SuiteResult {
 	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(opts.TimeoutMS)*time.Millisecond)
 	defer cancel()
 
-	id, err := createSession(reqCtx, opts.ServerURL, opts.Headless)
+	platform := opts.Platform
+	if suite.Platform != "" {
+		platform = suite.Platform
+	}
+	id, err := createSession(reqCtx, opts.ServerURL, opts.Headless, platform)
 	if err != nil {
 		return SuiteResult{Name: suite.Name, Passed: false, Error: err.Error()}
 	}
@@ -227,12 +236,16 @@ func parseSuites(decoded any) ([]Suite, error) {
 				if v, ok := m["name"].(string); ok && v != "" {
 					name = v
 				}
+				platform := ""
+				if v, ok := m["platform"].(string); ok {
+					platform = v
+				}
 				stepsRaw, _ := m["steps"].([]any)
 				steps, err := parseSteps(stepsRaw)
 				if err != nil {
 					return nil, err
 				}
-				suites = append(suites, Suite{Name: name, Steps: steps})
+				suites = append(suites, Suite{Name: name, Platform: platform, Steps: steps})
 			}
 			return suites, nil
 		}
@@ -248,12 +261,16 @@ func parseSuites(decoded any) ([]Suite, error) {
 		if v, ok := root["name"].(string); ok && v != "" {
 			name = v
 		}
+		platform := ""
+		if v, ok := root["platform"].(string); ok && v != "" {
+			platform = v
+		}
 		stepsRaw, _ := root["steps"].([]any)
 		steps, err := parseSteps(stepsRaw)
 		if err != nil {
 			return nil, err
 		}
-		return []Suite{{Name: name, Steps: steps}}, nil
+		return []Suite{{Name: name, Platform: platform, Steps: steps}}, nil
 	default:
 		return nil, fmt.Errorf("unsupported root type %T", decoded)
 	}
@@ -316,8 +333,11 @@ func execStep(ctx context.Context, serverURL, sessionID string, step Step) error
 	}
 }
 
-func createSession(ctx context.Context, serverURL string, headless bool) (string, error) {
-	body := map[string]any{"headless": headless}
+func createSession(ctx context.Context, serverURL string, headless bool, platform string) (string, error) {
+	body := map[string]any{
+		"headless": headless,
+		"platform": platform,
+	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL+"/api/v1/sessions", bytes.NewReader(b))
 	if err != nil {
