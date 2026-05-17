@@ -7,6 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,9 +21,11 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
+	cdio "github.com/chromedp/cdproto/io"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/tracing"
 	"github.com/chromedp/chromedp"
 )
 
@@ -63,16 +68,35 @@ type ChromeEngine struct {
 		Method string
 	}
 	networkRequests []struct {
-		URL        string
-		Method     string
-		Status     int
-		DurationMS int64
+		URL            string
+		Method         string
+		Status         int
+		DurationMS     int64
+		StartedAtRFC3339 string
 	}
 
 	// activeIframeSelector scopes selector-driven actions to an iframe's
 	// document (Phase 1 primitive; currently only CSS-based iframe selection is
 	// supported).
 	activeIframeSelector *protocol.Selector
+
+	// Phase 2 video recording (screencast -> frames -> WebM).
+	recordingMu       sync.Mutex
+	recordingActive   bool
+	recordingFramesDir string
+	recordingOutputPath string
+	recordingFrameIdx int
+	recordingFramesCh chan string // base64-encoded JPEG frames
+	recordingWriteErr chan error
+
+	// Phase 2 performance tracing (Tracing.start/end in return-as-stream mode).
+	tracingMu       sync.Mutex
+	tracingActive   bool
+	tracingOutput   string
+	tracingDir      string
+	tracingDoneCh   chan struct{}
+	tracingStream   cdio.StreamHandle
+	tracingStreamOK  bool
 }
 
 // NewChromeEngine initialises a new headless Chrome instance.
@@ -174,15 +198,17 @@ func (e *ChromeEngine) setupNetworkListener() {
 				// ResponseReceived fires early; it's still useful for resilient
 				// assertions (status + approx duration).
 				e.networkRequests = append(e.networkRequests, struct {
-					URL        string
-					Method     string
-					Status     int
-					DurationMS int64
+					URL              string
+					Method           string
+					Status           int
+					DurationMS       int64
+					StartedAtRFC3339 string
 				}{
 					URL:        meta.URL,
 					Method:     meta.Method,
 					Status:     int(ev2.Response.Status),
 					DurationMS: duration,
+					StartedAtRFC3339: start.Format(time.RFC3339Nano),
 				})
 				// Keep a small ring buffer.
 				if len(e.networkRequests) > 200 {
@@ -273,15 +299,8 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 	e.consoleLogs = nil
 	e.consoleMu.Unlock()
 
-	// Clear per-step network request history.
-	e.networkMu.Lock()
-	e.networkRequests = nil
-	e.networkReqStarts = make(map[network.RequestID]time.Time)
-	e.networkReqMeta = make(map[network.RequestID]struct {
-		URL    string
-		Method string
-	})
-	e.networkMu.Unlock()
+	// Keep network request history for Phase 2 HAR capture endpoints.
+	// It is naturally bounded in setupNetworkListener.
 
 	return obs, nil
 }
@@ -389,4 +408,402 @@ func isInteractive(role string) bool {
 		return true
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 observability exporters
+// ---------------------------------------------------------------------------
+
+// GetHAR exports the recorded CDP Network events into a minimal HAR 1.2.
+// This is best-effort: it includes timing + status but not full body/header
+// capture in Phase 2.
+func (e *ChromeEngine) GetHAR() ([]byte, error) {
+	type harRequest struct {
+		Method string `json:"method"`
+		URL    string `json:"url"`
+	}
+	type harResponse struct {
+		Status int `json:"status"`
+	}
+	type harEntry struct {
+		StartedDateTime string `json:"startedDateTime"`
+		Time             int64  `json:"time"` // ms
+		Request          harRequest `json:"request"`
+		Response         harResponse `json:"response"`
+	}
+	type harLog struct {
+		Version string `json:"version"`
+		Creator struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"creator"`
+		Entries []harEntry `json:"entries"`
+	}
+	type harRoot struct {
+		Log harLog `json:"log"`
+	}
+
+	e.networkMu.Lock()
+	defer e.networkMu.Unlock()
+
+	entries := make([]harEntry, 0, len(e.networkRequests))
+	for _, r := range e.networkRequests {
+		entries = append(entries, harEntry{
+			StartedDateTime: r.StartedAtRFC3339,
+			Time:             r.DurationMS,
+			Request: harRequest{
+				Method: r.Method,
+				URL:    r.URL,
+			},
+			Response: harResponse{
+				Status: r.Status,
+			},
+		})
+	}
+
+	var root harRoot
+	root.Log.Version = "1.2"
+	root.Log.Creator.Name = "scratchpad"
+	root.Log.Creator.Version = "phase2"
+	root.Log.Entries = entries
+
+	return json.MarshalIndent(root, "", "  ")
+}
+
+// CaptureScreenshot captures a screenshot in the requested format.
+// Supported formats: "png", "jpeg".
+func (e *ChromeEngine) CaptureScreenshot(format string, fullPage bool) (mime string, data []byte, err error) {
+	switch strings.ToLower(format) {
+	case "png", "":
+		mime = "image/png"
+		format = "png"
+	case "jpeg", "jpg":
+		mime = "image/jpeg"
+		format = "jpeg"
+	default:
+		return "", nil, fmt.Errorf("unsupported screenshot format %q", format)
+	}
+
+	params := page.CaptureScreenshot()
+	if fullPage {
+		params = params.WithCaptureBeyondViewport(true)
+	}
+	switch format {
+	case "png":
+		params = params.WithFormat(page.CaptureScreenshotFormatPng)
+	default:
+		params = params.WithFormat(page.CaptureScreenshotFormatJpeg).WithQuality(80)
+	}
+
+	data, err = params.Do(e.ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	return mime, data, nil
+}
+
+// GetDOM returns a serialized HTML snapshot of the current document.
+func (e *ChromeEngine) GetDOM() (string, error) {
+	var html string
+	// outerHTML gives a single self-contained DOM snapshot for Phase 2.
+	if err := chromedp.Run(e.ctx, chromedp.Evaluate(`document.documentElement.outerHTML`, &html)); err != nil {
+		return "", err
+	}
+	return html, nil
+}
+
+// StartRecording starts per-session video recording using CDP screencast.
+// It returns the expected output WebM path (file is written on Stop).
+func (e *ChromeEngine) StartRecording(videoDir string) (string, error) {
+	if videoDir == "" {
+		videoDir = os.Getenv("SCRATCHPAD_VIDEO_DIR")
+		if videoDir == "" {
+			videoDir = "videos"
+		}
+	}
+	if err := os.MkdirAll(videoDir, 0o755); err != nil {
+		return "", fmt.Errorf("video dir: %w", err)
+	}
+
+	e.recordingMu.Lock()
+	defer e.recordingMu.Unlock()
+	if e.recordingActive {
+		return "", fmt.Errorf("recording already in progress")
+	}
+
+	framesDir, err := os.MkdirTemp(videoDir, "scratchpad-recording-frames-*")
+	if err != nil {
+		return "", fmt.Errorf("create frames dir: %w", err)
+	}
+	outputPath := filepath.Join(videoDir, fmt.Sprintf("scratchpad-recording-%d.webm", time.Now().UnixNano()))
+
+	framesCh := make(chan string, 30) // base64 jpeg frames
+	writeErrCh := make(chan error, 1)
+	e.recordingActive = true
+	e.recordingFramesDir = framesDir
+	e.recordingOutputPath = outputPath
+	e.recordingFrameIdx = 0
+	e.recordingFramesCh = framesCh
+	e.recordingWriteErr = writeErrCh
+
+	// Frame writer goroutine (decodes base64 -> writes frameNNNNNN.jpg).
+	go func() {
+		var writeErr error
+		defer func() {
+			writeErrCh <- writeErr
+		}()
+
+		idx := 0
+		for b64 := range framesCh {
+			jpegBytes, decErr := base64.StdEncoding.DecodeString(b64)
+			if decErr != nil {
+				writeErr = fmt.Errorf("decode screencast frame: %w", decErr)
+				return
+			}
+			idx++
+			framePath := filepath.Join(framesDir, fmt.Sprintf("frame%06d.jpg", idx))
+			if err := os.WriteFile(framePath, jpegBytes, 0o644); err != nil {
+				writeErr = fmt.Errorf("write frame: %w", err)
+				return
+			}
+		}
+	}()
+
+	// Start CDP screencast.
+	if err := chromedp.Run(e.ctx,
+		page.StartScreencast().
+			WithFormat(page.ScreencastFormatJpeg).
+			WithQuality(70).
+			WithEveryNthFrame(1).
+			WithMaxWidth(1280).
+			WithMaxHeight(720),
+	); err != nil {
+		e.recordingActive = false
+		close(framesCh)
+		// ignore writer result; best-effort cleanup
+		_ = os.RemoveAll(framesDir)
+		return "", fmt.Errorf("startScreencast: %w", err)
+	}
+
+	// We need to capture frames. Since the engine already has a central
+	// event dispatcher (setupEventDispatcher), we add a temporary listener
+	// that forwards screencastFrame events into our framesCh.
+	e.AddListener(func(ev any) {
+		frame, ok := ev.(*page.EventScreencastFrame)
+		if !ok {
+			return
+		}
+		e.recordingMu.Lock()
+		active := e.recordingActive
+		ch := e.recordingFramesCh
+		e.recordingMu.Unlock()
+		if !active || ch == nil {
+			return
+		}
+		select {
+		case ch <- frame.Data:
+		default:
+			// Drop frame when overloaded; Phase 2 focuses on evidence, not perfect FPS.
+		}
+	})
+
+	return outputPath, nil
+}
+
+// StopRecording stops the screencast and returns the resulting WebM bytes.
+func (e *ChromeEngine) StopRecording() ([]byte, string, error) {
+	e.recordingMu.Lock()
+	if !e.recordingActive {
+		e.recordingMu.Unlock()
+		return nil, "", fmt.Errorf("recording not started")
+	}
+	framesDir := e.recordingFramesDir
+	outputPath := e.recordingOutputPath
+	framesCh := e.recordingFramesCh
+	writeErrCh := e.recordingWriteErr
+	e.recordingActive = false
+	e.recordingFramesDir = ""
+	e.recordingOutputPath = ""
+	e.recordingFramesCh = nil
+	e.recordingWriteErr = nil
+	e.recordingMu.Unlock()
+
+	// Stop screencast first so we minimize extra in-flight frames.
+	_ = chromedp.Run(e.ctx, page.StopScreencast())
+
+	// Closing framesCh ends writer goroutine.
+	close(framesCh)
+
+	if err := <-writeErrCh; err != nil {
+		_ = os.RemoveAll(framesDir)
+		return nil, "", err
+	}
+
+	ffmpegPath, ffErr := exec.LookPath("ffmpeg")
+	if ffErr != nil {
+		_ = os.RemoveAll(framesDir)
+		return nil, "", fmt.Errorf("ffmpeg not found: %w", ffErr)
+	}
+
+	// Assemble frames into WebM.
+	// frame%06d.jpg names start at 1 (frame000001.jpg).
+	cmd := exec.Command(
+		ffmpegPath,
+		"-y",
+		"-framerate", "30",
+		"-i", "frame%06d.jpg",
+		"-c:v", "libvpx-vp9",
+		"-pix_fmt", "yuv420p",
+		"-b:v", "1M",
+		outputPath,
+	)
+	cmd.Dir = framesDir
+	out, cmdErr := cmd.CombinedOutput()
+	if cmdErr != nil {
+		_ = os.RemoveAll(framesDir)
+		return nil, "", fmt.Errorf("ffmpeg failed: %v: %s", cmdErr, string(out))
+	}
+
+	videoBytes, err := os.ReadFile(outputPath)
+	if err != nil {
+		_ = os.RemoveAll(framesDir)
+		return nil, "", fmt.Errorf("read video: %w", err)
+	}
+
+	_ = os.RemoveAll(framesDir)
+	return videoBytes, outputPath, nil
+}
+
+// StartTracing starts CDP tracing in return-as-stream mode.
+// It writes the trace to a .json.gz file on Stop.
+func (e *ChromeEngine) StartTracing(traceDir string) (string, error) {
+	if traceDir == "" {
+		traceDir = os.Getenv("SCRATCHPAD_TRACE_DIR")
+		if traceDir == "" {
+			traceDir = "traces"
+		}
+	}
+	if err := os.MkdirAll(traceDir, 0o755); err != nil {
+		return "", fmt.Errorf("trace dir: %w", err)
+	}
+
+	e.tracingMu.Lock()
+	defer e.tracingMu.Unlock()
+	if e.tracingActive {
+		return "", fmt.Errorf("tracing already in progress")
+	}
+
+	outputPath := filepath.Join(traceDir, fmt.Sprintf("scratchpad-trace-%d.json.gz", time.Now().UnixNano()))
+	doneCh := make(chan struct{})
+	e.tracingActive = true
+	e.tracingOutput = outputPath
+	e.tracingDir = traceDir
+	e.tracingDoneCh = doneCh
+	e.tracingStreamOK = false
+
+	// Listener to capture the produced stream handle.
+	e.AddListener(func(ev any) {
+		c, ok := ev.(*tracing.EventTracingComplete)
+		if !ok {
+			return
+		}
+		e.tracingMu.Lock()
+		active := e.tracingActive
+		if !active {
+			e.tracingMu.Unlock()
+			return
+		}
+		e.tracingStream = c.Stream
+		e.tracingStreamOK = true
+		// Signal completion.
+		if e.tracingDoneCh != nil {
+			// Non-blocking close: only close once.
+			select {
+			case <-e.tracingDoneCh:
+				// already closed
+			default:
+				close(e.tracingDoneCh)
+			}
+		}
+		e.tracingMu.Unlock()
+	})
+
+	if err := chromedp.Run(e.ctx,
+		tracing.Start().
+			WithTransferMode(tracing.TransferModeReturnAsStream).
+			WithStreamFormat(tracing.StreamFormatJSON).
+			WithStreamCompression(tracing.StreamCompressionGzip),
+	); err != nil {
+		e.tracingActive = false
+		return "", fmt.Errorf("tracing start: %w", err)
+	}
+
+	return outputPath, nil
+}
+
+// StopTracing stops tracing, reads the trace stream, and returns gzipped
+// trace bytes plus the output path.
+func (e *ChromeEngine) StopTracing() ([]byte, string, error) {
+	e.tracingMu.Lock()
+	if !e.tracingActive {
+		out := e.tracingOutput
+		e.tracingMu.Unlock()
+		return nil, out, fmt.Errorf("tracing not started")
+	}
+	outPath := e.tracingOutput
+	doneCh := e.tracingDoneCh
+	e.tracingActive = false
+	e.tracingMu.Unlock()
+
+	// Stop trace collection.
+	if err := chromedp.Run(e.ctx, tracing.End()); err != nil {
+		return nil, outPath, fmt.Errorf("tracing end: %w", err)
+	}
+
+	// Wait for tracingComplete event.
+	timeout := time.NewTimer(60 * time.Second)
+	defer timeout.Stop()
+	select {
+	case <-doneCh:
+	case <-timeout.C:
+		return nil, outPath, fmt.Errorf("tracing timed out waiting for completion")
+	}
+
+	e.tracingMu.Lock()
+	handle := e.tracingStream
+	ok := e.tracingStreamOK
+	e.tracingMu.Unlock()
+	if !ok {
+		return nil, outPath, fmt.Errorf("tracing stream handle missing")
+	}
+
+	// Read the stream sequentially until EOF.
+	var buf []byte
+	for {
+		chunkStr, eof, err := cdio.Read(handle).Do(e.ctx)
+		if err != nil {
+			return nil, outPath, fmt.Errorf("reading trace stream: %w", err)
+		}
+
+		// io.Read wrapper doesn't expose Base64encoded flag; the returned data is
+		// commonly base64. We decode when possible.
+		chunkBytes, decErr := base64.StdEncoding.DecodeString(chunkStr)
+		if decErr != nil {
+			chunkBytes = []byte(chunkStr)
+		}
+		buf = append(buf, chunkBytes...)
+		if eof {
+			break
+		}
+	}
+
+	// Best-effort close.
+	_ = cdio.Close(handle).Do(e.ctx)
+
+	// Persist to output path (bytes are expected to already be gzipped).
+	if err := os.WriteFile(outPath, buf, 0o644); err != nil {
+		return nil, outPath, fmt.Errorf("write trace file: %w", err)
+	}
+
+	return buf, outPath, nil
 }

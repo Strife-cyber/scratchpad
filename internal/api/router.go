@@ -29,6 +29,33 @@ func NewRouter(mgr *sandbox.Manager) http.Handler {
 			case len(parts) == 2 && r.Method == http.MethodDelete:
 				h.DeleteSession(w, r, parts[1])
 				return
+			case len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "har":
+				h.GetHAR(w, r, parts[1])
+				return
+			case len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "dom":
+				h.GetDOM(w, r, parts[1])
+				return
+			case len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "console":
+				h.GetConsole(w, r, parts[1])
+				return
+			case len(parts) == 4 && r.Method == http.MethodGet && parts[2] == "screenshot":
+				h.GetScreenshot(w, r, parts[1])
+				return
+			case len(parts) == 5 && r.Method == http.MethodPost && parts[2] == "screenshot" && parts[3] == "diff":
+				h.PostScreenshotDiff(w, r, parts[1])
+				return
+			case len(parts) == 4 && r.Method == http.MethodPost && parts[2] == "recording" && parts[3] == "start":
+				h.PostRecordingStart(w, r, parts[1])
+				return
+			case len(parts) == 4 && r.Method == http.MethodPost && parts[2] == "recording" && parts[3] == "stop":
+				h.PostRecordingStop(w, r, parts[1])
+				return
+			case len(parts) == 4 && r.Method == http.MethodPost && parts[2] == "tracing" && parts[3] == "start":
+				h.PostTracingStart(w, r, parts[1])
+				return
+			case len(parts) == 4 && r.Method == http.MethodPost && parts[2] == "tracing" && parts[3] == "stop":
+				h.PostTracingStop(w, r, parts[1])
+				return
 			case len(parts) == 3 && r.Method == http.MethodPost && parts[2] == "actions":
 				h.Actions(w, r, parts[1])
 				return

@@ -18,6 +18,11 @@ type Session struct {
 	SessionLogs []protocol.ConsoleLog
 	LogMu       sync.Mutex
 	LastTree    []protocol.SpatialNode
+
+	// ConsoleRing stores recent console logs for observability endpoints.
+	// It is appended during WebSocket observation cycles.
+	ConsoleRing      []protocol.ConsoleLog
+	ConsoleRingLimit int
 }
 
 // CreateSession instantiates a brand-new engine of the requested Kind and
@@ -34,6 +39,7 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 		ID:     id,
 		Kind:   kind,
 		Engine: eng,
+		ConsoleRingLimit: 500,
 	}
 
 	m.mu.Lock()

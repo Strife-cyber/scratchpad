@@ -129,6 +129,14 @@ func sendObservation(conn *websocket.Conn, session *sandbox.Session) {
 
 	// Drain and attach any buffered console logs (Chrome only; nil for Android).
 	session.LogMu.Lock()
+	// Preserve the logs in a ring buffer for Phase 2 observability endpoints.
+	if len(session.SessionLogs) > 0 {
+		session.ConsoleRing = append(session.ConsoleRing, session.SessionLogs...)
+		if session.ConsoleRingLimit > 0 && len(session.ConsoleRing) > session.ConsoleRingLimit {
+			over := len(session.ConsoleRing) - session.ConsoleRingLimit
+			session.ConsoleRing = session.ConsoleRing[over:]
+		}
+	}
 	obs.Logs = session.SessionLogs
 	session.SessionLogs = nil
 	session.LogMu.Unlock()
