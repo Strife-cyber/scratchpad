@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"scratchpad/internal/protocol"
 
 	"github.com/gorilla/websocket"
@@ -12,6 +13,8 @@ import (
 
 type Server struct {
 	conn *websocket.Conn
+	// sessionID is provided by the engine server as the first WS message.
+	sessionID string
 }
 
 func NewMcpServer(engineURL string) (*Server, error) {
@@ -19,7 +22,28 @@ func NewMcpServer(engineURL string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{conn: conn}, nil
+
+	// MCP bridge handshake: first message is expected to be {"sessionId":"..."}.
+	var handshake struct {
+		SessionID string `json:"sessionId"`
+	}
+	_, message, err := conn.ReadMessage()
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("mcp: handshake failed: %w", err)
+	}
+	if err := json.Unmarshal(message, &handshake); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("mcp: handshake parse failed: %w", err)
+	}
+
+	if handshake.SessionID != "" {
+		log.Printf("mcp: connected to session %s", handshake.SessionID)
+	} else {
+		log.Printf("mcp: connected (sessionId missing)")
+	}
+
+	return &Server{conn: conn, sessionID: handshake.SessionID}, nil
 }
 
 // NavigateArgs Defines explicit named structs for the reflection library

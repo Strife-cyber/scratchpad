@@ -26,8 +26,12 @@ import (
 var _ engine.Engine = (*ChromeEngine)(nil)
 
 func init() {
-	engine.Register(engine.KindChrome, func() engine.Engine {
-		return NewChromeEngine()
+	engine.Register(engine.KindChrome, func(opts engine.Options) (engine.Engine, error) {
+		headless := true
+		if opts.Headless != nil {
+			headless = *opts.Headless
+		}
+		return NewChromeEngine(headless), nil
 	})
 }
 
@@ -42,8 +46,9 @@ type ChromeEngine struct {
 }
 
 // NewChromeEngine initialises a new headless Chrome instance.
-func NewChromeEngine() *ChromeEngine {
+func NewChromeEngine(headless bool) *ChromeEngine {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", headless),
 		chromedp.WindowSize(1280, 720),
 		chromedp.Flag("hide-scrollbars", false),
 	)

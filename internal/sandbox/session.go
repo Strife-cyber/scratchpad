@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"sync"
 
 	"scratchpad/internal/engine"
@@ -22,8 +23,8 @@ type Session struct {
 // CreateSession instantiates a brand-new engine of the requested Kind and
 // registers the session in the manager's map.
 // The caller is responsible for calling DeleteSession when the agent disconnects.
-func (m *Manager) CreateSession(kind engine.Kind) (*Session, error) {
-	eng, err := engine.New(kind)
+func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session, error) {
+	eng, err := engine.New(kind, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func (m *Manager) GetSession(id string) (*Session, bool) {
 }
 
 // DeleteSession shuts down the engine and removes the session from the map.
-func (m *Manager) DeleteSession(id string) {
+func (m *Manager) DeleteSession(id string) error {
 	m.mu.Lock()
 	s, ok := m.sessions[id]
 	if ok {
@@ -60,7 +61,10 @@ func (m *Manager) DeleteSession(id string) {
 	m.mu.Unlock()
 
 	// Close outside the lock so a slow driver doesn't stall other operations.
-	if ok {
-		s.Engine.Close()
+	if !ok {
+		return fmt.Errorf("session not found")
 	}
+
+	s.Engine.Close()
+	return nil
 }

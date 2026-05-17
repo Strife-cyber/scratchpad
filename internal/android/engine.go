@@ -19,8 +19,9 @@ import (
 var _ engine.Engine = (*AndroidEngine)(nil)
 
 func init() {
-	engine.Register(engine.KindAndroid, func() engine.Engine {
-		return NewAndroidEngine()
+	engine.Register(engine.KindAndroid, func(opts engine.Options) (engine.Engine, error) {
+		_ = opts // reserved for future Android options
+		return NewAndroidEngine(), nil
 	})
 }
 

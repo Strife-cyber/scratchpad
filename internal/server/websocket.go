@@ -34,12 +34,14 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 		}(conn)
 
 		// Each WebSocket connection gets its own isolated engine session.
-		session, err := mgr.CreateSession(kind)
+		session, err := mgr.CreateSession(kind, engine.Options{})
 		if err != nil {
 			log.Println("websocket: failed to create session:", err)
 			return
 		}
-		defer mgr.DeleteSession(session.ID)
+		defer func() {
+			_ = mgr.DeleteSession(session.ID) // best-effort cleanup
+		}()
 
 		// Attach the Chrome console-log collector only for Chrome sessions.
 		// On Android, AddListener is a no-op for CDP-specific event types,
@@ -51,6 +53,13 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 		}
 
 		log.Printf("websocket: agent connected — session=%s kind=%s", session.ID, session.Kind)
+
+		// WebSocket handshake: send session ID as the first message so
+		// external clients (including the MCP bridge) can bind to a session.
+		if err := conn.WriteJSON(map[string]string{"sessionId": session.ID}); err != nil {
+			log.Printf("websocket: handshake failed — session=%s err=%v", session.ID, err)
+			return
+		}
 
 		for {
 			_, msg, err := conn.ReadMessage()

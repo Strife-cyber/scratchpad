@@ -44,30 +44,26 @@ type Engine interface {
 }
 
 // ---------------------------------------------------------------------------
-// Registration-based factory
+// Registration-based factory (options-aware)
 // ---------------------------------------------------------------------------
 
-// driverRegistry maps each Kind to its zero-argument constructor.
-var driverRegistry = map[Kind]func() Engine{}
+// driverRegistry maps each Kind to its options-aware constructor.
+var driverRegistry = map[Kind]func(Options) (Engine, error){}
 
 // Register makes a driver available under the given Kind.
 // It panics on duplicate registration and must be called from an init()
 // function inside the driver package.
-func Register(kind Kind, fn func() Engine) {
+func Register(kind Kind, fn func(Options) (Engine, error)) {
 	if _, dup := driverRegistry[kind]; dup {
 		panic(fmt.Sprintf("engine: duplicate registration for kind %q", kind))
 	}
 	driverRegistry[kind] = fn
 }
 
-// New instantiates a fresh Engine of the requested Kind.
-// It returns an error if no driver has been registered for that Kind.
-// Import the driver package (e.g. _ "scratchpad/internal/browser") to trigger
-// its init() and make the driver available.
-func New(kind Kind) (Engine, error) {
+func newFromRegistry(kind Kind, opts Options) (Engine, error) {
 	fn, ok := driverRegistry[kind]
 	if !ok {
 		return nil, fmt.Errorf("engine: no driver registered for kind %q (did you blank-import the driver package?)", kind)
 	}
-	return fn(), nil
+	return fn(opts)
 }
