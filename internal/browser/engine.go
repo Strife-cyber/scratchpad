@@ -97,6 +97,12 @@ type ChromeEngine struct {
 	tracingDoneCh   chan struct{}
 	tracingStream   cdio.StreamHandle
 	tracingStreamOK  bool
+
+	// navigationID bumps on every detected navigation (frame navigated, SPA
+	// pushState, or hashchange). Used to populate PageInfo.NavigationID.
+	navMu          sync.Mutex
+	navigationID   int64
+	lastSeenURL    string
 }
 
 // NewChromeEngine initialises a new headless Chrome instance.
@@ -237,7 +243,21 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 		buf         []byte
 		axNodes     []*accessibility.Node
 		spatialTree []protocol.SpatialNode
+		obs         = &protocol.ObservationResponse{
+			Type:     "observation",
+			Viewport: protocol.Viewport{Width: 1280, Height: 720},
+			SystemState: protocol.SystemState{
+				DocumentStatus:   "interactive",
+				InflightRequests: int(atomic.LoadInt32(&e.inFlightCount)),
+			},
+			AssertionResult:   e.lastAssertionResult,
+			ActionDiagnostics: e.lastActionDiagnostics,
+		}
 	)
+
+	// Emit diagnostics/assertions once per observation.
+	e.lastAssertionResult = nil
+	e.lastActionDiagnostics = nil
 
 	err := chromedp.Run(e.ctx,
 		network.Enable(),
@@ -267,6 +287,47 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 				Do(ctx)
 			return err
 		}),
+
+		// Capture page info (URL, title, readyState, Flutter detection).
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			url, title, readyState, flutterFlag := "", "", "", ""
+			_ = chromedp.Evaluate(`window.location.href`, &url).Do(ctx)
+			_ = chromedp.Evaluate(`document.title`, &title).Do(ctx)
+			_ = chromedp.Evaluate(`document.readyState`, &readyState).Do(ctx)
+			_ = chromedp.Evaluate(`(typeof __flutter_web_trigger !== 'undefined') ? 'true' : 'false'`, &flutterFlag).Do(ctx)
+
+			platform := "web"
+			if flutterFlag == "true" {
+				platform = "flutter_web"
+			}
+
+			e.navMu.Lock()
+			if url != "" && url != e.lastSeenURL && e.lastSeenURL != "" {
+				e.navigationID++
+			}
+			if url != "" {
+				e.lastSeenURL = url
+			}
+			navID := e.navigationID
+			e.navMu.Unlock()
+
+			loadStatus := readyState
+			switch readyState {
+			case "loading", "interactive", "complete":
+				loadStatus = readyState
+			default:
+				loadStatus = "interactive"
+			}
+
+			obs.PageInfo = &protocol.PageInfo{
+				URL:          url,
+				Title:        title,
+				Platform:     platform,
+				LoadStatus:   loadStatus,
+				NavigationID: navID,
+			}
+			return nil
+		}),
 	)
 	if err != nil {
 		return nil, err
@@ -275,23 +336,8 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 		return nil, fmt.Errorf("chrome: screenshot buffer is empty")
 	}
 
-	obs := &protocol.ObservationResponse{
-		Type:        "observation",
-		Visual:      base64.StdEncoding.EncodeToString(buf),
-		SpatialTree: spatialTree,
-		Viewport:    protocol.Viewport{Width: 1280, Height: 720},
-		SystemState: protocol.SystemState{
-			DocumentStatus:   "interactive",
-			InflightRequests: int(atomic.LoadInt32(&e.inFlightCount)),
-		},
-
-		AssertionResult:   e.lastAssertionResult,
-		ActionDiagnostics: e.lastActionDiagnostics,
-	}
-
-	// Emit diagnostics/assertions once per observation.
-	e.lastAssertionResult = nil
-	e.lastActionDiagnostics = nil
+	obs.Visual = base64.StdEncoding.EncodeToString(buf)
+	obs.SpatialTree = spatialTree
 
 	// Clear per-step console logs so subsequent assertions can measure fresh
 	// errors after new actions/waits.

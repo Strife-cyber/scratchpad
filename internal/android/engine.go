@@ -39,6 +39,11 @@ type AndroidEngine struct {
 	// Phase 1/5 diagnostics/assertions (emitted via Observe()).
 	lastAssertionResult   *protocol.AssertionResult
 	lastActionDiagnostics *protocol.ActionDiagnostics
+
+	// navID increments on activity / package changes. Used in PageInfo.
+	navMu          sync.Mutex
+	navigationID   int64
+	lastSeenActivity string
 }
 
 // NewAndroidEngine returns a ready-to-use AndroidEngine.
@@ -87,6 +92,7 @@ func (e *AndroidEngine) Navigate(url string) error {
 
 // Observe dumps the UIAutomator2 accessibility tree, flattens it into
 // SpatialNodes, and captures a screenshot — matching ChromeEngine's contract.
+// Also populates PageInfo with the current screen/activity.
 // Implements engine.Engine.
 func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
 	spatialTree, err := e.dumpSpatialTree()
@@ -98,12 +104,16 @@ func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
 	imgBytes, _ := captureScreen()
 	b64Img := base64.StdEncoding.EncodeToString(imgBytes)
 
+	// Capture page/screen info.
+	pageInfo := e.detectScreenInfo(spatialTree)
+
 	obs := &protocol.ObservationResponse{
 		Type:        "observation",
 		SystemState: protocol.SystemState{DocumentStatus: "interactive"},
 		Viewport:    getViewport(),
 		Visual:      b64Img,
 		SpatialTree: spatialTree,
+		PageInfo:    pageInfo,
 
 		AssertionResult:   e.lastAssertionResult,
 		ActionDiagnostics: e.lastActionDiagnostics,
@@ -208,4 +218,89 @@ func getViewport() protocol.Viewport {
 		}
 	}
 	return protocol.Viewport{Width: 1080, Height: 1920}
+}
+
+// detectScreenInfo builds a PageInfo from the current Android device state.
+func (e *AndroidEngine) detectScreenInfo(spatialTree []protocol.SpatialNode) *protocol.PageInfo {
+	pkg, activity := getCurrentActivity()
+
+	// Determine platform: check for Flutter in the UIAutomator hierarchy.
+	platform := "android"
+	for _, n := range spatialTree {
+		if strings.Contains(n.Role, "Flutter") ||
+			strings.Contains(n.Role, "flutter") ||
+			strings.Contains(n.Name, "FlutterSemantics") {
+			platform = "flutter_android"
+			break
+		}
+	}
+
+	// Build a screen title: best-effort from the first visible heading-like node.
+	title := activity
+	for _, n := range spatialTree {
+		if n.Name != "" && (n.Role == "android.widget.TextView" || n.Role == "android.view.View") {
+			title = n.Name
+			break
+		}
+	}
+
+	// Track activity/package transitions.
+	e.navMu.Lock()
+	current := pkg
+	if activity != "" {
+		current = pkg + "/" + activity
+	}
+	if current != "" && current != e.lastSeenActivity && e.lastSeenActivity != "" {
+		e.navigationID++
+	}
+	if current != "" {
+		e.lastSeenActivity = current
+	}
+	navID := e.navigationID
+	e.navMu.Unlock()
+
+	url := pkg
+	if activity != "" {
+		url = pkg + "/" + activity
+	}
+
+	return &protocol.PageInfo{
+		URL:          url,
+		Title:        title,
+		Platform:     platform,
+		LoadStatus:   "complete",
+		NavigationID: navID,
+		Extra: map[string]string{
+			"package":  pkg,
+			"activity": activity,
+		},
+	}
+}
+
+// getCurrentActivity returns the foreground (package, activity) on the device
+// by parsing `adb shell dumpsys window` output.
+func getCurrentActivity() (string, string) {
+	out, err := runADB("shell", "dumpsys", "window", "displays")
+	if err != nil {
+		// Fallback for older Android.
+		out, err = runADB("shell", "dumpsys", "window")
+		if err != nil {
+			return "", ""
+		}
+	}
+
+	// Try several patterns in order of reliability.
+	patterns := []string{
+		`mCurrentFocus=.*\{.*\s+(.+?)/(.+?)\}`,
+		`mFocusedApp=.*ActivityRecord\{.*\s+(.+?)/(.+?)\s`,
+		`mResumedActivity=.*ActivityRecord\{.*\s+(.+?)/(.+?)\s`,
+	}
+	for _, pat := range patterns {
+		re := regexp.MustCompile(pat)
+		matches := re.FindStringSubmatch(out)
+		if len(matches) >= 3 {
+			return strings.TrimSpace(matches[1]), strings.TrimSpace(matches[2])
+		}
+	}
+	return "", ""
 }

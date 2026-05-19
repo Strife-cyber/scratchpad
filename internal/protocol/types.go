@@ -174,6 +174,10 @@ type ObservationResponse struct {
 	Delta       *TreeDelta    `json:"delta,omitempty"`
 	Logs        []ConsoleLog  `json:"logs,omitempty"`
 
+	// PageInfo describes the current page/screen. Populated by every platform
+	// so agents know where they are without extra round-trips.
+	PageInfo *PageInfo `json:"page_info,omitempty"`
+
 	// Phase 1: populated when Action == "assert" or explicit wait actions run.
 	AssertionResult   *AssertionResult   `json:"assertion_result,omitempty"`
 	ActionDiagnostics *ActionDiagnostics `json:"action_diagnostics,omitempty"`
@@ -233,6 +237,37 @@ type ActionDiagnostics struct {
 	Success   bool   `json:"success,omitempty"`
 	Error     string `json:"error,omitempty"`
 	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
+}
+
+// PageInfo describes the current page or screen the engine is on. Every
+// ObservationResponse carries it so agents can detect page transitions,
+// route changes, and platform context without extra round-trips.
+type PageInfo struct {
+	// URL is the current location: a web URL for Chrome, a
+	// package/activity string for Android, or a deep link for either.
+	URL string `json:"url"`
+
+	// Title is the human-readable page title or screen label.
+	Title string `json:"title"`
+
+	// Platform identifies the runtime context:
+	// "web", "flutter_web", "android", "flutter_android".
+	Platform string `json:"platform"`
+
+	// LoadStatus reports how far the page has loaded:
+	// "loading", "interactive", "complete".
+	// Always "complete" for native Android.
+	LoadStatus string `json:"load_status"`
+
+	// NavigationID increments every time the page navigates (URL change,
+	// SPA route change, or new activity). Useful for detecting transitions.
+	NavigationID int64 `json:"navigation_id"`
+
+	// Extra holds platform-specific metadata as key-value pairs.
+	// Chrome: {"frame_id": "...", "window_id": "..."}
+	// Android: {"package": "...", "activity": "..."}
+	// Flutter: {"framework": "flutter", "engine_version": "..."}
+	Extra map[string]string `json:"extra,omitempty"`
 }
 
 type UINode struct {

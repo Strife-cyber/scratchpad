@@ -129,7 +129,14 @@ func (s *Server) readObservation() (*mcp.ToolResponse, error) {
 	obs.Visual = ""
 	cleanMessage, _ := json.Marshal(obs)
 
-	displayText := fmt.Sprintf("State: %+v\nNodes: %d", obs.SystemState, len(obs.SpatialTree))
+	pageText := ""
+	if obs.PageInfo != nil {
+		pageText = fmt.Sprintf("\nPage: %s | %s", obs.PageInfo.URL, obs.PageInfo.Platform)
+		if obs.PageInfo.Title != "" {
+			pageText = fmt.Sprintf("\nPage: %s | %s | %s", obs.PageInfo.URL, obs.PageInfo.Title, obs.PageInfo.Platform)
+		}
+	}
+	displayText := fmt.Sprintf("State: %+v%s\nNodes: %d", obs.SystemState, pageText, len(obs.SpatialTree))
 
 	if b64Images != "" {
 		return mcp.NewToolResponse(

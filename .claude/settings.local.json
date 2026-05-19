@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse -Depth 0 \"c:\\\\Users\\\\dunam\\\\GolandProjects\\\\scratchpad\")",
+      "Bash(Select-Object FullName, Mode)",
+      "Bash(go build *)",
+      "Bash(go test *)"
+    ]
+  }
+}
