@@ -1,0 +1,142 @@
+---
+title: Assertions
+description: How to verify page state with assertions
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Assertions verify that the page is in the expected state. They are sent as an `assert` action with an `assertion` payload.
+
+## Assertion Flow
+
+Send an assertion action — the response includes an `assertion_result` field:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    obs = requests.post(
+        f"http://localhost:8080/api/v1/sessions/{sid}/actions",
+        json={
+            "action": "assert",
+            "assertion": {
+                "type": "text_contains",
+                "selector": {"css": "h1"},
+                "text": "Welcome",
+            },
+        },
+    ).json()
+
+    result = obs["assertion_result"]
+    print(result["success"])    # True or False
+    print(result["message"])    # "found element containing 'Welcome'"
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const obs = await fetch(`http://localhost:8080/api/v1/sessions/${sid}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "assert",
+        assertion: { type: "text_contains", selector: { css: "h1" }, text: "Welcome" },
+      }),
+    }).then(r => r.json());
+
+    console.log(obs.assertion_result.success);
+    ```
+  </TabItem>
+  <TabItem label="YAML">
+    ```yaml
+    - assert: {selector: {css: "h1"}, text: "Welcome", contains: true}
+    ```
+  </TabItem>
+</Tabs>
+
+## AssertionResult
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | bool | Whether the assertion passed |
+| `type` | string | The assertion type that ran |
+| `message` | string | Human-readable result description |
+| `elapsed_ms` | int64 | Time taken to evaluate |
+| `extra` | object | Type-specific extra data |
+
+## Assertion Types by Category
+
+### Element State
+
+| Type | Description | Chrome | Android |
+|------|-------------|--------|---------|
+| `element_exists` | Element matching selector exists in DOM | ✅ | ✅ |
+| `element_visible` | Element is visible on screen | ✅ | ✅ |
+| `element_checked` | Checkbox/radio is checked | ✅ | ❌ |
+
+```json
+{"type": "element_exists", "selector": {"css": "#my-id"}}
+{"type": "element_visible", "selector": {"css": ".loading-spinner"}}
+```
+
+### Text Content
+
+| Type | Description | Chrome | Android |
+|------|-------------|--------|---------|
+| `text_equals` | Element text exactly equals value | ✅ | ✅ |
+| `text_contains` | Element text contains substring | ✅ | ✅ |
+| `text_matches` | Element text matches regex pattern | ✅ | ✅ |
+
+```json
+{"type": "text_equals", "selector": {"css": "h1"}, "text": "Dashboard"}
+{"type": "text_contains", "selector": {css: ".error"}, "text": "invalid"}
+{"type": "text_matches", "selector": {"css": ".price"}, "pattern": "\\$[0-9]+\\.[0-9]{2}"}
+```
+
+### Attributes (Chrome only)
+
+| Type | Description |
+|------|-------------|
+| `attr_equals` | Attribute value exactly equals expected |
+| `attr_contains` | Attribute value contains substring |
+
+```json
+{"type": "attr_equals", "selector": {"css": "a"}, "attribute": "href", "value": "/dashboard"}
+{"type": "attr_contains", "selector": {"css": "img"}, "attribute": "src", "value": "logo"}
+```
+
+### Page-Level (Chrome only)
+
+| Type | Description |
+|------|-------------|
+| `page_title` | `document.title` matches or contains text |
+| `page_url` | `window.location.href` matches string or regex pattern |
+
+```json
+{"type": "page_title", "text": "Dashboard"}
+{"type": "page_url", "pattern": "/dashboard/.*"}
+```
+
+### Diagnostics (Chrome only)
+
+| Type | Description |
+|------|-------------|
+| `console_error_count` | Number of console errors matches expected |
+| `network_request_status` | Network requests matching URL pattern have expected status |
+
+```json
+{"type": "console_error_count", "value": "0"}
+{"type": "network_request_status", "pattern": "api/", "value": "200"}
+```
+
+### Visual (Chrome only)
+
+| Type | Description |
+|------|-------------|
+| `screenshot_matches` | Perceptual screenshot comparison via dHash |
+
+```json
+{
+  "type": "screenshot_matches",
+  "screenshot_base64": "/9j/4AAQ...",
+  "screenshot_tolerance": 10
+}
+```

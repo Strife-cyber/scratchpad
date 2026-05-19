@@ -1,0 +1,94 @@
+---
+title: Mobile Testing
+description: Android device and emulator automation
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This example demonstrates automating an Android device: launching an app, interacting with elements, and taking screenshots.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    # Create an Android session
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "android"}).json()
+    sid = s["sessionId"]
+    base = f"http://localhost:8080/api/v1/sessions/{sid}/actions"
+
+    def act(body):
+        return requests.post(base, json=body).json()
+
+    # Launch app by package name
+    act({"action": {"type": "navigate", "url": "com.example.app"}})
+
+    # Wait for UI to load
+    act({"action": "wait", "condition": "selector_visible",
+         "selector": {"css": "#welcome"}, "timeout_ms": 15000})
+
+    # Tap a button by text
+    act({"action": "click", "selector": {"text": "Get Started"}})
+
+    # Type into a text field
+    act({"action": "type", "selector": {"css": "#search-box"}, "text": "query"})
+
+    # Scroll down a list
+    act({"action": "scroll", "delta_y": 500})
+
+    # Assert text is visible
+    obs = act({
+        "action": "assert",
+        "assertion": {"type": "text_contains", "text": "Search Results"},
+    })
+    print(f"Found results: {obs['assertion_result']['success']}")
+
+    # Press BACK button
+    act({"action": "keyevent", "key_code": 4})
+
+    # Take screenshot
+    resp = requests.get(
+        f"http://localhost:8080/api/v1/sessions/{sid}/screenshot",
+        params={"format": "png"},
+    )
+    with open("android_screen.png", "wb") as f:
+        f.write(resp.content)
+
+    requests.delete(f"http://localhost:8080/api/v1/sessions/{sid}")
+    ```
+  </TabItem>
+  <TabItem label="YAML">
+    ```yaml
+    name: "Android App Test"
+    platform: "android"
+    steps:
+      - navigate: "com.example.app"
+      - wait: {condition: "selector_visible", selector: {css: "#welcome"}, timeout: 15000}
+      - click: {selector: {text: "Get Started"}}
+      - type: {selector: {css: "#search-box"}, text: "query"}
+      - scroll: {delta_y: 500}
+      - assert: {text: "Search Results", contains: true}
+      - keyevent: {key_code: 4}  # BACK button
+    ```
+  </TabItem>
+</Tabs>
+
+## Android Key Codes
+
+| Key Code | Action | Description |
+|----------|--------|-------------|
+| 3 | HOME | Go to home screen |
+| 4 | BACK | Navigate back |
+| 66 | ENTER | Confirm/enter |
+| 82 | MENU | Open context menu |
+| 24 | VOLUME_UP | Increase volume |
+| 25 | VOLUME_DOWN | Decrease volume |
+
+## Key Takeaways
+
+1. Create a session with `platform: "android"` to target devices
+2. Use package names (e.g., `com.example.app`) to launch Android apps
+3. Android selectors work via **substring matching** on node properties
+4. The `keyevent` action sends raw Android key codes
+5. Screenshots and spatial trees work the same as Chrome

@@ -1,0 +1,202 @@
+---
+title: Actions
+description: Complete reference of all action types
+---
+
+This page lists every action supported by Scratchpad across all platforms.
+
+<table class="ref-table">
+  <thead>
+    <tr>
+      <th>Action</th>
+      <th>Description</th>
+      <th>Required Fields</th>
+      <th>Optional Fields</th>
+      <th>Selector Support</th>
+      <th>Chrome</th>
+      <th>Android</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="action-name">click</code></td>
+      <td>Click on an element or coordinates</td>
+      <td>—</td>
+      <td><code>selector</code>, <code>x</code>, <code>y</code>, <code>timeout_ms</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">type</code></td>
+      <td>Type text into a focused element</td>
+      <td><code>text</code></td>
+      <td><code>selector</code>, <code>timeout_ms</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">scroll</code></td>
+      <td>Scroll page or element</td>
+      <td>—</td>
+      <td><code>delta_x</code>, <code>delta_y</code>, <code>selector</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">wait</code></td>
+      <td>Wait for condition or timeout</td>
+      <td>—</td>
+      <td><code>condition</code>, <code>timeout_ms</code>, <code>selector</code>, <code>text</code>, <code>pattern</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">hover</code></td>
+      <td>Hover mouse over an element</td>
+      <td>—</td>
+      <td><code>selector</code>, <code>x</code>, <code>y</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">double_click</code></td>
+      <td>Double-click an element</td>
+      <td>—</td>
+      <td><code>selector</code>, <code>x</code>, <code>y</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">right_click</code></td>
+      <td>Right-click an element</td>
+      <td>—</td>
+      <td><code>selector</code>, <code>x</code>, <code>y</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">drag_drop</code></td>
+      <td>Drag element to target</td>
+      <td><code>selector</code>, <code>target_selector</code></td>
+      <td>—</td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">select_option</code></td>
+      <td>Select &lt;select&gt; option</td>
+      <td><code>selector</code></td>
+      <td><code>option_value</code>, <code>option_text</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">press_key_combo</code></td>
+      <td>Keyboard shortcut</td>
+      <td><code>key_chord</code></td>
+      <td>—</td>
+      <td>❌</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">execute_js</code></td>
+      <td>Run JavaScript in page</td>
+      <td><code>js</code></td>
+      <td>—</td>
+      <td>❌</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">scroll_into_view</code></td>
+      <td>Scroll element into visible area</td>
+      <td><code>selector</code></td>
+      <td>—</td>
+      <td>✅ (CSS only)</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">switch_to_iframe</code></td>
+      <td>Scope actions to an iframe</td>
+      <td>—</td>
+      <td><code>iframe_selector</code></td>
+      <td>✅</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">accept_dialog</code></td>
+      <td>Accept JavaScript dialog</td>
+      <td>—</td>
+      <td>—</td>
+      <td>❌</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">dismiss_dialog</code></td>
+      <td>Dismiss JavaScript dialog</td>
+      <td>—</td>
+      <td>—</td>
+      <td>❌</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">upload_file</code></td>
+      <td>Upload files to input</td>
+      <td><code>selector</code>, <code>upload_files</code></td>
+      <td>—</td>
+      <td>✅ (CSS)</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">set_geolocation</code></td>
+      <td>Override browser geolocation</td>
+      <td><code>geolocation</code></td>
+      <td>—</td>
+      <td>❌</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">mock_network</code></td>
+      <td>Mock network response</td>
+      <td>—</td>
+      <td><code>url_pattern</code>, <code>status</code>, <code>headers</code>, <code>body</code></td>
+      <td>❌</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">assert</code></td>
+      <td>Run an assertion</td>
+      <td><code>assertion</code></td>
+      <td>—</td>
+      <td>✅ (per assertion)</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code class="action-name">keyevent</code></td>
+      <td>Android key code event</td>
+      <td><code>key_code</code></td>
+      <td>—</td>
+      <td>❌</td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+  </tbody>
+</table>

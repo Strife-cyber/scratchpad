@@ -1,0 +1,71 @@
+---
+title: Configuration
+description: Server, CLI, and environment configuration reference
+---
+
+## Server Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHROME_PATH` | auto-detect | Path to Chrome/Chromium executable |
+| `SCRATCHPAD_HEADLESS` | `true` | Run browser in headless mode. Set to `false` to see the browser window |
+| `SCRATCHPAD_VIDEO_DIR` | `./videos` | Directory for screen recording output files |
+| `SCRATCHPAD_TRACE_DIR` | `./traces` | Directory for CDP performance trace files |
+
+### Platform Selection
+
+The server listens on two WebSocket endpoints:
+- `ws://localhost:8080/ws` — Chrome/Chromium browser automation
+- `ws://localhost:8080/ws/android` — Android device automation
+
+Create sessions via the HTTP API with the desired platform:
+```bash
+# Web browser session
+curl -X POST http://localhost:8080/api/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"platform":"web","headless":true}'
+
+# Android session
+curl -X POST http://localhost:8080/api/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"platform":"android"}'
+```
+
+The `-kind` field (`"chrome"` or `"android"`) is an alias for `-platform`.
+
+## CLI Test Runner
+
+The `scratchpad-cli run` command accepts these flags:
+
+```bash
+scratchpad-cli run -i <suite.yml> [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-i` | (required) | Path to YAML or JSON test suite file |
+| `-server` | `http://localhost:8080` | Scratchpad server URL |
+| `-headless` | `true` | Run browser headless |
+| `-platform` | `"web"` | Target platform: `"web"` or `"android"` |
+| `-parallel` | `1` | Maximum parallel suite execution |
+| `-retries` | `0` | Number of retries on suite failure |
+| `-timeout-ms` | `60000` | HTTP timeout per suite in milliseconds |
+| `-format` | `"json"` | Report format: `"json"`, `"junit"`, or `"both"` |
+| `-out` | `""` | JSON report output file path |
+| `-junit-out` | `""` | JUnit XML output file path |
+
+## MCP Bridge
+
+The MCP bridge connects AI agents to Scratchpad via the Model Context Protocol:
+
+```bash
+scratchpad-cli mcp [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--engine-url` | `ws://localhost:8080/ws` | WebSocket engine URL |
+| `--name` | `"Browser-Engine-MCP"` | MCP server name |
+| `--version` | `"1.0.0"` | MCP server version |

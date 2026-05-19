@@ -1,0 +1,239 @@
+---
+title: Element Interaction
+description: All supported action types for interacting with page elements
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Scratchpad supports a wide range of actions. Actions can use **selectors** (CSS, XPath, text, role, test ID, placeholder) or **coordinates** (x, y) depending on the action type.
+
+## Common Actions
+
+### Click
+
+Clicks on an element. Supports selectors or raw coordinates:
+
+```json
+{"action": "click", "selector": {"css": "#submit-btn"}}
+{"action": "click", "x": 100, "y": 200}
+```
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    # Click by CSS selector
+    requests.post(f"http://localhost:8080/api/v1/sessions/{sid}/actions",
+        json={"action": "click", "selector": {"css": "#login-btn"}})
+    # Click by coordinates
+    requests.post(f"http://localhost:8080/api/v1/sessions/{sid}/actions",
+        json={"action": "click", "x": 350, "y": 480})
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    await fetch(`http://localhost:8080/api/v1/sessions/${sid}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "click", selector: { css: "#login-btn" } }),
+    });
+    ```
+  </TabItem>
+  <TabItem label="YAML">
+    ```yaml
+    - click: {selector: {css: "#login-btn"}}
+    ```
+  </TabItem>
+</Tabs>
+
+### Type
+
+Types text into a focused element. Supports selectors:
+
+```json
+{"action": "type", "selector": {"css": "#username"}, "text": "myuser"}
+```
+
+| Platform | Behavior |
+|----------|----------|
+| Chrome | Clicks the element to focus, then dispatches key events for each character |
+| Android | Clicks the element, sends `adb shell input text`, then presses ENTER |
+
+### Scroll
+
+Scrolls the page or a scrollable container:
+
+```json
+{"action": "scroll", "delta_x": 0, "delta_y": 300}
+{"action": "scroll", "selector": {"css": "#scrollable-div"}, "delta_y": 200}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `delta_x` | 0 | Horizontal scroll amount (pixels) |
+| `delta_y` | 0 | Vertical scroll amount (pixels) |
+| `selector` | — | Target scrollable element (optional) |
+
+### Hover
+
+Moves the mouse over an element (Chrome only):
+
+```json
+{"action": "hover", "selector": {"css": ".dropdown-trigger"}}
+```
+
+### Double Click
+
+Sends two click events in succession (Chrome only):
+
+```json
+{"action": "double_click", "selector": {"css": ".list-item"}}
+```
+
+### Right Click
+
+Sends a right-click / context menu event (Chrome only):
+
+```json
+{"action": "right_click", "selector": {"css": ".context-target"}}
+```
+
+## Advanced Actions
+
+### Drag & Drop (Chrome only)
+
+Requires source and target selectors:
+
+```json
+{
+  "action": "drag_drop",
+  "selector": {"css": ".draggable-item"},
+  "target_selector": {"css": ".drop-zone"}
+}
+```
+
+### Select Option (Chrome only)
+
+Selects an option from a `<select>` element:
+
+```json
+{
+  "action": "select_option",
+  "selector": {"css": "#country"},
+  "option_value": "us",
+  "option_text": "United States"
+}
+```
+
+### Press Key Combo (Chrome only)
+
+Sends keyboard shortcuts to the page:
+
+```json
+{
+  "action": "press_key_combo",
+  "key_chord": {"key": "a", "ctrl": true, "shift": false, "alt": false, "meta": false}
+}
+```
+
+### Execute JavaScript (Chrome only)
+
+Runs arbitrary JavaScript in the page context:
+
+```json
+{
+  "action": "execute_js",
+  "js": "document.title"
+}
+```
+
+### Switch to Iframe (Chrome only)
+
+Scopes all subsequent selector lookups to a specific iframe:
+
+```json
+{
+  "action": "switch_to_iframe",
+  "iframe_selector": {"css": "#content-iframe"}
+}
+```
+
+To return to the main page, omit the iframe selector or set it to null.
+
+### Dialog Handling (Chrome only)
+
+```json
+{"action": "accept_dialog"}
+{"action": "dismiss_dialog"}
+```
+
+### Upload File (Chrome only)
+
+Uploads files to a file input element:
+
+```json
+{
+  "action": "upload_file",
+  "selector": {"css": "input[type=file]"},
+  "upload_files": [
+    {"name": "photo.jpg", "content_base64": "/9j/4AAQ..."}
+  ]
+}
+```
+
+### Set Geolocation (Chrome only)
+
+Overrides the browser's geolocation:
+
+```json
+{
+  "action": "set_geolocation",
+  "geolocation": {"latitude": 37.7749, "longitude": -122.4194, "accuracy_m": 10}
+}
+```
+
+### Android Keyevent
+
+Sends a raw Android key event:
+
+```json
+{"action": "keyevent", "key_code": 4}
+```
+
+Common key codes: 3=HOME, 4=BACK, 66=ENTER, 82=MENU, 24=VOLUME_UP, 25=VOLUME_DOWN
+
+## Action Diagnostics
+
+Every action response includes `action_diagnostics`:
+
+```json
+{
+  "action_diagnostics": {
+    "action": "click",
+    "success": true,
+    "error": "",
+    "elapsed_ms": 45
+  }
+}
+```
+
+## Platform Support Summary
+
+| Action | Chrome | Android |
+|--------|--------|---------|
+| click | ✅ | ✅ |
+| type | ✅ | ✅ |
+| scroll | ✅ | ✅ |
+| hover | ✅ | ❌ |
+| double_click | ✅ | ❌ |
+| right_click | ✅ | ❌ |
+| drag_drop | ✅ | ❌ |
+| select_option | ✅ | ❌ |
+| press_key_combo | ✅ | ❌ |
+| execute_js | ✅ | ❌ |
+| scroll_into_view | ✅ | ❌ |
+| switch_to_iframe | ✅ | ❌ |
+| accept/dismiss dialog | ✅ | ❌ |
+| upload_file | ✅ | ❌ |
+| set_geolocation | ✅ | ❌ |
+| assert | ✅ | ✅ |
+| keyevent | ❌ | ✅ |

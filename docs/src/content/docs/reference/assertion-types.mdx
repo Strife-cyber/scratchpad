@@ -1,0 +1,123 @@
+---
+title: Assertions
+description: Complete reference of all assertion types
+---
+
+<table class="ref-table">
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Required Fields</th>
+      <th>Optional Fields</th>
+      <th>Chrome</th>
+      <th>Android</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>element_exists</code></td>
+      <td>Element matching selector exists in DOM</td>
+      <td><code>selector</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code>element_visible</code></td>
+      <td>Element is visible on screen</td>
+      <td><code>selector</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code>element_checked</code></td>
+      <td>Checkbox/radio is checked</td>
+      <td><code>selector</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code>text_equals</code></td>
+      <td>Element text exactly equals expected</td>
+      <td><code>selector</code>, <code>text</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code>text_contains</code></td>
+      <td>Element text contains substring</td>
+      <td><code>selector</code>, <code>text</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code>text_matches</code></td>
+      <td>Element text matches regex pattern</td>
+      <td><code>selector</code>, <code>pattern</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+    </tr>
+    <tr>
+      <td><code>attr_equals</code></td>
+      <td>Attribute value equals expected</td>
+      <td><code>selector</code>, <code>attribute</code>, <code>value</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code>attr_contains</code></td>
+      <td>Attribute value contains substring</td>
+      <td><code>selector</code>, <code>attribute</code>, <code>value</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code>page_title</code></td>
+      <td>Page title matches or contains text</td>
+      <td><code>text</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code>page_url</code></td>
+      <td>Page URL matches value or pattern</td>
+      <td><code>text</code> or <code>pattern</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code>console_error_count</code></td>
+      <td>Number of console errors equals value</td>
+      <td><code>value</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code>network_request_status</code></td>
+      <td>Requests matching URL pattern have expected status</td>
+      <td><code>pattern</code>, <code>value</code></td>
+      <td><code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code>screenshot_matches</code></td>
+      <td>Visual comparison via dHash</td>
+      <td><code>screenshot_base64</code></td>
+      <td><code>screenshot_tolerance</code> (default: 0)</td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+  </tbody>
+</table>

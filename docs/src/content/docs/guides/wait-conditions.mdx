@@ -1,0 +1,99 @@
+---
+title: Wait Conditions
+description: How to wait for page state changes before proceeding
+---
+
+The `wait` action pauses execution until a condition is met or a timeout expires.
+
+## Basic Usage
+
+```json
+{"action": "wait", "condition": "network_idle", "timeout_ms": 10000}
+```
+
+## Wait Conditions
+
+### network_idle (Chrome only)
+
+Waits until no network requests are in-flight. Useful after navigation or before interacting with dynamically loaded content:
+
+```json
+{"action": "wait", "condition": "network_idle"}
+```
+
+### selector_visible
+
+Waits for an element matching the selector to become visible on screen:
+
+```json
+{
+  "action": "wait",
+  "condition": "selector_visible",
+  "selector": {"css": ".content-loaded"}
+}
+```
+
+### selector_hidden
+
+Waits for an element to disappear or become hidden:
+
+```json
+{
+  "action": "wait",
+  "condition": "selector_hidden",
+  "selector": {"css": ".loading-spinner"}
+}
+```
+
+### selector_enabled
+
+Waits for a disabled element to become enabled:
+
+```json
+{
+  "action": "wait",
+  "condition": "selector_enabled",
+  "selector": {"css": "#submit-btn"}
+}
+```
+
+### text_appear
+
+Waits for specific text to appear on the page, optionally scoped to a selector:
+
+```json
+{
+  "action": "wait",
+  "condition": "text_appear",
+  "selector": {"css": ".status-message"},
+  "text": "Success"
+}
+```
+
+### url_match
+
+Waits for the current URL to match a pattern (useful for SPA routing):
+
+```json
+{
+  "action": "wait",
+  "condition": "url_match",
+  "pattern": "/dashboard"
+}
+```
+
+### Timeout Fallback
+
+If no condition is specified, wait acts as a simple sleep:
+
+```json
+{"action": "wait", "timeout_ms": 5000}
+```
+
+## Defaults
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `timeout_ms` | 10000 | Maximum wait time in milliseconds |
+| `condition` | `""` | Wait condition type |
+| Polling interval | ~100ms | How often conditions are re-checked |

@@ -1,0 +1,95 @@
+---
+title: MCP Tools
+description: AI agent integration via Model Context Protocol
+---
+
+Scratchpad includes a built-in MCP (Model Context Protocol) server, allowing AI agents like Claude to control browsers and devices directly.
+
+## Starting the MCP Bridge
+
+```bash
+scratchpad-cli mcp
+
+# Or with a custom engine URL:
+scratchpad-cli mcp --engine-url ws://localhost:8080/ws --name "scratchpad-mcp" --version "1.0.0"
+```
+
+This starts an MCP server over stdio. Configure your AI agent to launch this as an MCP tool.
+
+## Tools
+
+### browser_navigate
+
+Loads a URL in the browser (or launches an Android app):
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | string | Yes | URL to navigate to or Android package name |
+
+**Returns:** ObservationResponse (text description + screenshot)
+
+### browser_observe
+
+Captures the current page state:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| _(none)_ | | | No parameters needed |
+
+**Returns:** Text summary of page state + full JSON + JPEG screenshot as image content.
+
+### browser_action
+
+Executes any action on the current page:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | Action type: `click`, `type`, `scroll`, `wait`, etc. |
+| `selector` | object | No | Element selector (`css`, `xpath`, `text`, `role`, etc.) |
+| `x`, `y` | number | No | Click coordinates |
+| `text` | string | No | Text for type action |
+| `delta_x`, `delta_y` | number | No | Scroll amounts |
+| `timeout_ms` | number | No | Action timeout |
+
+Any field from `ActionRequest` can be passed.
+
+### browser_assert
+
+Verifies page state:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `assertion` | object | Yes | Assertion request (see below) |
+
+**Assertion object:**
+
+```json
+{
+  "type": "text_contains",
+  "selector": {"css": "h1"},
+  "text": "Welcome",
+  "timeout_ms": 5000
+}
+```
+
+## Using with Claude Desktop
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "scratchpad": {
+      "command": "scratchpad-cli",
+      "args": ["mcp", "--engine-url", "ws://localhost:8080/ws"]
+    }
+  }
+}
+```
+
+## Tool Response Structure
+
+Each tool returns an `ObservationResponse` containing:
+- Text description of the page state
+- The full JSON response as a text content block
+- The page screenshot as an image content block (for `browser_observe`)

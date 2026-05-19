@@ -1,0 +1,146 @@
+---
+title: Screenshot Testing
+description: Visual regression testing with perceptual screenshot comparison
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Screenshot testing uses perceptual image comparison (dHash algorithm) to detect visual differences.
+
+## Capturing and Comparing Screenshots
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests, base64
+
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "web"}).json()
+    sid = s["sessionId"]
+    base = f"http://localhost:8080/api/v1/sessions/{sid}"
+
+    # Navigate
+    requests.post(f"{base}/actions",
+        json={"action": {"type": "navigate", "url": "https://example.com"}})
+
+    # Capture baseline screenshot
+    baseline_resp = requests.get(f"{base}/screenshot", params={"format": "png"})
+    baseline_b64 = base64.b64encode(baseline_resp.content).decode()
+
+    # Perform some action that might change the page
+    requests.post(f"{base}/actions",
+        json={"action": "click", "selector": {"css": "a"}})
+
+    # Compare against baseline
+    result = requests.post(f"{base}/screenshot/diff", json={
+        "expected_base64": baseline_b64,
+        "tolerance": 10,
+    }).json()
+
+    print(f"Match: {result['success']}")
+    print(f"Distance: {result.get('distance', 'N/A')}")
+    # Distance = 0 means identical
+    # Higher distance = more visual difference
+
+    requests.delete(f"{base}")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const { sessionId } = await fetch("http://localhost:8080/api/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "web" }),
+    }).then(r => r.json());
+
+    const base = `http://localhost:8080/api/v1/sessions/${sessionId}`;
+    const act = (body: any) =>
+      fetch(`${base}/actions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+    // Navigate and capture baseline
+    await act({ action: { type: "navigate", url: "https://example.com" } });
+    const baselineResp = await fetch(`${base}/screenshot?format=png`);
+    const baselineBuf = await baselineResp.arrayBuffer();
+    const baselineB64 = btoa(String.fromCharCode(...new Uint8Array(baselineBuf)));
+
+    // Click something
+    await act({ action: "click", selector: { css: "a" } });
+
+    // Diff
+    const result = await fetch(`${base}/screenshot/diff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_base64: baselineB64, tolerance: 10 }),
+    }).then(r => r.json());
+
+    console.log(`Match: ${result.success}, distance: ${result.distance}`);
+
+    await fetch(base, { method: "DELETE" });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "bytes" "encoding/base64" "encoding/json" "fmt" "io" "net/http"
+    )
+
+    // Create session
+    body, _ := json.Marshal(map[string]any{"platform": "web"})
+    resp, _ := http.Post("http://localhost:8080/api/v1/sessions",
+        "application/json", bytes.NewReader(body))
+    var s struct{ SessionId string `json:"sessionId"` }
+    json.NewDecoder(resp.Body).Decode(&s); resp.Body.Close()
+
+    // Navigate
+    nav, _ := json.Marshal(map[string]any{
+        "action": map[string]any{"type": "navigate", "url": "https://example.com"},
+    })
+    http.Post(fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s/actions", s.SessionId),
+        "application/json", bytes.NewReader(nav))
+
+    // Capture baseline
+    resp, _ = http.Get(fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s/screenshot?format=png", s.SessionId))
+    pngBytes, _ := io.ReadAll(resp.Body)
+    resp.Body.Close()
+    baselineB64 := base64.StdEncoding.EncodeToString(pngBytes)
+
+    // Diff
+    diffBody, _ := json.Marshal(map[string]any{
+        "expected_base64": baselineB64,
+        "tolerance":       10,
+    })
+    resp, _ = http.Post(
+        fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s/screenshot/diff", s.SessionId),
+        "application/json", bytes.NewReader(diffBody))
+    var result map[string]any
+    json.NewDecoder(resp.Body).Decode(&result); resp.Body.Close()
+    fmt.Printf("Match: %v, distance: %v\n", result["success"], result["distance"])
+    ```
+  </TabItem>
+</Tabs>
+
+## How It Works
+
+The screenshot comparison uses a **dHash (difference hash)** algorithm:
+
+1. Both images are resized to 9×8 pixels and converted to grayscale
+2. Each pixel is compared to its neighbor → 64-bit hash
+3. The **Hamming distance** between the two hashes is the result
+4. Distance `0` = identical; higher values = more differences
+
+## Tolerance Guidelines
+
+| Tolerance | Use Case |
+|-----------|----------|
+| 0 | Exact pixel match (anti-aliasing may cause false failures) |
+| 5-10 | Minor rendering differences (font rendering, OS differences) |
+| 10-20 | Accept slight layout shifts |
+| 20+ | Only catch major visual changes |
+
+## Best Practices
+
+1. **Take baseline screenshots in a controlled environment** (same OS, same fonts)
+2. **Use tolerance** to account for rendering differences
+3. **Store baseline images** alongside your test code
+4. **Review visual diffs manually** when they fail
+5. Screenshot testing complements — does not replace — functional assertions

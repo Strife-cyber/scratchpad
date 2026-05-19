@@ -1,0 +1,151 @@
+---
+title: YAML Suite Format
+description: Complete specification of the YAML/JSON test suite format
+---
+
+## File Formats
+
+Test suites can be written in YAML or JSON. The CLI auto-detects the format from the file extension.
+
+## Suite Structure
+
+### Multiple Named Suites (Array of Objects)
+
+```yaml
+- name: "Login Test"
+  platform: "web"
+  steps:
+    - navigate: "https://example.com/login"
+    - type: {selector: {css: "#username"}, text: "user"}
+    - click: {selector: {css: "#login-btn"}}
+
+- name: "Dashboard Test"
+  steps:
+    - navigate: "https://example.com/dashboard"
+    - assert: {selector: {css: ".stats"}, text: "Loaded", contains: true}
+```
+
+### Single Suite (Flat Step List)
+
+```yaml
+- navigate: "https://example.com"
+- wait: {condition: "network_idle"}
+- click: {selector: {text: "More information"}}
+```
+
+### Single Suite Object
+
+```yaml
+name: "Checkout Flow"
+platform: "android"
+steps:
+  - navigate: "com.example.app"
+  - wait: {condition: "selector_visible", selector: {css: "#welcome"}}
+```
+
+## Step Types
+
+### navigate
+
+```yaml
+- navigate: "https://example.com"
+- navigate: "com.example.app"   # Android package name
+```
+
+Navigates to a URL or launches an Android app.
+
+### wait
+
+```yaml
+- wait: {timeout: 5000}
+- wait: {condition: "network_idle"}
+- wait: {condition: "selector_visible", selector: {css: ".loaded"}}
+- wait: {condition: "selector_hidden", selector: {css: ".spinner"}}
+- wait: {condition: "selector_enabled", selector: {css: "#btn"}}
+- wait: {condition: "text_appear", selector: {css: ".msg"}, text: "Done"}
+- wait: {condition: "url_match", pattern: "/dashboard"}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `condition` | `""` | Wait condition type |
+| `timeout` | `10000` | Timeout in milliseconds |
+| `selector` | — | Element selector |
+| `text` | — | Text to wait for |
+| `pattern` | — | URL pattern to match |
+
+### type
+
+```yaml
+- type: {selector: {css: "#email"}, text: "user@example.com"}
+```
+
+### click
+
+```yaml
+- click: {selector: {css: "#btn"}}
+- click: "#btn"        # String shorthand = CSS selector
+```
+
+### assert
+
+```yaml
+- assert: {selector: {css: "h1"}, text: "Dashboard"}
+- assert: {selector: {css: ".error"}, text: "invalid", contains: true}
+- assert: {selector: {css: ".price"}, text: "\\$[0-9]+", matches: true}
+- assert: {selector: {css: "#loading"}, visible: true}
+- assert: {selector: {css: ".item"}, exists: true}
+- assert: {selector: {css: "#checkbox"}, checked: true}
+```
+
+Boolean fields map to assertion types:
+
+| Field | Maps To |
+|-------|---------|
+| `equals` (default) | `text_equals` |
+| `contains` | `text_contains` |
+| `matches` | `text_matches` |
+| `visible` | `element_visible` |
+| `exists` | `element_exists` |
+| `checked` | `element_checked` |
+
+### observe
+
+```yaml
+- observe: {}
+```
+
+Triggers a full observation without performing an action.
+
+## Running Suites
+
+```bash
+scratchpad-cli run -i suites/login.yml
+scratchpad-cli run -i suites/*.yml -parallel 4 -retries 2
+scratchpad-cli run -i test.json -format junit -junit-out results.xml
+```
+
+## Report Output
+
+### JSON
+
+```json
+{
+  "started_at": "2025-01-01T00:00:00Z",
+  "duration_ms": 4520,
+  "suites": [
+    {
+      "name": "Login Test",
+      "passed": true,
+      "attempts": 1,
+      "duration_ms": 2100,
+      "failure_step": null,
+      "error": ""
+    }
+  ]
+}
+```
+
+### JUnit XML
+
+Standard JUnit XML schema compatible with Jenkins, GitHub Actions, GitLab CI, and other CI/CD tools.

@@ -1,0 +1,93 @@
+---
+title: Checkout Flow
+description: Multi-step e-commerce checkout automation
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This example demonstrates a complete e-commerce checkout with multiple steps, waits, and assertions.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "web"}).json()
+    sid = s["sessionId"]
+    base = f"http://localhost:8080/api/v1/sessions/{sid}/actions"
+
+    def act(body):
+        return requests.post(base, json=body).json()
+
+    # Navigate to store
+    act({"action": {"type": "navigate", "url": "https://shop.example.com"}})
+    act({"action": "wait", "condition": "network_idle"})
+
+    # Add item to cart
+    act({"action": "click", "selector": {"css": ".product-item", "text": "Add to Cart"}})
+    act({"action": "wait", "condition": "selector_visible", "selector": {"css": ".cart-count"}})
+
+    # Go to checkout
+    act({"action": "click", "selector": {"css": "#checkout-btn"}})
+    act({"action": "wait", "condition": "url_match", "pattern": "/checkout"})
+
+    # Fill shipping info
+    act({"action": "type", "selector": {"css": "#address"}, "text": "123 Main St"})
+    act({"action": "type", "selector": {"css": "#city"}, "text": "New York"})
+    act({"action": "click", "selector": {"css": "#continue-btn"}})
+    act({"action": "wait", "condition": "selector_visible", "selector": {"css": ".payment-form"}})
+
+    # Fill payment
+    act({"action": "type", "selector": {"css": "#card-number"}, "text": "4111111111111111"})
+    act({"action": "click", "selector": {"css": "#place-order"}})
+
+    # Assert order confirmation
+    act({"action": "wait", "condition": "selector_visible", "selector": {"css": ".order-confirmation"}})
+    obs = act({
+        "action": "assert",
+        "assertion": {"type": "text_contains", "selector": {"css": "h1"}, "text": "Order Confirmed"},
+    })
+    print(f"Order placed: {obs['assertion_result']['success']}")
+
+    requests.delete(f"http://localhost:8080/api/v1/sessions/{sid}")
+    ```
+  </TabItem>
+  <TabItem label="YAML">
+    ```yaml
+    name: "Checkout Flow"
+    steps:
+      - navigate: "https://shop.example.com"
+      - wait: {condition: "network_idle"}
+
+      # Add to cart
+      - click: {selector: {css: ".product-item", text: "Add to Cart"}}
+      - wait: {condition: "selector_visible", selector: {css: ".cart-count"}}
+
+      # Checkout
+      - click: {selector: {css: "#checkout-btn"}}
+      - wait: {condition: "url_match", pattern: "/checkout"}
+
+      # Shipping
+      - type: {selector: {css: "#address"}, text: "123 Main St"}
+      - type: {selector: {css: "#city"}, text: "New York"}
+      - click: {selector: {css: "#continue-btn"}}
+      - wait: {condition: "selector_visible", selector: {css: ".payment-form"}}
+
+      # Payment
+      - type: {selector: {css: "#card-number"}, text: "4111111111111111"}
+      - click: {selector: {css: "#place-order"}}
+
+      # Confirmation
+      - wait: {condition: "selector_visible", selector: {css: ".order-confirmation"}}
+      - assert: {selector: {css: "h1"}, text: "Order Confirmed", contains: true}
+    ```
+  </TabItem>
+</Tabs>
+
+## Key Takeaways
+
+1. Multi-step flows benefit from **waiting for each section** before proceeding
+2. `url_match` is useful for verifying page transitions
+3. Use **descriptive selectors** (`text` or `css` + `text`) rather than coordinates for fragile flows
+4. Assert the **final state** (order confirmation) rather than intermediate states

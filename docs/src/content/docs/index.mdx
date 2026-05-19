@@ -1,0 +1,86 @@
+---
+title: Scratchpad
+description: Multi-platform UI automation engine for web browsers and Android devices
+template: splash
+
+hero:
+  title: 'Scratchpad'
+  tagline: 'Multi-platform UI automation engine for web browsers and Android devices. Automate anything — from Chrome to Android, from simple clicks to complex flows.'
+  actions:
+    - text: Get Started
+      link: /getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: Quickstart
+      link: /getting-started/quickstart/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/owner/scratchpad
+      icon: external
+---
+
+import { CardGrid, Card } from '@astrojs/starlight/components';
+
+Scratchpad is a unified automation engine that gives you programmatic control over web browsers and Android devices through a single, consistent API.
+
+<CardGrid>
+  <Card title="Chrome DevTools Protocol" icon="open-book">
+    Automate Chrome/Chromium browsers via CDP. Navigate, click, type, scroll, extract DOM, capture screenshots, record video, and trace performance — all through a programmatic interface.
+  </Card>
+  <Card title="Android Automation" icon="setting">
+    Control Android devices via ADB + UIAutomator2. Launch apps, tap, swipe, type text, read UI hierarchies, and capture screenshots on real devices or emulators.
+  </Card>
+  <Card title="Flutter Support" icon="seti: flutter">
+    Automatic detection of Flutter web and Flutter Android apps. Works with Flutter's semantics tree for reliable element targeting.
+  </Card>
+  <Card title="AI Agent Ready" icon="rocket">
+    Built-in MCP (Model Context Protocol) server for seamless integration with AI agents. Claude, custom agents, and any MCP-compatible tool can control your browser.
+  </Card>
+  <Card title="Visual Observation" icon="eye">
+    Rich observation responses include screenshots, spatial accessibility trees, page metadata, console logs, and tree deltas — so you always know what's on screen.
+  </Card>
+  <Card title="YAML Test Runner" icon="list-ordered">
+    Define test suites as YAML files. Run them via CLI with parallel execution, retry handling, and JSON/JUnit reporting.
+  </Card>
+</CardGrid>
+
+## Architecture
+
+Scratchpad exposes a single **Engine** interface (`Navigate → Observe → ExecuteAction → Close`) with platform-specific implementations:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    Scratchpad                        │
+│                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────┐  │
+│  │  Chrome CDP  │  │  Android ADB │  │  Flutter   │  │
+│  │  Engine      │  │  Engine      │  │  Detection │  │
+│  └──────┬───────┘  └──────┬───────┘  └───────────┘  │
+│         │                 │                           │
+│  ┌──────┴─────────────────┴───────┐                   │
+│  │        Engine Interface         │                   │
+│  │  Navigate · Observe · Action   │                   │
+│  └──────────────┬─────────────────┘                   │
+│                 │                                      │
+│  ┌──────────────┴──────────────┐                      │
+│  │     Protocol Layer          │                      │
+│  │  WebSocket · HTTP · MCP    │                      │
+│  └──────────────┬──────────────┘                      │
+└─────────────────┴────────────────────────────────────┘
+                  │
+     ┌────────────┼────────────┐
+     ▼            ▼            ▼
+  WebSocket    HTTP API     MCP (stdio)
+  /ws          /api/v1/     scratchpad-cli mcp
+  /ws/android
+```
+
+## Quick Links
+
+- **[Installation](/getting-started/installation/)** — Install and run Scratchpad
+- **[Quickstart](/getting-started/quickstart/)** — Your first automation in 5 minutes
+- **[WebSocket API](/api/websocket/)** — Real-time automation protocol
+- **[HTTP API](/api/rest-http/)** — RESTful automation endpoints
+- **[MCP Tools](/api/mcp-tools/)** — AI agent integration
+- **[CLI Test Runner](/api/cli-test-runner/)** — YAML-driven testing
+- **[Examples](/examples/basic-click/)** — Code examples in Python, TypeScript, Go

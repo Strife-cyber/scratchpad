@@ -1,0 +1,109 @@
+---
+title: Flutter Testing
+description: Automating Flutter web and Flutter Android apps
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Scratchpad automatically detects Flutter apps and adjusts its automation strategy accordingly.
+
+## Flutter Detection
+
+The `page_info.platform` field indicates the Flutter platform:
+
+| Value | Description |
+|-------|-------------|
+| `"flutter_web"` | Flutter web app running in Chrome |
+| `"flutter_android"` | Flutter Android app |
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    # Detect platform automatically
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "web"}).json()
+    sid = s["sessionId"]
+    base = f"http://localhost:8080/api/v1/sessions/{sid}/actions"
+
+    def act(body):
+        return requests.post(base, json=body).json()
+
+    # Navigate to Flutter web app
+    obs = act({"action": {"type": "navigate", "url": "https://flutter-app.example.com"}})
+
+    # Check platform
+    platform = obs["page_info"]["platform"]
+    print(f"Running on: {platform}")
+
+    if platform == "flutter_web":
+        # Interact with Flutter-generated elements
+        # Flutter web uses canvas or HTML elements depending on renderer
+        act({"action": "wait", "condition": "selector_visible",
+             "selector": {"css": "flt-semantics-placeholder"}, "timeout_ms": 10000})
+
+    # Click by text (works with Flutter semantics)
+    act({"action": "click", "selector": {"text": "Get Started"}})
+
+    # Type into a Flutter text field
+    act({"action": "click", "selector": {"text": "Email"}})
+    act({"action": "type", "text": "user@example.com"})
+
+    # Assert
+    obs = act({
+        "action": "assert",
+        "assertion": {"type": "text_contains", "text": "Welcome"},
+    })
+    print(obs["assertion_result"])
+
+    requests.delete(f"http://localhost:8080/api/v1/sessions/{sid}")
+    ```
+  </TabItem>
+  <TabItem label="Python (Android)">
+    ```python
+    # Flutter Android app automation
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "android"}).json()
+    sid = s["sessionId"]
+    base = f"http://localhost:8080/api/v1/sessions/{sid}/actions"
+
+    def act(body):
+        return requests.post(base, json=body).json()
+
+    obs = act({"action": {"type": "navigate", "url": "com.example.flutter_app"}})
+    print(f"Platform: {obs['page_info']['platform']}")
+
+    # Flutter Android semantics nodes are flattened in the spatial tree
+    for node in obs["spatial_tree"]:
+        print(f"  [{node['role']}] {node['name']}")
+
+    # Interact by semantics label
+    act({"action": "click", "selector": {"text": "Counter"}})
+    ```
+  </TabItem>
+</Tabs>
+
+## Flutter-Specific Considerations
+
+### Flutter Web (Canvas Renderer)
+- Flutter apps using the Canvas renderer produce a single `<flt-scene>` element
+- Traditional CSS selectors may not work — use **text** and **role** selectors instead
+- Flutter's semantics tree provides accessibility data
+
+### Flutter Web (HTML Renderer)
+- Generates standard HTML elements with Flutter-specific attributes
+- CSS selectors like `flt-semantics-placeholder`, `flt-text-editing` may work
+- Better selector support than Canvas renderer
+
+### Flutter Android
+- Detected via `FlutterSemantics` class in the UIAutomator XML
+- Nodes are flattened into a single spatial tree level
+- Each semantics node has `role` (widget type) and `name` (label text)
+
+## Key Takeaways
+
+1. Check `page_info.platform` to know if you're on a Flutter app
+2. Use **text and role selectors** — they work best with Flutter's semantics tree
+3. Flutter Android apps work through the Android engine with `platform: "android"`
+4. Flutter web apps work through the Chrome engine with `platform: "web"`

@@ -1,0 +1,108 @@
+---
+title: Page Navigation
+description: How to load pages and navigate between them
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Web Navigation
+
+Send an `InitializeRequest` with a URL to navigate the browser:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    session = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "web"}).json()
+    sid = session["sessionId"]
+
+    obs = requests.post(
+        f"http://localhost:8080/api/v1/sessions/{sid}/actions",
+        json={"action": {"type": "navigate", "url": "https://example.com"}},
+    ).json()
+
+    print(obs["page_info"]["url"])       # "https://example.com"
+    print(obs["page_info"]["title"])      # "Example Domain"
+    print(obs["page_info"]["load_status"]) # "complete"
+    print(obs["page_info"]["navigation_id"]) # 1
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const { sessionId } = await fetch("http://localhost:8080/api/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "web" }),
+    }).then(r => r.json());
+
+    const obs = await fetch(
+      `http://localhost:8080/api/v1/sessions/${sessionId}/actions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: { type: "navigate", url: "https://example.com" } }),
+      }
+    ).then(r => r.json());
+
+    console.log(obs.page_info.url);    // "https://example.com"
+    console.log(obs.page_info.title);   // "Example Domain"
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "bytes" "encoding/json" "net/http" "fmt"
+    )
+
+    body, _ := json.Marshal(map[string]any{"platform": "web"})
+    resp, _ := http.Post("http://localhost:8080/api/v1/sessions",
+        "application/json", bytes.NewReader(body))
+    var s struct{ SessionId string `json:"sessionId"` }
+    json.NewDecoder(resp.Body).Decode(&s); resp.Body.Close()
+
+    nav, _ := json.Marshal(map[string]any{
+        "action": map[string]any{"type": "navigate", "url": "https://example.com"},
+    })
+    resp, _ = http.Post(
+        fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s/actions", s.SessionId),
+        "application/json", bytes.NewReader(nav))
+    var obs map[string]any
+    json.NewDecoder(resp.Body).Decode(&obs); resp.Body.Close()
+    fmt.Println(obs["page_info"])
+    ```
+  </TabItem>
+</Tabs>
+
+## Android Navigation
+
+On Android, `Navigate` launches an app by package name or opens a URL:
+
+```json
+{
+  "action": {
+    "type": "navigate",
+    "url": "com.example.app"     // Launch app by package name
+  }
+}
+```
+
+If the URL contains `://` it's opened in the browser; otherwise it's treated as an Android package name and launched via `adb shell monkey -p <package> 1`.
+
+## PageInfo Response
+
+Every observation includes a `page_info` field:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | string | Current page URL or Android activity |
+| `title` | string | Page title or screen label |
+| `platform` | string | `"web"`, `"flutter_web"`, `"android"`, `"flutter_android"` |
+| `load_status` | string | `"loading"`, `"interactive"`, `"complete"` |
+| `navigation_id` | int64 | Increments on each URL/activity change |
+| `extra` | object | Platform-specific metadata |
+
+## SPA Navigation
+
+For single-page applications, the engine detects URL changes even without full page loads. Each URL change increments `navigation_id`, making it easy to track client-side routing.

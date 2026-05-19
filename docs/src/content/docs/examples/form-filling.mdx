@@ -1,0 +1,113 @@
+---
+title: Form Filling
+description: Complex form automation with dropdowns and validation
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This example shows how to fill a registration form with various input types and handle validation.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "web"}).json()
+    sid = s["sessionId"]
+    base = f"http://localhost:8080/api/v1/sessions/{sid}/actions"
+
+    def act(body):
+        return requests.post(base, json=body).json()
+
+    # Navigate to registration page
+    act({"action": {"type": "navigate", "url": "https://example.com/register"}})
+    act({"action": "wait", "condition": "network_idle"})
+
+    # Fill form fields
+    act({"action": "type", "selector": {"css": "#full-name"}, "text": "John Doe"})
+    act({"action": "type", "selector": {"css": "#email"}, "text": "john@example.com"})
+
+    # Select from dropdown
+    act({
+        "action": "select_option",
+        "selector": {"css": "#country"},
+        "option_value": "US",
+    })
+
+    # Check a checkbox
+    act({"action": "click", "selector": {"css": "#agree-terms"}})
+
+    # Submit
+    act({"action": "click", "selector": {"css": "button[type='submit']"}})
+
+    # Assert validation (if any)
+    obs = act({
+        "action": "assert",
+        "assertion": {
+            "type": "element_visible",
+            "selector": {css: ".error-message"},
+        },
+    })
+    if obs["assertion_result"]["success"]:
+        print("Validation errors present")
+    else:
+        print("Form submitted successfully")
+
+    requests.delete(f"http://localhost:8080/api/v1/sessions/{sid}")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const { sessionId } = await fetch("http://localhost:8080/api/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "web" }),
+    }).then(r => r.json());
+
+    const act = (body: any) =>
+      fetch(`http://localhost:8080/api/v1/sessions/${sessionId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+
+    await act({ action: { type: "navigate", url: "https://example.com/register" } });
+    await act({ action: "wait", condition: "network_idle" });
+
+    await act({ action: "type", selector: { css: "#full-name" }, text: "John Doe" });
+    await act({ action: "type", selector: { css: "#email" }, text: "john@example.com" });
+    await act({ action: "select_option", selector: { css: "#country" }, option_value: "US" });
+    await act({ action: "click", selector: { css: "#agree-terms" } });
+    await act({ action: "click", selector: { css: "button[type='submit']" } });
+
+    const obs = await act({
+      action: "assert",
+      assertion: { type: "element_visible", selector: { css: ".error-message" } },
+    });
+    console.log(obs.assertion_result.success ? "Errors found" : "Submitted OK");
+
+    await fetch(`http://localhost:8080/api/v1/sessions/${sessionId}`, { method: "DELETE" });
+    ```
+  </TabItem>
+  <TabItem label="YAML">
+    ```yaml
+    name: "Registration Form"
+    steps:
+      - navigate: "https://example.com/register"
+      - wait: {condition: "network_idle"}
+      - type: {selector: {css: "#full-name"}, text: "John Doe"}
+      - type: {selector: {css: "#email"}, text: "john@example.com"}
+      - select_option: {selector: {css: "#country"}, option_value: "US"}
+      - click: {selector: {css: "#agree-terms"}}
+      - click: {selector: {css: "button[type='submit']"}}
+    ```
+  </TabItem>
+</Tabs>
+
+## Key Takeaways
+
+1. `select_option` works with `<select>` elements — use `option_value` or `option_text`
+2. Checkboxes are clicked like any other element
+3. Assert after submission to check for validation errors or success
+4. Scroll inputs into view first if they're below the fold with `scroll_into_view`

@@ -1,0 +1,57 @@
+---
+title: Installation
+description: Install and run Scratchpad on your machine
+---
+
+There are three ways to get Scratchpad running.
+
+## Option 1: Download Pre-built Binary
+
+Download the latest release for your platform from the [releases page](https://github.com/owner/scratchpad/releases).
+
+Extract and run:
+
+```bash
+./scratchpad.exe
+```
+
+## Option 2: Build from Source
+
+**Prerequisites:** Go 1.26+
+
+```bash
+git clone https://github.com/owner/scratchpad.git
+cd scratchpad
+
+# Build the server
+make build
+
+# Build the MCP bridge (optional)
+make build-mcp
+```
+
+## Option 3: Docker
+
+```bash
+docker build -t scratchpad .
+docker run -p 8080:8080 scratchpad
+```
+
+## Verify Installation
+
+Once running, check the health endpoint:
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+Expected response: `ok`
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHROME_PATH` | (auto-detect) | Path to Chrome/Chromium binary |
+| `SCRATCHPAD_HEADLESS` | `true` | Set to `false` for visible browser mode |
+| `SCRATCHPAD_VIDEO_DIR` | `./videos` | Directory for video recordings |
+| `SCRATCHPAD_TRACE_DIR` | `./traces` | Directory for performance traces |

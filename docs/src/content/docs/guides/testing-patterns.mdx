@@ -1,0 +1,136 @@
+---
+title: Testing Patterns
+description: Best practices and patterns for reliable automation
+---
+
+## Session Lifecycle
+
+Always manage session lifecycles explicitly:
+
+```python
+# Good: create, use, delete
+session = create_session()
+try:
+    run_tests(session)
+finally:
+    delete_session(session)
+```
+
+Sessions hold browser or device resources. Leaked sessions will consume memory and processes.
+
+## Post-Action Observation Pattern
+
+After each action, observe the result before taking the next action:
+
+```python
+# Action
+requests.post(f"{base}/sessions/{sid}/actions", json={"action": "click", ...})
+# Then observe
+obs = requests.post(f"{base}/sessions/{sid}/actions",
+    json={"action": {"type": "observe"}}).json()
+# Check assertion_result, spatial_tree changes, etc.
+```
+
+This pattern is built into the WebSocket protocol (actions return observations automatically).
+
+## Retry and Flakiness Handling
+
+Browser automation can be flaky due to network, rendering, or animation timing. Strategies:
+
+### CLI Retries
+
+```bash
+scratchpad-cli run -i test.yml -retries 2
+```
+
+### Manual Retry in Code
+
+```python
+for attempt in range(3):
+    obs = requests.post(f"{base}/sessions/{sid}/actions", ...).json()
+    if obs["assertion_result"]["success"]:
+        break
+```
+
+## Parallel Suite Execution
+
+Run independent test suites in parallel:
+
+```bash
+scratchpad-cli run -i all-tests.yml -parallel 4
+```
+
+Each suite gets its own session. Sessions are isolated and do not share state.
+
+## Combining Selectors with Coordinates
+
+For elements that are hard to target with selectors (e.g., canvas), use coordinates:
+
+```python
+# First, observe to get the spatial tree
+obs = observe(sid)
+# Find the element by role and name
+for node in obs["spatial_tree"]:
+    if node["role"] == "button" and "Submit" in node["name"]:
+        x = node["bounds"]["x"] + node["bounds"]["width"] / 2
+        y = node["bounds"]["y"] + node["bounds"]["height"] / 2
+        click(sid, x, y)
+```
+
+## Delta Observation Optimization
+
+When observing repeatedly, the server can send **deltas** instead of full spatial trees — only the nodes that changed:
+
+```json
+{
+  "type": "delta",
+  "delta": {
+    "added": [...],
+    "removed": ["node_1", "node_2"],
+    "updated": [...]
+  },
+  "page_info": {...}
+}
+```
+
+This reduces bandwidth and processing time for repeated observations.
+
+## CI/CD Integration
+
+```yaml
+# .github/workflows/e2e.yml
+steps:
+  - name: Start Scratchpad
+    run: |
+      ./scratchpad.exe &
+      sleep 2
+      curl --retry 5 --retry-delay 1 http://localhost:8080/healthz
+  - name: Run tests
+    run: scratchpad-cli run -i tests/*.yml -format junit -junit-out results.xml
+  - name: Upload report
+    uses: actions/upload-artifact@v4
+    with:
+      path: results.xml
+```
+
+## YAML Suite Structure Best Practices
+
+```yaml
+name: "Login Flow"
+platform: "web"
+steps:
+  # 1. Navigate and wait for load
+  - navigate: "https://app.example.com/login"
+  - wait: {condition: "network_idle"}
+
+  # 2. Fill credentials using selectors
+  - type: {selector: {css: "#username", testid: "username-field"}, text: "admin"}
+  - type: {selector: {css: "#password"}, text: "P@ssw0rd"}
+
+  # 3. Submit
+  - click: {selector: {css: "#login-btn"}}
+
+  # 4. Assert success
+  - wait: {condition: "selector_visible", selector: {css: ".dashboard"}}
+  - assert: {selector: {css: ".user-name"}, text: "Welcome", contains: true}
+```

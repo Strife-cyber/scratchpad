@@ -1,0 +1,102 @@
+---
+title: Selectors
+description: How element targeting works with the selector system
+---
+
+Selectors let you target elements on the page without needing to know their exact coordinates. The engine resolves selectors using a specificity hierarchy.
+
+## Selector Specificity
+
+Selectors are evaluated in order of specificity. The first matching strategy wins:
+
+1. **CSS** — highest specificity
+2. **XPath**
+3. **Text** — element text content
+4. **Role** — ARIA role
+5. **TestID** — `data-testid` / `data-test-id`
+6. **Placeholder** — lowest specificity
+
+## Selector Types
+
+### CSS Selector
+
+Uses `document.querySelectorAll()`. Supports standard CSS selectors:
+
+```json
+{"selector": {"css": "#submit-btn"}}
+{"selector": {"css": ".nav-item.active"}}
+{"selector": {"css": "form input[type='email']"}}
+{"selector": {"css": "button:contains('Login')"}}
+```
+
+### XPath Selector
+
+Uses `document.evaluate()` for flexible DOM traversal:
+
+```json
+{"selector": {"xpath": "//button[contains(text(),'Submit')]"}
+{"selector": {"xpath": "//div[@class='content']//a[2]"}
+```
+
+### Text Selector
+
+Matches elements containing the given text:
+
+```json
+{"selector": {"text": "Sign In"}}
+{"selector": {"text": "Welcome back, John"}}
+```
+
+### Role Selector
+
+Matches elements by ARIA role or aria-label attribute:
+
+```json
+{"selector": {"role": "button"}}
+{"selector": {"role": "dialog"}}
+{"selector": {"role": "search"}}
+```
+
+### TestID Selector
+
+Matches elements with `data-testid` or `data-test-id` attributes:
+
+```json
+{"selector": {"testid": "checkout-button"}}
+```
+
+### Placeholder Selector
+
+Matches input elements by their `placeholder` attribute:
+
+```json
+{"selector": {"placeholder": "Enter your email"}}
+```
+
+## Combining Selectors
+
+You can include multiple fields in a single selector. The engine tries each in specificity order until one matches:
+
+```json
+{
+  "selector": {
+    "css": "#login-form",
+    "text": "Sign In",
+    "role": "button"
+  }
+}
+```
+
+## Android Selector Translation
+
+On Android, CSS-like selectors are translated to UIAutomator node property matching:
+
+| Selector | Android Behavior |
+|----------|-----------------|
+| `css` starts with `#` | Matches node **name** by substring |
+| `css` starts with `.` | Matches node **class/role** by substring |
+| `css` plain text | Matches node **name** by substring |
+| `text` | Case-insensitive name substring match |
+| `role` | Case-insensitive class substring match |
+| `testid` | Content-desc substring match |
+| `placeholder` | Content-desc substring match |

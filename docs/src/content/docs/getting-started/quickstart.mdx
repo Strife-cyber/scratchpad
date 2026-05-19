@@ -1,0 +1,245 @@
+---
+title: Quickstart
+description: Get your first automation running in 5 minutes
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide walks through the core automation loop: **start the server → create a session → navigate → observe → take an action → clean up**.
+
+You'll find code examples in Python, TypeScript, and Go.
+
+## 1. Start the Server
+
+```bash
+./scratchpad.exe
+```
+
+The server starts on `http://localhost:8080`. Verify with `curl http://localhost:8080/healthz`.
+
+## 2. Create a Session
+
+HTTP requests go to `http://localhost:8080/api/v1/`. Start by creating a browser session:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    resp = requests.post("http://localhost:8080/api/v1/sessions", json={
+        "platform": "web",
+        "headless": True,
+    })
+    session = resp.json()
+    session_id = session["sessionId"]
+    print(f"Session: {session_id}")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const resp = await fetch("http://localhost:8080/api/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "web", headless: true }),
+    });
+    const { sessionId } = await resp.json();
+    console.log(`Session: ${sessionId}`);
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    body, _ := json.Marshal(map[string]any{
+        "platform": "web",
+        "headless": true,
+    })
+    resp, _ := http.Post("http://localhost:8080/api/v1/sessions",
+        "application/json", bytes.NewReader(body))
+    defer resp.Body.Close()
+    var result struct{ SessionId string `json:"sessionId"` }
+    json.NewDecoder(resp.Body).Decode(&result)
+    fmt.Println("Session:", result.SessionId)
+    ```
+  </TabItem>
+</Tabs>
+
+## 3. Navigate to a Page
+
+Use the typed action envelope to navigate:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    resp = requests.post(
+        f"http://localhost:8080/api/v1/sessions/{session_id}/actions",
+        json={"action": {"type": "navigate", "url": "https://example.com"}},
+    )
+    obs = resp.json()
+    print(obs["page_info"]["title"])
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const resp = await fetch(
+      `http://localhost:8080/api/v1/sessions/${sessionId}/actions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: { type: "navigate", url: "https://example.com" } }),
+      }
+    );
+    const obs = await resp.json();
+    console.log(obs.page_info.title);
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    navigateReq, _ := json.Marshal(map[string]any{
+        "action": map[string]any{
+            "type": "navigate",
+            "url":  "https://example.com",
+        },
+    })
+    url := fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s/actions", sessionId)
+    resp, _ = http.Post(url, "application/json", bytes.NewReader(navigateReq))
+    var obs map[string]any
+    json.NewDecoder(resp.Body).Decode(&obs)
+    resp.Body.Close()
+    fmt.Println(obs["page_info"].(map[string]any)["title"])
+    ```
+  </TabItem>
+</Tabs>
+
+## 4. Observe the Page
+
+To get a fresh observation (screenshot + spatial tree + page info), send an observe action:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    resp = requests.post(
+        f"http://localhost:8080/api/v1/sessions/{session_id}/actions",
+        json={"action": {"type": "observe"}},
+    )
+    obs = resp.json()
+    # obs["visual"] — base64 JPEG screenshot
+    # obs["spatial_tree"] — interactive elements on the page
+    # obs["page_info"] — URL, title, platform, load status
+    print(f"URL: {obs['page_info']['url']}")
+    print(f"Elements: {len(obs['spatial_tree'])}")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const resp = await fetch(
+      `http://localhost:8080/api/v1/sessions/${sessionId}/actions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: { type: "observe" } }),
+      }
+    );
+    const obs = await resp.json();
+    console.log(`URL: ${obs.page_info.url}`);
+    console.log(`Elements: ${obs.spatial_tree.length}`);
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    observeReq, _ := json.Marshal(map[string]any{
+        "action": map[string]any{"type": "observe"},
+    })
+    resp, _ = http.Post(url, "application/json", bytes.NewReader(observeReq))
+    var obs map[string]any
+    json.NewDecoder(resp.Body).Decode(&obs)
+    resp.Body.Close()
+    spatialTree := obs["spatial_tree"].([]any)
+    fmt.Printf("Elements: %d\n", len(spatialTree))
+    ```
+  </TabItem>
+</Tabs>
+
+## 5. Perform an Action
+
+Click on an element using its coordinates from the spatial tree, or use a CSS selector:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    requests.post(
+        f"http://localhost:8080/api/v1/sessions/{session_id}/actions",
+        json={"action": {"type": "click", "x": 100, "y": 200}},
+    )
+    # Or with a selector:
+    requests.post(
+        f"http://localhost:8080/api/v1/sessions/{session_id}/actions",
+        json={
+            "action": "click",
+            "selector": {"css": "a[href*='more']"},
+        },
+    )
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    await fetch(`http://localhost:8080/api/v1/sessions/${sessionId}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "click",
+        selector: { css: "a[href*='more']" },
+      }),
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    clickReq, _ := json.Marshal(map[string]any{
+        "action":   "click",
+        "selector": map[string]any{"css": "a[href*='more']"},
+    })
+    http.Post(url, "application/json", bytes.NewReader(clickReq))
+    ```
+  </TabItem>
+</Tabs>
+
+## 6. Clean Up
+
+Always delete sessions when done:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    requests.delete(f"http://localhost:8080/api/v1/sessions/{session_id}")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    await fetch(`http://localhost:8080/api/v1/sessions/${sessionId}`, {
+      method: "DELETE",
+    });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    delReq, _ := http.NewRequest("DELETE",
+        fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s", sessionId), nil)
+    http.DefaultClient.Do(delReq)
+    ```
+  </TabItem>
+</Tabs>
+
+## Using the YAML Test Runner
+
+For batch testing, define your automation as a YAML file and run it with the CLI:
+
+```yaml
+# test.yml
+- navigate: "https://example.com"
+- observe: {}
+- click: {css: "a"}
+- assert: {selector: {css: "h1"}, text: "New page", contains: true}
+```
+
+```bash
+scratchpad-cli run -i test.yml
+```

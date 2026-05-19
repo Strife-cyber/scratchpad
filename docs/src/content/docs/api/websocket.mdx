@@ -1,0 +1,146 @@
+---
+title: WebSocket API
+description: Real-time automation via WebSocket protocol
+---
+
+The WebSocket API provides real-time, persistent connection automation. Each connection creates an isolated session.
+
+## Endpoints
+
+| Path | Engine | Description |
+|------|--------|-------------|
+| `ws://localhost:8080/ws` | Chrome | Browser automation |
+| `ws://localhost:8080/ws/android` | Android | Device automation |
+
+## Protocol Flow
+
+```
+Client                          Server
+  │                               │
+  │────  Connect  ───────────────>│
+  │<─── {"sessionId":"..."} ─────│
+  │                               │
+  │──── InitializeRequest ───────>│
+  │<─── ObservationResponse ─────│
+  │                               │
+  │──── ActionRequest ───────────>│
+  │<─── ObservationResponse ─────│
+  │                               │
+  │──── {} (observe only) ───────>│
+  │<─── ObservationResponse ─────│
+  │                               │
+  │──── Disconnect ──────────────>│
+```
+
+## Message Types
+
+### InitializeRequest
+
+Sent first to navigate to a URL or launch an app:
+
+```json
+{
+  "url": "https://example.com",
+  "viewport": {"width": 1280, "height": 720}
+}
+```
+
+### ActionRequest
+
+Sent to perform an action:
+
+```json
+{
+  "action": "click",
+  "selector": {"css": "#submit-btn"},
+  "timeout_ms": 10000
+}
+```
+
+### Empty Message
+
+Send an empty JSON object `{}` to trigger an observation without performing an action.
+
+## Response: ObservationResponse
+
+```json
+{
+  "type": "observation",
+  "system_state": {
+    "document_status": "interactive",
+    "inflight_requests": 0
+  },
+  "viewport": {"width": 1280, "height": 720},
+  "visual": "<base64 JPEG>",
+  "spatial_tree": [
+    {
+      "node_id": "n1",
+      "role": "button",
+      "name": "Submit",
+      "bounds": {"x": 100, "y": 200, "width": 80, "height": 32},
+      "scroll_state": {"can_scroll_down": false, "can_scroll_up": false, "current_percentage": 0},
+      "children": []
+    }
+  ],
+  "page_info": {
+    "url": "https://example.com",
+    "title": "Example Domain",
+    "platform": "web",
+    "load_status": "complete",
+    "navigation_id": 1
+  },
+  "assertion_result": null,
+  "action_diagnostics": null,
+  "logs": null
+}
+```
+
+## Delta Optimization
+
+Repeated observations can return **deltas** instead of full spatial trees to reduce bandwidth:
+
+```json
+{
+  "type": "delta",
+  "delta": {
+    "added": [{"node_id": "n3", "role": "dialog", ...}],
+    "removed": ["n1"],
+    "updated": [{"node_id": "n2", "role": "button", "name": "Updated Text", ...}]
+  },
+  "page_info": {...},
+  "system_state": {...},
+  "visual": "<base64 JPEG>"
+}
+```
+
+When `type` is `"delta"`, `spatial_tree` is omitted and `delta` contains only the changes.
+
+## Python Example
+
+```python
+import json
+import websockets
+
+async def automate():
+    async with websockets.connect("ws://localhost:8080/ws") as ws:
+        # Receive session ID
+        handshake = json.loads(await ws.recv())
+        print(f"Session: {handshake['sessionId']}")
+
+        # Navigate
+        await ws.send(json.dumps({"url": "https://example.com", "viewport": {"width": 1280, "height": 720}}))
+        obs = json.loads(await ws.recv())
+        print(f"Title: {obs['page_info']['title']}")
+
+        # Click
+        await ws.send(json.dumps({"action": "click", "x": 100, "y": 200}))
+        obs = json.loads(await ws.recv())
+
+        # Observe only
+        await ws.send(json.dumps({}))
+        obs = json.loads(await ws.recv())
+```
+
+## Error Handling
+
+If an action fails, the WebSocket returns a response with `action_diagnostics.success: false` and an error message in `action_diagnostics.error`. The connection remains open for further commands.

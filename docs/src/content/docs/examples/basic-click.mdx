@@ -1,0 +1,109 @@
+---
+title: Basic Click
+description: Navigate to a page, wait for an element, and click it
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This example demonstrates the core automation pattern: navigate → observe → click → verify.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    # Create session
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "web"}).json()
+    sid = s["sessionId"]
+
+    # Navigate
+    requests.post(f"http://localhost:8080/api/v1/sessions/{sid}/actions",
+        json={"action": {"type": "navigate", "url": "https://example.com"}})
+
+    # Wait for content to load
+    requests.post(f"http://localhost:8080/api/v1/sessions/{sid}/actions",
+        json={"action": "wait", "condition": "selector_visible", "selector": {"css": "h1"}})
+
+    # Click the "More information" link by its text
+    obs = requests.post(f"http://localhost:8080/api/v1/sessions/{sid}/actions",
+        json={"action": "click", "selector": {"text": "More information"}}).json()
+
+    print(f"Click success: {obs['action_diagnostics']['success']}")
+    print(f"New page: {obs['page_info']['url']}")
+
+    # Clean up
+    requests.delete(f"http://localhost:8080/api/v1/sessions/{sid}")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    // Create session
+    const { sessionId } = await fetch("http://localhost:8080/api/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "web" }),
+    }).then(r => r.json());
+
+    const base = `http://localhost:8080/api/v1/sessions/${sessionId}`;
+    const act = (body: any) =>
+      fetch(`${base}/actions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+    // Navigate
+    await act({ action: { type: "navigate", url: "https://example.com" } });
+    // Wait for h1
+    await act({ action: "wait", condition: "selector_visible", selector: { css: "h1" } });
+    // Click
+    const obs = await act({ action: "click", selector: { text: "More information" } }).then(r => r.json());
+    console.log(`New URL: ${obs.page_info.url}`);
+
+    // Clean up
+    await fetch(base, { method: "DELETE" });
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```go
+    import (
+        "bytes" "encoding/json" "fmt" "net/http"
+    )
+
+    // Create session
+    body, _ := json.Marshal(map[string]any{"platform": "web"})
+    resp, _ := http.Post("http://localhost:8080/api/v1/sessions",
+        "application/json", bytes.NewReader(body))
+    var s struct{ SessionId string `json:"sessionId"` }
+    json.NewDecoder(resp.Body).Decode(&s); resp.Body.Close()
+
+    url := fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s/actions", s.SessionId)
+    post := func(v any) {
+        b, _ := json.Marshal(v)
+        http.Post(url, "application/json", bytes.NewReader(b))
+    }
+
+    // Navigate
+    post(map[string]any{
+        "action": map[string]any{"type": "navigate", "url": "https://example.com"},
+    })
+
+    // Click
+    post(map[string]any{
+        "action":   "click",
+        "selector": map[string]any{"text": "More information"},
+    })
+    ```
+  </TabItem>
+  <TabItem label="YAML">
+    ```yaml
+    - navigate: "https://example.com"
+    - wait: {condition: "selector_visible", selector: {css: "h1"}}
+    - click: {selector: {text: "More information"}}
+    ```
+  </TabItem>
+</Tabs>
+
+## Key Takeaways
+
+1. Always **wait** for elements before interacting with them
+2. Use **selectors** (text, CSS) instead of coordinates for more reliable clicks
+3. The `action_diagnostics` field in the response confirms the action succeeded
+4. Always **delete sessions** when done to free resources

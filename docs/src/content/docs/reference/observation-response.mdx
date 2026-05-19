@@ -1,0 +1,129 @@
+---
+title: Observation Response
+description: Complete JSON schema of the ObservationResponse
+---
+
+Every `Observe()` call returns an `ObservationResponse`. Here is the full schema:
+
+```json
+{
+  "type": "observation | delta",
+  "system_state": {
+    "document_status": "loading | interactive | complete",
+    "inflight_requests": 0
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "visual": "<base64-encoded JPEG screenshot>",
+  "spatial_tree": [
+    {
+      "node_id": "n42",
+      "role": "button",
+      "name": "Submit",
+      "bounds": {
+        "x": 100.5,
+        "y": 200.3,
+        "width": 80,
+        "height": 32
+      },
+      "scroll_state": {
+        "can_scroll_down": false,
+        "can_scroll_up": false,
+        "current_percentage": 0
+      },
+      "children": []
+    }
+  ],
+  "page_info": {
+    "url": "https://example.com",
+    "title": "Example Domain",
+    "platform": "web | flutter_web | android | flutter_android",
+    "load_status": "loading | interactive | complete",
+    "navigation_id": 1,
+    "extra": {}
+  }
+}
+```
+
+## Top-Level Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | `"observation"` for full tree, `"delta"` for incremental |
+| `system_state` | object | Document status and network activity |
+| `viewport` | object | Current viewport dimensions |
+| `visual` | string | Base64-encoded JPEG screenshot |
+| `spatial_tree` | array | Interactive nodes when `type` is `"observation"` |
+| `delta` | object | Tree changes when `type` is `"delta"` |
+| `page_info` | object | URL, title, platform, load status |
+| `assertion_result` | object | Result of the last assertion (or null) |
+| `action_diagnostics` | object | Result of the last action (or null) |
+| `logs` | array | Console log entries since last observation |
+
+## SystemState
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `document_status` | string | `"loading"`, `"interactive"`, or `"complete"` |
+| `inflight_requests` | int | Number of active network requests |
+
+## SpatialNode
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `node_id` | string | Unique node identifier |
+| `role` | string | ARIA role (Chrome) or class name (Android) |
+| `name` | string | Text label or description |
+| `bounds` | object | Position and size: `x`, `y`, `width`, `height` (all float64) |
+| `scroll_state` | object | `can_scroll_down`, `can_scroll_up`, `current_percentage` |
+| `children` | array | Nested child nodes |
+
+## TreeDelta
+
+Present when `type` is `"delta"`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `added` | SpatialNode[] | New nodes |
+| `removed` | string[] | Node IDs of removed nodes |
+| `updated` | SpatialNode[] | Nodes with changed properties |
+
+## PageInfo
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | string | Current URL or Android activity |
+| `title` | string | Page title or screen label |
+| `platform` | string | One of: `"web"`, `"flutter_web"`, `"android"`, `"flutter_android"` |
+| `load_status` | string | `"loading"`, `"interactive"`, or `"complete"` |
+| `navigation_id` | int64 | Increments on each URL/activity change |
+| `extra` | object | Platform-specific metadata |
+
+## AssertionResult
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | bool | Whether the assertion passed |
+| `type` | string | The assertion type that ran |
+| `message` | string | Human-readable result |
+| `elapsed_ms` | int64 | Evaluation time |
+| `extra` | object | Type-specific data |
+
+## ActionDiagnostics
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `action` | string | The action that was executed |
+| `success` | bool | Whether the action succeeded |
+| `error` | string | Error message (empty on success) |
+| `elapsed_ms` | int64 | Execution time |
+
+## ConsoleLog
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `level` | string | `"log"`, `"error"`, `"warn"`, `"info"`, `"debug"` |
+| `message` | string | Log message text |
+| `timestamp` | int64 | Epoch timestamp |

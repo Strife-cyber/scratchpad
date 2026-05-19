@@ -1,0 +1,108 @@
+---
+title: Login Flow
+description: End-to-end login form automation with assertions
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This example demonstrates filling a login form, submitting it, and verifying the result.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "web"}).json()
+    sid = s["sessionId"]
+    base = f"http://localhost:8080/api/v1/sessions/{sid}/actions"
+
+    def act(body):
+        return requests.post(base, json=body).json()
+
+    # Navigate to login page
+    act({"action": {"type": "navigate", "url": "https://example.com/login"}})
+    act({"action": "wait", "condition": "network_idle"})
+
+    # Fill username
+    act({"action": "type", "selector": {"css": "#username"}, "text": "admin"})
+    # Fill password
+    act({"action": "type", "selector": {"css": "#password"}, "text": "P@ssw0rd!"})
+    # Click login button
+    act({"action": "click", "selector": {"css": "#login-btn"}})
+
+    # Wait for redirect and assert welcome message
+    act({"action": "wait", "condition": "url_match", "pattern": "/dashboard"})
+    obs = act({
+        "action": "assert",
+        "assertion": {
+            "type": "text_contains",
+            "selector": {"css": ".welcome"},
+            "text": "Welcome",
+        },
+    })
+
+    assert obs["assertion_result"]["success"], "Login failed!"
+    print("Login successful")
+
+    requests.delete(f"http://localhost:8080/api/v1/sessions/{sid}")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const { sessionId } = await fetch("http://localhost:8080/api/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "web" }),
+    }).then(r => r.json());
+
+    const act = (body: any) =>
+      fetch(`http://localhost:8080/api/v1/sessions/${sessionId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+
+    // Navigate to login
+    await act({ action: { type: "navigate", url: "https://example.com/login" } });
+    await act({ action: "wait", condition: "network_idle" });
+
+    // Fill credentials
+    await act({ action: "type", selector: { css: "#username" }, text: "admin" });
+    await act({ action: "type", selector: { css: "#password" }, text: "P@ssw0rd!" });
+
+    // Submit
+    await act({ action: "click", selector: { css: "#login-btn" } });
+    await act({ action: "wait", condition: "url_match", pattern: "/dashboard" });
+
+    // Assert
+    const obs = await act({
+      action: "assert",
+      assertion: { type: "text_contains", selector: { css: ".welcome" }, text: "Welcome" },
+    });
+    console.log(obs.assertion_result.success ? "Login OK" : "Login FAILED");
+
+    await fetch(`http://localhost:8080/api/v1/sessions/${sessionId}`, { method: "DELETE" });
+    ```
+  </TabItem>
+  <TabItem label="YAML">
+    ```yaml
+    name: "Login Flow"
+    steps:
+      - navigate: "https://example.com/login"
+      - wait: {condition: "network_idle"}
+      - type: {selector: {css: "#username"}, text: "admin"}
+      - type: {selector: {css: "#password"}, text: "P@ssw0rd!"}
+      - click: {selector: {css: "#login-btn"}}
+      - wait: {condition: "url_match", pattern: "/dashboard"}
+      - assert: {selector: {css: ".welcome"}, text: "Welcome", contains: true}
+    ```
+  </TabItem>
+</Tabs>
+
+## Key Takeaways
+
+1. **Type actions** simulate real keyboard input — use them for form fields
+2. The `url_match` wait is ideal for SPA redirect handling
+3. **Assertions verify state** — always assert after critical flows
+4. The YAML version is equivalent and more concise for CI/CD

@@ -1,0 +1,138 @@
+---
+title: HTTP REST API
+description: RESTful automation via HTTP endpoints
+---
+
+The HTTP API provides RESTful access to all Scratchpad features. All endpoints are under `http://localhost:8080`.
+
+## Session Management
+
+### Create Session
+
+```
+POST /api/v1/sessions
+```
+
+```json
+{"platform": "web", "headless": true}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `platform` | string | `"web"` | `"web"` or `"android"` |
+| `headless` | bool | `true` | Run browser headless |
+| `kind` | string | — | Alias for platform: `"chrome"` or `"android"` |
+
+Response: `{"sessionId":"uuid"}`
+
+### Delete Session
+
+```
+DELETE /api/v1/sessions/{id}
+```
+
+Response: `204 No Content`
+
+## Actions
+
+### Execute Action
+
+```
+POST /api/v1/sessions/{id}/actions
+```
+
+Accepts three payload formats:
+
+**Format 1: Typed action envelope**
+
+```json
+{"action": {"type": "navigate", "url": "https://example.com"}}
+{"action": {"type": "observe"}}
+{"action": {"type": "click", "selector": {"css": "#btn"}}}
+```
+
+**Format 2: Raw InitializeRequest**
+
+```json
+{"url": "https://example.com", "viewport": {"width": 1280, "height": 720}}
+```
+
+**Format 3: Raw ActionRequest**
+
+```json
+{"action": "click", "selector": {"css": "#btn"}, "timeout_ms": 5000}
+```
+
+## Observability
+
+### Screenshot
+
+```
+GET /api/v1/sessions/{id}/screenshot?format=png&fullPage=true
+```
+
+Returns the screenshot image binary. `format`: `png` or `jpeg` (default). `fullPage`: capture entire page, not just viewport.
+
+### Screenshot Diff
+
+```
+POST /api/v1/sessions/{id}/screenshot/diff
+```
+
+```json
+{"expected_base64": "<base64 PNG/JPEG>", "tolerance": 10}
+```
+
+Returns `{"success": true, "distance": 3, "message": "..."}`.
+
+### DOM Snapshot (Chrome only)
+
+```
+GET /api/v1/sessions/{id}/dom
+```
+
+Returns outer HTML of the page as plain text.
+
+### Console Logs
+
+```
+GET /api/v1/sessions/{id}/console?limit=50
+```
+
+Returns JSON array of console log entries.
+
+### HAR Export (Chrome only)
+
+```
+GET /api/v1/sessions/{id}/har
+```
+
+Returns HAR 1.2 JSON of all network requests.
+
+### Video Recording
+
+```
+POST /api/v1/sessions/{id}/recording/start
+POST /api/v1/sessions/{id}/recording/stop
+```
+
+`start` body: `{"dir": "./videos"}` → `{"outputPath": "..."}`
+`stop` returns: WebM video binary + `X-Output-Path` header
+
+### Performance Tracing
+
+```
+POST /api/v1/sessions/{id}/tracing/start
+POST /api/v1/sessions/{id}/tracing/stop
+```
+
+`start` body: `{"dir": "./traces"}` → `{"outputPath": "..."}`
+`stop` returns: gzipped JSON trace + `X-Output-Path` header
+
+## Health Check
+
+```
+GET /healthz
+```
+
+Response: `ok`

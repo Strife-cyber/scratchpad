@@ -1,0 +1,98 @@
+---
+title: Multi-Platform
+description: Platform detection and platform-specific features
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Scratchpad automatically detects the platform of the current page or screen and reports it in every observation's `page_info.platform` field.
+
+## Platform Detection
+
+| Value | Description | Detection Method |
+|-------|-------------|-----------------|
+| `"web"` | Standard web page in Chrome | CDP page events |
+| `"flutter_web"` | Flutter web app in Chrome | `__flutter_web_trigger` global variable |
+| `"android"` | Android native app | ADB + UIAutomator2 |
+| `"flutter_android"` | Flutter Android app | FlutterSemantics in UIAutomator tree |
+
+### Reading the Platform
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    obs = requests.post(
+        f"http://localhost:8080/api/v1/sessions/{sid}/actions",
+        json={"action": {"type": "observe"}},
+    ).json()
+    platform = obs["page_info"]["platform"]
+    print(f"Running on: {platform}")
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const obs = await fetch(`http://localhost:8080/api/v1/sessions/${sid}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: { type: "observe" } }),
+    }).then(r => r.json());
+    console.log(`Running on: ${obs.page_info.platform}`);
+    ```
+  </TabItem>
+</Tabs>
+
+## Platform-Specific Features
+
+### Chrome Only
+
+| Feature | Endpoint / Action | Description |
+|---------|------------------|-------------|
+| Network tracking | automatic | Captures all network requests during session |
+| Console capture | `GET /api/v1/sessions/{id}/console` | Captured browser console logs |
+| CDP Performance tracing | `POST /tracing/start` & `/stop` | Chrome DevTools Protocol trace |
+| Video recording | `POST /recording/start` & `/stop` | Screen recording via screencast |
+| HAR export | `GET /api/v1/sessions/{id}/har` | HTTP Archive format 1.2 |
+| DOM snapshot | `GET /api/v1/sessions/{id}/dom` | Full outerHTML of the document |
+| Screenshot diff | `POST /api/v1/sessions/{id}/screenshot/diff` | Perceptual image comparison |
+
+### Android Only
+
+| Feature | Description |
+|---------|-------------|
+| UIAutomator2 XML parsing | Reads Android UI hierarchy as spatial tree |
+| `keyevent` action | Sends raw Android key codes (HOME, BACK, etc.) |
+| App launch | Launches apps by package name via `monkey` |
+| ADB input | Tap and type via `adb shell input` |
+
+## Feature Comparison
+
+| Capability | Chrome | Android |
+|------------|--------|---------|
+| Click by selector | ✅ | ✅ |
+| Click by coordinates | ✅ | ✅ |
+| Type text | ✅ | ✅ |
+| Scroll | ✅ | ✅ |
+| Assert element exists | ✅ | ✅ |
+| Assert element visible | ✅ | ✅ |
+| Assert text equals | ✅ | ✅ |
+| Assert text contains | ✅ | ✅ |
+| Assert text matches (regex) | ✅ | ✅ |
+| Assert element checked | ✅ | ❌ |
+| Wait network_idle | ✅ | ❌ |
+| Hover | ✅ | ❌ |
+| JavaScript execution | ✅ | ❌ |
+| Screenshot capture | ✅ | ✅ |
+| Spatial tree observation | ✅ | ✅ |
+| Page metadata | ✅ | ✅ |
+
+## Flutter-Specific Considerations
+
+For **Flutter web** apps on Chrome:
+- Detected automatically via `window.__flutter_web_trigger`
+- Interact with Flutter-generated elements using CSS selectors
+- Flutter's custom rendering may have different semantics than standard HTML
+
+For **Flutter Android** apps:
+- Detected via `FlutterSemantics` class in the UIAutomator tree
+- Elements follow Flutter's semantics hierarchy
+- Use text and role selectors for Flutter widgets

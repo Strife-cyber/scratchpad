@@ -1,0 +1,151 @@
+---
+title: Debugging
+description: Observability and debugging features
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Scratchpad provides several observability features to help debug automation scripts.
+
+## Screenshots
+
+Capture what the browser or device sees at any moment:
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    # Get screenshot as PNG
+    resp = requests.get(
+        f"http://localhost:8080/api/v1/sessions/{sid}/screenshot",
+        params={"format": "png"},
+    )
+    with open("screenshot.png", "wb") as f:
+        f.write(resp.content)
+    ```
+  </TabItem>
+  <TabItem label="TypeScript">
+    ```typescript
+    const resp = await fetch(
+      `http://localhost:8080/api/v1/sessions/${sid}/screenshot?format=png`
+    );
+    const buffer = await resp.arrayBuffer();
+    // Save buffer to file or display
+    ```
+  </TabItem>
+</Tabs>
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `format` | `jpeg` | `png` or `jpeg` |
+| `fullPage` | `false` | Capture full page (not just viewport) |
+
+## Screenshot Comparison
+
+Compare screenshots for visual regression testing:
+
+```python
+# Capture a baseline screenshot
+baseline_resp = requests.get(
+    f"http://localhost:8080/api/v1/sessions/{sid}/screenshot",
+)
+baseline_b64 = base64.b64encode(baseline_resp.content).decode()
+
+# Later, compare against it
+result = requests.post(
+    f"http://localhost:8080/api/v1/sessions/{sid}/screenshot/diff",
+    json={"expected_base64": baseline_b64, "tolerance": 10},
+).json()
+print(result["success"])  # True if within tolerance
+```
+
+## Console Logs
+
+Access browser console logs:
+
+```bash
+curl "http://localhost:8080/api/v1/sessions/{sid}/console?limit=50"
+```
+
+```json
+[
+  {"level": "error", "message": "Failed to load resource", "timestamp": 1700000000},
+  {"level": "log", "message": "App initialized", "timestamp": 1700000001}
+]
+```
+
+## DOM Snapshot
+
+Get the full outerHTML of the current page (Chrome only):
+
+```bash
+curl "http://localhost:8080/api/v1/sessions/{sid}/dom"
+```
+
+## HAR Export
+
+Export all network requests in HTTP Archive (HAR) format (Chrome only):
+
+```bash
+curl "http://localhost:8080/api/v1/sessions/{sid}/har"
+```
+
+## Video Recording
+
+Record the browser viewport as a video:
+
+```python
+# Start recording
+resp = requests.post(
+    f"http://localhost:8080/api/v1/sessions/{sid}/recording/start",
+    json={"dir": "./videos"},
+)
+path = resp.json()["outputPath"]
+
+# ... run your automation ...
+
+# Stop recording
+resp = requests.post(
+    f"http://localhost:8080/api/v1/sessions/{sid}/recording/stop",
+)
+with open("recording.webm", "wb") as f:
+    f.write(resp.content)
+```
+
+## Performance Tracing
+
+Record Chrome DevTools Protocol performance traces:
+
+```python
+# Start tracing
+resp = requests.post(
+    f"http://localhost:8080/api/v1/sessions/{sid}/tracing/start",
+    json={"dir": "./traces"},
+)
+
+# ... run your automation ...
+
+# Stop and download
+resp = requests.post(
+    f"http://localhost:8080/api/v1/sessions/{sid}/tracing/stop",
+)
+with open("trace.json.gz", "wb") as f:
+    f.write(resp.content)
+```
+
+## Headful Mode
+
+Run with the browser visible to watch what's happening:
+
+```bash
+SCRATCHPAD_HEADLESS=false ./scratchpad.exe
+```
+
+Or when creating a session:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"platform":"web","headless":false}'
+```

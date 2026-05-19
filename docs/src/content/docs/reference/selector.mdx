@@ -1,0 +1,50 @@
+---
+title: Selectors
+description: Selector JSON schema and specificity reference
+---
+
+## Selector Object
+
+```json
+{
+  "selector": {
+    "css": "#my-id",
+    "xpath": "//button[contains(text(),'Submit')]",
+    "text": "Sign In",
+    "role": "button",
+    "testid": "checkout-btn",
+    "placeholder": "Enter email"
+  }
+}
+```
+
+All fields are optional. The engine tries fields in specificity order and uses the first match.
+
+## Specificity Order
+
+| Priority | Field | Chrome Implementation | Android Implementation |
+|----------|-------|----------------------|----------------------|
+| 1 (highest) | `css` | `document.querySelectorAll()` | `#prefix` → name match, `.prefix` → role match, plain → name match |
+| 2 | `xpath` | `document.evaluate()` | N/A (skipped) |
+| 3 | `text` | Query `*` elements containing text | Case-insensitive name substring |
+| 4 | `role` | `[role="..."]` or `[aria-label="..."]` | Class substring match |
+| 5 | `testid` | `[data-testid]` or `[data-test-id]` | Content-desc substring match |
+| 6 (lowest) | `placeholder` | `[placeholder="..."]` | Content-desc substring match |
+
+## Chrome-Specific Behavior
+
+- CSS selectors use `querySelectorAll()` — any valid CSS selector works
+- XPath uses `document.evaluate()` with standard XPath syntax
+- Text matching searches all DOM elements for case-sensitive text content
+- Role matching supports standard ARIA roles: `button`, `link`, `textbox`, `dialog`, etc.
+- `testid` matches `data-testid` first, falls back to `data-test-id`
+- Visibility and enabled state are checked for every matched element
+
+## Android-Specific Behavior
+
+- `css` field with `#` prefix → name substring match (e.g., `#welcome` matches nodes with "welcome" in their name)
+- `css` field with `.` prefix → role substring match (e.g., `.button` matches nodes with "Button" in their class)
+- `css` field without prefix → name substring match (same as `#` prefix)
+- `text` and `testid` → case-insensitive substring match against name or content-desc
+- `role` → case-insensitive substring match against class attribute
+- `xpath` is not supported on Android

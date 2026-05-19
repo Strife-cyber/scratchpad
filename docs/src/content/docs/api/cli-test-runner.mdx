@@ -1,0 +1,140 @@
+---
+title: CLI Test Runner
+description: YAML-driven batch testing via command line
+---
+
+The CLI test runner executes test suites defined in YAML or JSON files.
+
+## Commands
+
+### Run Tests
+
+```bash
+scratchpad-cli run -i <suite-file> [flags]
+```
+
+### MCP Bridge
+
+```bash
+scratchpad-cli mcp [flags]
+```
+
+## Suite File Format
+
+Suites can be defined in three formats:
+
+**Multiple named suites:**
+
+```yaml
+- name: "Login Test"
+  platform: "web"
+  steps:
+    - navigate: "https://example.com/login"
+    - type: {selector: {css: "#username"}, text: "user"}
+    - click: {selector: {css: "#login-btn"}}
+
+- name: "Dashboard Test"
+  steps:
+    - navigate: "https://example.com/dashboard"
+    - assert: {selector: {css: ".stats"}, text: "Welcome", contains: true}
+```
+
+**Single unnamed suite (flat steps list):**
+
+```yaml
+- navigate: "https://example.com"
+- observe: {}
+- click: {selector: {css: "a"}}
+```
+
+**Single suite object:**
+
+```yaml
+name: "Checkout Flow"
+platform: "web"
+steps:
+  - navigate: "https://shop.example.com"
+  - click: {selector: {text: "Add to Cart"}}
+```
+
+## Step Types
+
+### navigate
+
+```yaml
+- navigate: "https://example.com"
+```
+
+### wait
+
+```yaml
+- wait: {selector: {css: ".loaded"}, timeout: 5000}
+- wait: {condition: "network_idle"}
+- wait: {condition: "text_appear", selector: {css: ".msg"}, text: "Done"}
+```
+
+### type
+
+```yaml
+- type: {selector: {css: "#username"}, text: "myuser"}
+```
+
+### click
+
+```yaml
+- click: {selector: {css: "#btn"}}           # Object form
+- click: "#btn"                                 # String shorthand (CSS)
+```
+
+### assert
+
+```yaml
+- assert: {selector: {css: "h1"}, text: "Dashboard"}
+- assert: {selector: {css: ".error"}, text: "invalid", contains: true}
+- assert: {selector: {css: ".price"}, text: "\\$[0-9]+", matches: true}
+- assert: {selector: {css: "#loading"}, visible: true}
+- assert: {selector: {css: ".item"}, exists: true}
+- assert: {selector: {css: "#checkbox"}, checked: true}
+```
+
+Assertion boolean fields map to types:
+
+| Field | Assertion Type |
+|-------|---------------|
+| `equals` (default) | `text_equals` |
+| `contains` | `text_contains` |
+| `matches` | `text_matches` |
+| `visible` | `element_visible` |
+| `exists` | `element_exists` |
+| `checked` | `element_checked` |
+
+### observe
+
+```yaml
+- observe: {}
+```
+
+## Report Output
+
+### JSON Report
+
+```json
+{
+  "started_at": "2025-01-01T00:00:00Z",
+  "duration_ms": 4520,
+  "suites": [
+    {
+      "name": "Login Test",
+      "passed": true,
+      "attempts": 1,
+      "duration_ms": 2100,
+      "failure_step": null,
+      "error": ""
+    }
+  ]
+}
+```
+
+### JUnit XML
+
+Compatible with standard CI/CD tools that consume JUnit reports.

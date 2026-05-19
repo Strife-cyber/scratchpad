@@ -1,0 +1,16 @@
+---
+export interface Props {
+  platforms: Array<'web' | 'flutter_web' | 'android' | 'flutter_android'>;
+}
+const { platforms } = Astro.props;
+const labelMap: Record<string, string> = {
+  web: 'Web',
+  flutter_web: 'Flutter Web',
+  android: 'Android',
+  flutter_android: 'Flutter Android',
+};
+---
+
+{platforms.map((p) => (
+  <span class={`platform-badge platform-badge-${p}`}>{labelMap[p] || p}</span>
+))}
