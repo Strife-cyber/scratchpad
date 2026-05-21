@@ -1,0 +1,67 @@
+---
+title: Tab & Modal Handling
+description: Example of handling ads, popups, and multiple tabs
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This example demonstrates how to handle websites that open new tabs from ads, show cookie consent banners, or display interstitial modals.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    import requests
+
+    s = requests.post("http://localhost:8080/api/v1/sessions",
+        json={"platform": "web"}).json()
+    sid = s["sessionId"]
+    base = f"http://localhost:8080/api/v1/sessions/{sid}/actions"
+
+    def act(body):
+        return requests.post(base, json=body).json()
+
+    # Navigate to a page
+    act({"action": {"type": "navigate", "url": "https://example.com"}})
+
+    # Dismiss any cookie banner or popup that appears
+    act({"action": "dismiss_modal", "modal_strategy": "auto"})
+
+    # Observe the page to check for new tabs
+    obs = act({})  # empty = observe
+    if obs["page_info"]["tab_count"] > 1:
+        print(f"New tab detected! {obs['page_info']['tab_count']} tabs open")
+        # Switch to the new tab
+        new_tab = [t for t in obs["tabs"] if not t["active"]][0]
+        act({"action": "switch_tab", "tab_id": new_tab["id"]})
+        # Work with the new tab content
+        # ...
+        # Close the tab when done
+        act({"action": "close_tab", "tab_id": new_tab["id"]})
+
+    requests.delete(f"http://localhost:8080/api/v1/sessions/{sid}")
+    ```
+  </TabItem>
+  <TabItem label="YAML">
+    ```yaml
+    name: "Tab and Popup Handling"
+    steps:
+      - navigate: "https://example.com"
+      - dismiss_modal: {modal_strategy: "auto"}
+      - wait: {condition: "network_idle"}
+      # The observation will include tabs info automatically
+      - observe: {}
+      # Switch to a specific tab by ID
+      - switch_tab: {tab_id: "target-id-from-observation"}
+      # Close a tab
+      - close_tab: {tab_id: "target-id-from-observation"}
+    ```
+  </TabItem>
+</Tabs>
+
+## Best Practices
+
+1. Always call `dismiss_modal` after navigation to clear cookie banners
+2. Check `tab_count` in the observation to detect unwanted popups
+3. Use `opener_id` to trace which tab opened a new popup
+4. After `dismiss_modal`, observe again to see if the content is now accessible
+5. For stubborn overlays, try multiple dismiss strategies or use `execute_js` to remove them

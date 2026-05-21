@@ -51,7 +51,7 @@ Executes any action on the current page:
 | `delta_x`, `delta_y` | number | No | Scroll amounts |
 | `timeout_ms` | number | No | Action timeout |
 
-Any field from `ActionRequest` can be passed.
+Any field from `ActionRequest` can be passed. Supports all action types including `switch_tab`, `close_tab`, `check`, `uncheck`, `submit_form`, `fill_form`, `dismiss_modal`.
 
 ### browser_assert
 
@@ -71,6 +71,72 @@ Verifies page state:
   "timeout_ms": 5000
 }
 ```
+
+### browser_list_tabs
+
+Lists all open browser tabs. Useful for detecting tabs opened by ads or links.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| _(none)_ | | | No parameters needed |
+
+**Returns:** Observation with `tabs` array containing tab `id`, `url`, `title`, `active`, `opener_id`.
+
+### browser_switch_tab
+
+Switches to a different browser tab by ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tab_id` | string | Yes | Tab ID from `browser_list_tabs` |
+
+### browser_close_tab
+
+Closes a browser tab by ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tab_id` | string | Yes | Tab ID from `browser_list_tabs` |
+
+### browser_dismiss_modal
+
+Dismisses popups, overlays, cookie banners, and interstitial dialogs.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `strategy` | string | No | `"auto"` (default), `"press_escape"`, `"click_outside"`, or `"click_button"` |
+
+### browser_check
+
+Checks a checkbox or radio button.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `selector` | object | Yes | CSS selector for the checkbox/radio |
+
+### browser_uncheck
+
+Unchecks a checkbox or radio button.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `selector` | object | Yes | CSS selector for the checkbox/radio |
+
+### browser_submit_form
+
+Submits a form by selector.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `selector` | object | Yes | CSS selector for the form or a child element |
+
+### browser_fill_form
+
+Fills multiple form fields at once.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `fields` | array | Yes | Array of `{selector, value}` objects |
 
 ## Using with Claude Desktop
 

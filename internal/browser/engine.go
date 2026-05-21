@@ -25,6 +25,7 @@ import (
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/cdproto/tracing"
 	"github.com/chromedp/chromedp"
 )
@@ -103,6 +104,28 @@ type ChromeEngine struct {
 	navMu          sync.Mutex
 	navigationID   int64
 	lastSeenURL    string
+
+	// Tab management: tracks all browser targets (tabs/windows) so the agent
+	// can list, switch, and close tabs opened by ads or links.
+	targetMu        sync.Mutex
+	targets         map[string]*targetInfo
+	activeTargetID  string
+	initialTargetID string // set once on first connection
+
+	// Dialog tracking: set by CDP events, read during Observe.
+	dialogMu       sync.Mutex
+	dialogActive   bool
+	dialogType     string // "alert", "confirm", "prompt", "beforeunload"
+}
+
+// targetInfo holds metadata about a browser tab/window target.
+type targetInfo struct {
+	ID       string
+	URL      string
+	Title    string
+	TargetType string // "page", "iframe", "worker", etc.
+	Active   bool
+	OpenerID string
 }
 
 // NewChromeEngine initialises a new headless Chrome instance.
@@ -121,15 +144,17 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 		ctx:      ctx,
 		cancel:   cancel,
 		networkReqStarts: make(map[network.RequestID]time.Time),
-		networkReqMeta:   make(map[network.RequestID]struct {
+		networkReqMeta: make(map[network.RequestID]struct {
 			URL    string
 			Method string
 		}),
+		targets: make(map[string]*targetInfo),
 	}
 
 	// Wire up internal listeners before any external code can add its own.
 	e.setupEventDispatcher()
 	e.setupNetworkListener()
+	e.setupTargetListener()
 
 	return e
 }
@@ -164,6 +189,22 @@ func (e *ChromeEngine) setupEventDispatcher() {
 				Timestamp: time.Now().Unix(),
 			})
 			e.consoleMu.Unlock()
+
+			// Track JavaScript dialog openings (alert/confirm/prompt).
+			if d, ok := ev.(*page.EventJavascriptDialogOpening); ok {
+				e.dialogMu.Lock()
+				e.dialogActive = true
+				e.dialogType = string(d.Type)
+				e.dialogMu.Unlock()
+			}
+
+			// Track dialog closures.
+			if _, ok := ev.(*page.EventJavascriptDialogClosed); ok {
+				e.dialogMu.Lock()
+				e.dialogActive = false
+				e.dialogType = ""
+				e.dialogMu.Unlock()
+			}
 		}
 
 		e.mu.RLock()
@@ -229,6 +270,146 @@ func (e *ChromeEngine) setupNetworkListener() {
 			}
 		}
 	})
+}
+
+// setupTargetListener watches for new tab/window targets and tracks them
+// so the agent can list, switch, and close tabs opened by ads or links.
+func (e *ChromeEngine) setupTargetListener() {
+	_ = chromedp.Run(e.ctx, target.SetAutoAttach(true, false).WithFlatten(true))
+	chromedp.ListenTarget(e.allocCtx, func(ev any) {
+		switch ev := ev.(type) {
+		case *target.EventTargetCreated:
+			info := ev.TargetInfo
+			if info == nil {
+				return
+			}
+			e.targetMu.Lock()
+			if info.Type == "page" {
+				e.targets[info.TargetID.String()] = &targetInfo{
+					ID:         info.TargetID.String(),
+					URL:        info.URL,
+					Title:      info.Title,
+					TargetType: info.Type,
+					Active:     info.OpenerID == "",
+					OpenerID:   info.OpenerID.String(),
+				}
+			}
+			e.targetMu.Unlock()
+		case *target.EventTargetInfoChanged:
+			info := ev.TargetInfo
+			if info == nil {
+				return
+			}
+			e.targetMu.Lock()
+			if t, ok := e.targets[info.TargetID.String()]; ok {
+				t.URL = info.URL
+				t.Title = info.Title
+			}
+			e.targetMu.Unlock()
+		case *target.EventAttachedToTarget:
+			info := ev.TargetInfo
+			if info == nil {
+				return
+			}
+			if info.Type == "page" {
+				e.targetMu.Lock()
+				if _, ok := e.targets[info.TargetID.String()]; !ok {
+					e.targets[info.TargetID.String()] = &targetInfo{
+						ID:         info.TargetID.String(),
+						URL:        info.URL,
+						Title:      info.Title,
+						TargetType: info.Type,
+						Active:     false,
+						OpenerID:   info.OpenerID.String(),
+					}
+				}
+				e.targetMu.Unlock()
+			}
+		case *target.EventTargetDestroyed:
+			tid := ev.TargetID.String()
+			e.targetMu.Lock()
+			delete(e.targets, tid)
+			if e.activeTargetID == tid {
+				e.activeTargetID = ""
+				for _, t := range e.targets {
+					e.activeTargetID = t.ID
+					break
+				}
+			}
+			e.targetMu.Unlock()
+		}
+	})
+}
+
+// refreshTargetInfo populates current target metadata and discovers any
+// untracked page targets from the active chromedp context.
+func (e *ChromeEngine) refreshTargetInfo() {
+	e.targetMu.Lock()
+	defer e.targetMu.Unlock()
+	fromCtx := chromedp.FromContext(e.ctx)
+	if fromCtx != nil && fromCtx.Target != nil {
+		tid := fromCtx.Target.TargetID.String()
+		e.activeTargetID = tid
+		if t, ok := e.targets[tid]; ok {
+			t.Active = true
+		} else {
+			e.targets[tid] = &targetInfo{
+				ID:         tid,
+				TargetType: "page",
+				Active:     true,
+			}
+		}
+	}
+	for _, t := range e.targets {
+		if t.ID != e.activeTargetID {
+			t.Active = false
+		}
+	}
+}
+
+// listTabs returns a snapshot of all tracked page targets.
+func (e *ChromeEngine) listTabs() []protocol.TabInfo {
+	e.targetMu.Lock()
+	defer e.targetMu.Unlock()
+	tabs := make([]protocol.TabInfo, 0, len(e.targets))
+	for _, t := range e.targets {
+		tabs = append(tabs, protocol.TabInfo{
+			ID:       t.ID,
+			URL:      t.URL,
+			Title:    t.Title,
+			Active:   t.Active,
+			OpenerID: t.OpenerID,
+		})
+	}
+	return tabs
+}
+
+// SwitchTab switches the active Chrome context to a different tab.
+func (e *ChromeEngine) SwitchTab(tabID string) error {
+	e.targetMu.Lock()
+	defer e.targetMu.Unlock()
+	if _, ok := e.targets[tabID]; !ok {
+		return fmt.Errorf("tab %q not found", tabID)
+	}
+	targetCtx, _ := chromedp.NewContext(e.allocCtx, chromedp.WithTargetID(target.ID(tabID)))
+	e.ctx = targetCtx
+	e.activeTargetID = tabID
+	for _, t := range e.targets {
+		t.Active = t.ID == tabID
+	}
+	return nil
+}
+
+// CloseTab closes a browser tab/window by target ID.
+func (e *ChromeEngine) CloseTab(tabID string) error {
+	e.targetMu.Lock()
+	if _, ok := e.targets[tabID]; !ok {
+		e.targetMu.Unlock()
+		return fmt.Errorf("tab %q not found", tabID)
+	}
+	e.targetMu.Unlock()
+	action := target.CloseTarget(target.ID(tabID))
+	return chromedp.Run(e.ctx, action)
 }
 
 // Navigate loads the given URL. Implements engine.Engine.
@@ -311,6 +492,16 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 			navID := e.navigationID
 			e.navMu.Unlock()
 
+			e.dialogMu.Lock()
+			dlgActive := e.dialogActive
+			dlgType := e.dialogType
+			e.dialogMu.Unlock()
+
+			dlgState := "none"
+			if dlgActive {
+				dlgState = dlgType
+			}
+
 			loadStatus := readyState
 			switch readyState {
 			case "loading", "interactive", "complete":
@@ -325,6 +516,7 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 				Platform:     platform,
 				LoadStatus:   loadStatus,
 				NavigationID: navID,
+				DialogState:  dlgState,
 			}
 			return nil
 		}),
@@ -334,6 +526,13 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 	}
 	if len(buf) == 0 {
 		return nil, fmt.Errorf("chrome: screenshot buffer is empty")
+	}
+
+	// Refresh tab info and include in observation.
+	e.refreshTargetInfo()
+	obs.Tabs = e.listTabs()
+	if obs.PageInfo != nil {
+		obs.PageInfo.TabCount = len(obs.Tabs)
 	}
 
 	obs.Visual = base64.StdEncoding.EncodeToString(buf)
@@ -853,3 +1052,4 @@ func (e *ChromeEngine) StopTracing() ([]byte, string, error) {
 
 	return buf, outPath, nil
 }
+

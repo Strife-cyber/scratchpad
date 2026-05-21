@@ -97,19 +97,18 @@ Sends a right-click / context menu event (Chrome only):
 {"action": "right_click", "selector": {"css": ".context-target"}}
 ```
 
-## Advanced Actions
+## Form Actions
 
-### Drag & Drop (Chrome only)
+### Check / Uncheck (Chrome only)
 
-Requires source and target selectors:
+Check or uncheck a checkbox or radio button:
 
 ```json
-{
-  "action": "drag_drop",
-  "selector": {"css": ".draggable-item"},
-  "target_selector": {"css": ".drop-zone"}
-}
+{"action": "check", "selector": {"css": "#agree-terms"}}
+{"action": "uncheck", "selector": {"css": "#newsletter"}}
 ```
+
+These actions use JavaScript to set the `checked` property and dispatch change/input events.
 
 ### Select Option (Chrome only)
 
@@ -121,6 +120,97 @@ Selects an option from a `<select>` element:
   "selector": {"css": "#country"},
   "option_value": "us",
   "option_text": "United States"
+}
+```
+
+### Submit Form (Chrome only)
+
+Submits a form. The selector can target the `<form>` element itself or any child element:
+
+```json
+{"action": "submit_form", "selector": {"css": "#login-form"}}
+{"action": "submit_form", "selector": {"css": "#submit-btn"}}
+```
+
+Uses `HTMLFormElement.requestSubmit()` when available, falling back to `.submit()`.
+
+### Fill Form (Chrome only)
+
+Fill multiple form fields at once with a single action:
+
+```json
+{
+  "action": "fill_form",
+  "form_fields": [
+    {"selector": {"css": "#username"}, "value": "myuser"},
+    {"selector": {"css": "#password"}, "value": "mypassword"},
+    {"selector": {"css": "#email"}, "value": "user@example.com"}
+  ]
+}
+```
+
+Each field is focused by clicking, then text is typed in sequence.
+
+## Tab Management (Chrome only)
+
+When pages open ads or links in new tabs, Scratchpad can detect and manage them.
+
+### Listing Tabs
+
+The `tabs` field in `ObservationResponse` lists all open browser tabs. Each entry includes `id`, `url`, `title`, `active`, and `opener_id`. The `tab_count` field in `PageInfo` provides a quick count.
+
+### Switch Tab
+
+Switch to a different browser tab by its target ID:
+
+```json
+{"action": "switch_tab", "tab_id": "target-id-from-observation"}
+```
+
+### Close Tab
+
+Close a browser tab by its target ID:
+
+```json
+{"action": "close_tab", "tab_id": "target-id-from-observation"}
+```
+
+## Modal & Popup Handling (Chrome only)
+
+### Dismiss Modal
+
+Dismiss popups, overlays, cookie banners, and interstitial dialogs. Automatically tries multiple strategies:
+
+```json
+{"action": "dismiss_modal"}
+{"action": "dismiss_modal", "modal_strategy": "press_escape"}
+{"action": "dismiss_modal", "modal_strategy": "click_outside"}
+{"action": "dismiss_modal", "modal_strategy": "click_button"}
+```
+
+Strategies (in order when using `"auto"`):
+1. **press_escape** — dispatches Escape keydown/keyup
+2. **click_outside** — clicks the upper-center of the viewport
+3. **click_button** — tries common close/dismiss selectors (Close, Dismiss, Cancel, Got it buttons, `.close`, `[data-dismiss]`)
+
+### Dialog Handling (Chrome only)
+
+```json
+{"action": "accept_dialog"}
+{"action": "dismiss_dialog"}
+```
+
+## Advanced Actions
+
+### Drag & Drop (Chrome only)
+
+Requires source and target selectors:
+
+```json
+{
+  "action": "drag_drop",
+  "selector": {"css": ".draggable-item"},
+  "target_selector": {"css": ".drop-zone"}
 }
 ```
 
@@ -158,13 +248,6 @@ Scopes all subsequent selector lookups to a specific iframe:
 ```
 
 To return to the main page, omit the iframe selector or set it to null.
-
-### Dialog Handling (Chrome only)
-
-```json
-{"action": "accept_dialog"}
-{"action": "dismiss_dialog"}
-```
 
 ### Upload File (Chrome only)
 
@@ -237,3 +320,10 @@ Every action response includes `action_diagnostics`:
 | set_geolocation | ✅ | ❌ |
 | assert | ✅ | ✅ |
 | keyevent | ❌ | ✅ |
+| switch_tab | ✅ | ❌ |
+| close_tab | ✅ | ❌ |
+| check | ✅ | ❌ |
+| uncheck | ✅ | ❌ |
+| submit_form | ✅ | ❌ |
+| fill_form | ✅ | ❌ |
+| dismiss_modal | ✅ | ❌ |

@@ -36,12 +36,23 @@ Every `Observe()` call returns an `ObservationResponse`. Here is the full schema
       "children": []
     }
   ],
+  "tabs": [
+    {
+      "id": "target-id-1",
+      "url": "https://example.com",
+      "title": "Example",
+      "active": true,
+      "opener_id": ""
+    }
+  ],
   "page_info": {
     "url": "https://example.com",
     "title": "Example Domain",
     "platform": "web | flutter_web | android | flutter_android",
     "load_status": "loading | interactive | complete",
     "navigation_id": 1,
+    "dialog_state": "none",
+    "tab_count": 1,
     "extra": {}
   }
 }
@@ -61,6 +72,17 @@ Every `Observe()` call returns an `ObservationResponse`. Here is the full schema
 | `assertion_result` | object | Result of the last assertion (or null) |
 | `action_diagnostics` | object | Result of the last action (or null) |
 | `logs` | array | Console log entries since last observation |
+| `tabs` | array | Open browser tabs (Chrome only): `id`, `url`, `title`, `active`, `opener_id` |
+
+## TabInfo
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Target ID for use with `switch_tab` / `close_tab` |
+| `url` | string | Current URL of the tab |
+| `title` | string | Page title of the tab |
+| `active` | bool | Whether this is the currently active tab |
+| `opener_id` | string | Target ID of the tab that opened this one (popup/ad tracking) |
 
 ## SystemState
 
@@ -99,6 +121,8 @@ Present when `type` is `"delta"`:
 | `platform` | string | One of: `"web"`, `"flutter_web"`, `"android"`, `"flutter_android"` |
 | `load_status` | string | `"loading"`, `"interactive"`, or `"complete"` |
 | `navigation_id` | int64 | Increments on each URL/activity change |
+| `dialog_state` | string | `"none"` or dialog type if a JavaScript dialog is open |
+| `tab_count` | int | Number of open browser tabs |
 | `extra` | object | Platform-specific metadata |
 
 ## AssertionResult

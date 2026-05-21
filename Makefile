@@ -28,3 +28,16 @@ tidy:
 # Run all tests (useful as more logic is added)
 test:
 		go test ./...
+
+# Documentation site (Starlight)
+docs:
+	cd docs && npm install
+
+docs-dev: docs
+	cd docs && npm run dev
+
+docs-build: docs
+	cd docs && npm run build
+
+docs-preview: docs-build
+	cd docs && npm run preview

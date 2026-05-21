@@ -24,9 +24,15 @@ This example shows how to fill a registration form with various input types and 
     act({"action": {"type": "navigate", "url": "https://example.com/register"}})
     act({"action": "wait", "condition": "network_idle"})
 
-    # Fill form fields
-    act({"action": "type", "selector": {"css": "#full-name"}, "text": "John Doe"})
-    act({"action": "type", "selector": {"css": "#email"}, "text": "john@example.com"})
+    # Fill form fields using fill_form (single action)
+    act({
+        "action": "fill_form",
+        "form_fields": [
+            {"selector": {"css": "#full-name"}, "value": "John Doe"},
+            {"selector": {"css": "#email"}, "value": "john@example.com"},
+            {"selector": {"css": "#password"}, "value": "securePass123"},
+        ]
+    })
 
     # Select from dropdown
     act({
@@ -35,11 +41,11 @@ This example shows how to fill a registration form with various input types and 
         "option_value": "US",
     })
 
-    # Check a checkbox
-    act({"action": "click", "selector": {"css": "#agree-terms"}})
+    # Check a checkbox using the dedicated action
+    act({"action": "check", "selector": {"css": "#agree-terms"}})
 
-    # Submit
-    act({"action": "click", "selector": {"css": "button[type='submit']"}})
+    # Submit form
+    act({"action": "submit_form", "selector": {"css": "#registration-form"}})
 
     # Assert validation (if any)
     obs = act({
@@ -75,11 +81,18 @@ This example shows how to fill a registration form with various input types and 
     await act({ action: { type: "navigate", url: "https://example.com/register" } });
     await act({ action: "wait", condition: "network_idle" });
 
-    await act({ action: "type", selector: { css: "#full-name" }, text: "John Doe" });
-    await act({ action: "type", selector: { css: "#email" }, text: "john@example.com" });
+    // Fill form fields in one call
+    await act({
+      action: "fill_form",
+      form_fields: [
+        { selector: { css: "#full-name" }, value: "John Doe" },
+        { selector: { css: "#email" }, value: "john@example.com" },
+        { selector: { css: "#password" }, value: "securePass123" },
+      ],
+    });
     await act({ action: "select_option", selector: { css: "#country" }, option_value: "US" });
-    await act({ action: "click", selector: { css: "#agree-terms" } });
-    await act({ action: "click", selector: { css: "button[type='submit']" } });
+    await act({ action: "check", selector: { css: "#agree-terms" } });
+    await act({ action: "submit_form", selector: { css: "#registration-form" } });
 
     const obs = await act({
       action: "assert",
@@ -99,15 +112,16 @@ This example shows how to fill a registration form with various input types and 
       - type: {selector: {css: "#full-name"}, text: "John Doe"}
       - type: {selector: {css: "#email"}, text: "john@example.com"}
       - select_option: {selector: {css: "#country"}, option_value: "US"}
-      - click: {selector: {css: "#agree-terms"}}
-      - click: {selector: {css: "button[type='submit']"}}
+      - check: {selector: {css: "#agree-terms"}}
+      - submit_form: {selector: {css: "#registration-form"}}
     ```
   </TabItem>
 </Tabs>
 
 ## Key Takeaways
 
-1. `select_option` works with `<select>` elements — use `option_value` or `option_text`
-2. Checkboxes are clicked like any other element
-3. Assert after submission to check for validation errors or success
-4. Scroll inputs into view first if they're below the fold with `scroll_into_view`
+1. Use `fill_form` to fill multiple fields at once instead of individual `type` calls
+2. Use `check`/`uncheck` instead of clicking checkboxes for clearer intent
+3. Use `submit_form` to submit forms directly
+4. Use `dismiss_modal` to handle cookie banners or popups that appear before forms
+5. Assert after submission to check for validation errors or success

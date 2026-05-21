@@ -2,15 +2,37 @@ package protocol
 
 import "encoding/xml"
 
+// TabInfo describes a single browser tab or window target.
+type TabInfo struct {
+	ID      string `json:"id"`
+	URL     string `json:"url"`
+	Title   string `json:"title"`
+	Active  bool   `json:"active"`
+	OpenerID string `json:"opener_id,omitempty"`
+}
+
+// FormField describes a single field to fill in a fill_form action.
+type FormField struct {
+	Selector Selector `json:"selector"`
+	Value    string   `json:"value"`
+}
+
 // =====================================================
 // Action payloads (Agent -> Engine)
 // =====================================================
 
 const (
-	ActionClick  = "click"
-	ActionType   = "type"
-	ActionScroll = "scroll"
-	ActionWait   = "wait"
+	ActionClick       = "click"
+	ActionType        = "type"
+	ActionScroll      = "scroll"
+	ActionWait        = "wait"
+	ActionSwitchTab   = "switch_tab"
+	ActionCloseTab    = "close_tab"
+	ActionCheck       = "check"
+	ActionUncheck     = "uncheck"
+	ActionSubmitForm  = "submit_form"
+	ActionFillForm    = "fill_form"
+	ActionDismissModal = "dismiss_modal"
 )
 
 // ActionRequest represents a command from the AI agent
@@ -67,6 +89,19 @@ type ActionRequest struct {
 
 	// Assertion is set when Action == "assert".
 	Assertion *AssertionRequest `json:"assertion,omitempty"`
+
+	// TabID is used by switch_tab / close_tab actions.
+	TabID string `json:"tab_id,omitempty"`
+
+	// FormFields is used by fill_form to fill multiple fields at once.
+	FormFields []FormField `json:"form_fields,omitempty"`
+
+	// ModalStrategy controls how dismiss_modal behaves:
+	// "auto" (default) — tries all strategies in order until one works
+	// "click_outside" — clicks outside the modal
+	// "press_escape" — presses Escape key
+	// "click_button" — clicks a close/dismiss button if found
+	ModalStrategy string `json:"modal_strategy,omitempty"`
 }
 
 // Selector represents a structured locator for stable automation/testing.
@@ -178,6 +213,10 @@ type ObservationResponse struct {
 	// so agents know where they are without extra round-trips.
 	PageInfo *PageInfo `json:"page_info,omitempty"`
 
+	// Tabs lists all open browser tabs (Chrome only). Included so agents
+	// can detect and switch between tabs opened by ads or links.
+	Tabs []TabInfo `json:"tabs,omitempty"`
+
 	// Phase 1: populated when Action == "assert" or explicit wait actions run.
 	AssertionResult   *AssertionResult   `json:"assertion_result,omitempty"`
 	ActionDiagnostics *ActionDiagnostics `json:"action_diagnostics,omitempty"`
@@ -262,6 +301,14 @@ type PageInfo struct {
 	// NavigationID increments every time the page navigates (URL change,
 	// SPA route change, or new activity). Useful for detecting transitions.
 	NavigationID int64 `json:"navigation_id"`
+
+	// DialogState indicates if a JavaScript dialog (alert/confirm/prompt) is
+	// currently open. "none" when no dialog is pending.
+	DialogState string `json:"dialog_state,omitempty"`
+
+	// TabCount reports how many tabs are open in the browser session.
+	// Useful for detecting whether an ad or link opened a new tab.
+	TabCount int `json:"tab_count,omitempty"`
 
 	// Extra holds platform-specific metadata as key-value pairs.
 	// Chrome: {"frame_id": "...", "window_id": "..."}

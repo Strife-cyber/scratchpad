@@ -60,6 +60,34 @@ type AssertArgs struct {
 	Assertion protocol.AssertionRequest `json:"assertion"`
 }
 
+type SwitchTabArgs struct {
+	TabID string `json:"tab_id"`
+}
+
+type CloseTabArgs struct {
+	TabID string `json:"tab_id"`
+}
+
+type DismissModalArgs struct {
+	Strategy string `json:"strategy,omitempty"`
+}
+
+type CheckArgs struct {
+	Selector protocol.Selector `json:"selector"`
+}
+
+type UncheckArgs struct {
+	Selector protocol.Selector `json:"selector"`
+}
+
+type SubmitFormArgs struct {
+	Selector protocol.Selector `json:"selector"`
+}
+
+type FillFormArgs struct {
+	Fields []protocol.FormField `json:"fields"`
+}
+
 func (s *Server) RegisterTools(srv *mcp.Server) {
 	// 1. Tool: Navigate (Note the added ctx context.Context)
 	err := srv.RegisterTool("browser_navigate", "Loads a URL into the browser", func(ctx context.Context, args NavigateArgs) (*mcp.ToolResponse, error) {
@@ -102,6 +130,101 @@ func (s *Server) RegisterTools(srv *mcp.Server) {
 	})
 	if err != nil {
 		fmt.Printf("Failed to register assert tool: %v\n", err)
+	}
+
+	// 5. Tool: List Tabs
+	err = srv.RegisterTool("browser_list_tabs", "List all open browser tabs", func(ctx context.Context, args ObserveArgs) (*mcp.ToolResponse, error) {
+		if err := s.conn.WriteMessage(websocket.TextMessage, []byte("{}")); err != nil {
+			return nil, err
+		}
+		return s.readObservation()
+	})
+	if err != nil {
+		fmt.Printf("Failed to register list_tabs tool: %v\n", err)
+	}
+
+	// 6. Tool: Switch Tab
+	err = srv.RegisterTool("browser_switch_tab", "Switch to a different browser tab by ID from browser_list_tabs", func(ctx context.Context, args SwitchTabArgs) (*mcp.ToolResponse, error) {
+		req := protocol.ActionRequest{
+			Action: protocol.ActionSwitchTab,
+			TabID:  args.TabID,
+		}
+		return s.requestAction(req)
+	})
+	if err != nil {
+		fmt.Printf("Failed to register switch_tab tool: %v\n", err)
+	}
+
+	// 7. Tool: Close Tab
+	err = srv.RegisterTool("browser_close_tab", "Close a browser tab by ID from browser_list_tabs", func(ctx context.Context, args CloseTabArgs) (*mcp.ToolResponse, error) {
+		req := protocol.ActionRequest{
+			Action: protocol.ActionCloseTab,
+			TabID:  args.TabID,
+		}
+		return s.requestAction(req)
+	})
+	if err != nil {
+		fmt.Printf("Failed to register close_tab tool: %v\n", err)
+	}
+
+	// 8. Tool: Dismiss Modal
+	err = srv.RegisterTool("browser_dismiss_modal", "Dismiss modal dialogs, popups, cookie banners, or overlays", func(ctx context.Context, args DismissModalArgs) (*mcp.ToolResponse, error) {
+		req := protocol.ActionRequest{
+			Action:        protocol.ActionDismissModal,
+			ModalStrategy: args.Strategy,
+		}
+		return s.requestAction(req)
+	})
+	if err != nil {
+		fmt.Printf("Failed to register dismiss_modal tool: %v\n", err)
+	}
+
+	// 9. Tool: Check
+	err = srv.RegisterTool("browser_check", "Check a checkbox or radio button", func(ctx context.Context, args CheckArgs) (*mcp.ToolResponse, error) {
+		req := protocol.ActionRequest{
+			Action:   protocol.ActionCheck,
+			Selector: &args.Selector,
+		}
+		return s.requestAction(req)
+	})
+	if err != nil {
+		fmt.Printf("Failed to register check tool: %v\n", err)
+	}
+
+	// 10. Tool: Uncheck
+	err = srv.RegisterTool("browser_uncheck", "Uncheck a checkbox or radio button", func(ctx context.Context, args UncheckArgs) (*mcp.ToolResponse, error) {
+		req := protocol.ActionRequest{
+			Action:   protocol.ActionUncheck,
+			Selector: &args.Selector,
+		}
+		return s.requestAction(req)
+	})
+	if err != nil {
+		fmt.Printf("Failed to register uncheck tool: %v\n", err)
+	}
+
+	// 11. Tool: Submit Form
+	err = srv.RegisterTool("browser_submit_form", "Submit a form by selector (CSS of form or child element)", func(ctx context.Context, args SubmitFormArgs) (*mcp.ToolResponse, error) {
+		req := protocol.ActionRequest{
+			Action:   protocol.ActionSubmitForm,
+			Selector: &args.Selector,
+		}
+		return s.requestAction(req)
+	})
+	if err != nil {
+		fmt.Printf("Failed to register submit_form tool: %v\n", err)
+	}
+
+	// 12. Tool: Fill Form
+	err = srv.RegisterTool("browser_fill_form", "Fill multiple form fields at once", func(ctx context.Context, args FillFormArgs) (*mcp.ToolResponse, error) {
+		req := protocol.ActionRequest{
+			Action:     protocol.ActionFillForm,
+			FormFields: args.Fields,
+		}
+		return s.requestAction(req)
+	})
+	if err != nil {
+		fmt.Printf("Failed to register fill_form tool: %v\n", err)
 	}
 }
 

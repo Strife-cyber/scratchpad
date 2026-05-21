@@ -611,6 +611,186 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}
 		return nil
 
+	case protocol.ActionCheck:
+		if req.Selector == nil || req.Selector.CSS == "" {
+			return fmt.Errorf("check requires selector.css")
+		}
+		var ok bool
+		js := fmt.Sprintf(`(() => {
+			const el = document.querySelector(%s);
+			if (!el || el.type !== 'checkbox' && el.type !== 'radio') return false;
+			el.checked = true;
+			el.dispatchEvent(new Event('change', {bubbles:true}));
+			el.dispatchEvent(new Event('input', {bubbles:true}));
+			return true;
+		})()`, jsStringLiteral(req.Selector.CSS))
+		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("check: element not found or not a checkbox/radio")
+		}
+		return nil
+
+	case protocol.ActionUncheck:
+		if req.Selector == nil || req.Selector.CSS == "" {
+			return fmt.Errorf("uncheck requires selector.css")
+		}
+		var ok bool
+		js := fmt.Sprintf(`(() => {
+			const el = document.querySelector(%s);
+			if (!el || el.type !== 'checkbox' && el.type !== 'radio') return false;
+			el.checked = false;
+			el.dispatchEvent(new Event('change', {bubbles:true}));
+			el.dispatchEvent(new Event('input', {bubbles:true}));
+			return true;
+		})()`, jsStringLiteral(req.Selector.CSS))
+		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("uncheck: element not found or not a checkbox/radio")
+		}
+		return nil
+
+	case protocol.ActionSubmitForm:
+		if req.Selector == nil || req.Selector.CSS == "" {
+			return fmt.Errorf("submit_form requires selector.css (form or child element)")
+		}
+		var ok bool
+		js := fmt.Sprintf(`(() => {
+			let el = document.querySelector(%s);
+			if (!el) return false;
+			if (el.tagName !== 'FORM') el = el.closest('form');
+			if (!el) return false;
+			el.requestSubmit ? el.requestSubmit() : el.submit();
+			return true;
+		})()`, jsStringLiteral(req.Selector.CSS))
+		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("submit_form: no form found for selector")
+		}
+		return nil
+
+	case protocol.ActionFillForm:
+		if len(req.FormFields) == 0 {
+			return fmt.Errorf("fill_form requires form_fields")
+		}
+		for i, field := range req.FormFields {
+			h, err := e.FindElement(ctx, field.Selector, timeout)
+			if err != nil {
+				return fmt.Errorf("fill_form[%d]: selector failed: %w", i, err)
+			}
+			if !h.Visible {
+				return fmt.Errorf("fill_form[%d]: element not visible", i)
+			}
+			if err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+				press := input.DispatchMouseEvent(input.MousePressed, h.CenterX, h.CenterY).
+					WithButton(input.Left).WithClickCount(1)
+				if err := press.Do(ctx); err != nil {
+					return err
+				}
+				time.Sleep(30 * time.Millisecond)
+				release := input.DispatchMouseEvent(input.MouseReleased, h.CenterX, h.CenterY).
+					WithButton(input.Left).WithClickCount(1)
+				return release.Do(ctx)
+			})); err != nil {
+				return fmt.Errorf("fill_form[%d]: focus failed: %w", i, err)
+			}
+			if err := chromedp.Run(ctx, chromedp.KeyEvent(field.Value)); err != nil {
+				return fmt.Errorf("fill_form[%d]: type failed: %w", i, err)
+			}
+		}
+		return nil
+
+	case protocol.ActionDismissModal:
+		strategy := req.ModalStrategy
+		if strategy == "" {
+			strategy = "auto"
+		}
+		strategies := []string{}
+		switch strategy {
+		case "press_escape":
+			strategies = []string{"press_escape"}
+		case "click_outside":
+			strategies = []string{"click_outside"}
+		case "click_button":
+			strategies = []string{"click_button"}
+		default:
+			strategies = []string{"press_escape", "click_outside", "click_button"}
+		}
+		for _, s := range strategies {
+			switch s {
+			case "press_escape":
+				var out string
+				_ = chromedp.Run(ctx, chromedp.Evaluate(`
+					document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', keyCode:27, which:27, bubbles:true}));
+					document.dispatchEvent(new KeyboardEvent('keyup', {key:'Escape', keyCode:27, which:27, bubbles:true}));
+				`, &out))
+				time.Sleep(300 * time.Millisecond)
+
+			case "click_outside":
+				var w, h float64
+				_ = chromedp.Run(ctx, chromedp.Evaluate(`window.innerWidth`, &w))
+				_ = chromedp.Run(ctx, chromedp.Evaluate(`window.innerHeight`, &h))
+				if w > 0 && h > 0 {
+					_ = chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+						press := input.DispatchMouseEvent(input.MousePressed, w/2, h/5).
+							WithButton(input.Left).WithClickCount(1)
+						_ = press.Do(ctx)
+						time.Sleep(30 * time.Millisecond)
+						release := input.DispatchMouseEvent(input.MouseReleased, w/2, h/5).
+							WithButton(input.Left).WithClickCount(1)
+						return release.Do(ctx)
+					}))
+				}
+				time.Sleep(300 * time.Millisecond)
+
+			case "click_button":
+				var found bool
+				for _, sel := range []string{
+					"button[aria-label='Close']", "button[aria-label='close']",
+					"button[aria-label='Dismiss']", "button[aria-label='dismiss']",
+					".close", ".close-button", ".btn-close", ".dismiss",
+					"button:contains('Close')", "button:contains('Dismiss')",
+					"button:contains('No thanks')", "button:contains('Cancel')",
+					"button:contains('Got it')", "button:contains('Accept')",
+					"[data-dismiss]", "[data-bs-dismiss]",
+				} {
+					js := fmt.Sprintf(`(() => {
+						try {
+							const el = document.querySelector(%s);
+							if (el && el.offsetParent !== null) { el.click(); return true; }
+						} catch(e) {}
+						return false;
+					})()`, jsStringLiteral(sel))
+					_ = chromedp.Run(ctx, chromedp.Evaluate(js, &found))
+					if found {
+						time.Sleep(300 * time.Millisecond)
+						break
+					}
+				}
+			}
+			if strategy != "auto" {
+				break
+			}
+		}
+		return nil
+
+	case protocol.ActionSwitchTab:
+		if req.TabID == "" {
+			return fmt.Errorf("switch_tab requires tab_id")
+		}
+		return e.SwitchTab(req.TabID)
+
+	case protocol.ActionCloseTab:
+		if req.TabID == "" {
+			return fmt.Errorf("close_tab requires tab_id")
+		}
+		return e.CloseTab(req.TabID)
+
 	case "assert":
 		if req.Assertion == nil {
 			e.lastAssertionResult = &protocol.AssertionResult{

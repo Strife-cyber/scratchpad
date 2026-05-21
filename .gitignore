@@ -1,2 +1,7 @@
 scratchpad.exe
 scratchpad-mcp.exe
+
+# Docs site
+docs/node_modules/
+docs/dist/
+docs/.astro/

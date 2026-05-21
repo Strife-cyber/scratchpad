@@ -3,7 +3,17 @@ title: Changelog
 description: Release history and notable changes
 ---
 
-## 0.5.0 (Current)
+## 0.6.0 (Current)
+
+- Tab management: list, switch, and close browser tabs
+- Check/uncheck actions for checkboxes and radio buttons
+- Form helpers: `fill_form` (multi-field fill) and `submit_form`
+- Modal dismissal: dismiss popups, overlays, and cookie banners with multi-strategy support
+- Tab tracking in observation response (`tabs` array, `tab_count`, `dialog_state`)
+- New MCP tools: `browser_switch_tab`, `browser_close_tab`, `browser_dismiss_modal`, `browser_check`, `browser_uncheck`, `browser_submit_form`, `browser_fill_form`, `browser_list_tabs`
+- Target auto-attach for detecting cross-origin popups and new tab windows
+
+## 0.5.0
 
 - Android engine with ADB + UIAutomator2 support
 - Flutter platform detection (web + Android)
