@@ -1,5 +1,6 @@
-scratchpad.exe
-scratchpad-mcp.exe
+# Ignore executables
+./scratchpad.exe
+./scratchpad-mcp.exe
 
 # Docs site
 docs/node_modules/
