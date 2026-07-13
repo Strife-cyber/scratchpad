@@ -15,6 +15,8 @@ Scratchpad exposes a single **Navigate → Observe → ExecuteAction** loop acro
 | **Flutter support** | Automatic detection on web and Android; semantics-tree targeting |
 | **AI agent integration** | MCP bridge (`scratchpad-mcp`) exposes browser tools over stdio |
 | **Visual observation** | Screenshots, spatial trees, console logs, tree deltas, and system state in every response |
+| **Playwright-style auto-wait** | Selector-based actions (click, type, hover, etc.) auto-wait for visible+enabled elements at 50ms polling intervals |
+| **Element highlighting** | Red outline applied before CSS-selector-targeted interactions; highlight screenshot in response |
 | **YAML test runner** | `scratchpad-cli` runs parallel suites with JSON/JUnit reporting |
 
 ---
@@ -195,6 +197,7 @@ See [MCP Tools](docs/src/content/docs/api/mcp-tools.mdx) for full schemas and ex
 ```json
 {
   "type": "observation",
+  "action_result": { "element_highlight": "<base64_png_screenshot>" },
   "system_state": { "document_status": "interactive", "inflight_requests": 0 },
   "viewport": { "width": 1280, "height": 720 },
   "visual_context": "<base64_jpeg_screenshot>",
@@ -202,7 +205,10 @@ See [MCP Tools](docs/src/content/docs/api/mcp-tools.mdx) for full schemas and ex
     "node_id": "node1",
     "role": "button",
     "name": "Submit",
-    "bounds": { "x": 100, "y": 200, "width": 80, "height": 30 }
+    "bounds": { "x": 100, "y": 200, "width": 80, "height": 30 },
+    "interactive": true,
+    "value": "Submit",
+    "description": "Primary form submission button"
   }]
 }
 ```

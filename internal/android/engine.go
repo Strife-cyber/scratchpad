@@ -36,13 +36,13 @@ type AndroidEngine struct {
 	listeners []engine.EventHandler
 	mu        sync.RWMutex
 
-	// Phase 1/5 diagnostics/assertions (emitted via Observe()).
-	lastAssertionResult   *protocol.AssertionResult
-	lastActionDiagnostics *protocol.ActionDiagnostics
+	// Phase 1 diagnostics/assertions (emitted via Observe()).
+	lastAssertionResult *protocol.AssertionResult
+	lastActionResult    *protocol.ActionResult
 
 	// navID increments on activity / package changes. Used in PageInfo.
-	navMu          sync.Mutex
-	navigationID   int64
+	navMu            sync.Mutex
+	navigationID     int64
 	lastSeenActivity string
 }
 
@@ -115,13 +115,13 @@ func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
 		SpatialTree: spatialTree,
 		PageInfo:    pageInfo,
 
-		AssertionResult:   e.lastAssertionResult,
-		ActionDiagnostics: e.lastActionDiagnostics,
+		AssertionResult: e.lastAssertionResult,
+		ActionResult:    e.lastActionResult,
 	}
 
 	// Clear per-step diagnostics/assertions after emission.
 	e.lastAssertionResult = nil
-	e.lastActionDiagnostics = nil
+	e.lastActionResult = nil
 
 	return obs, nil
 }
@@ -178,6 +178,7 @@ func flattenAndroidTree(node protocol.UINode, tree *[]protocol.SpatialNode) {
 			nodeID := fmt.Sprintf("android_%s_%d_%d", node.Class, x1, y1)
 
 			scrollable := node.Scrollable == "true"
+			interactive := node.Clickable == "true" || node.Checkable == "true" || node.Focusable == "true" || scrollable
 			*tree = append(*tree, protocol.SpatialNode{
 				NodeID: nodeID,
 				Role:   node.Class,
@@ -192,7 +193,10 @@ func flattenAndroidTree(node protocol.UINode, tree *[]protocol.SpatialNode) {
 					CanScrollDown: scrollable,
 					CanScrollUp:   scrollable,
 				},
-				Children: []protocol.SpatialNode{},
+				Interactive: interactive,
+				Value:       node.Text,
+				Description: node.Desc,
+				Children:    []protocol.SpatialNode{},
 			})
 		}
 	}

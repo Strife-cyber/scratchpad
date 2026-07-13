@@ -33,7 +33,7 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 		if err != nil {
 			return fmt.Errorf("android: click at (%d,%d) failed: %w", x, y, err)
 		}
-		e.lastActionDiagnostics = &protocol.ActionDiagnostics{
+		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
 			ElapsedMS: time.Since(start).Milliseconds(),
@@ -62,7 +62,7 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 			return fmt.Errorf("android: type %q failed: %w", req.Text, err)
 		}
 		_, _ = runADB("shell", "input", "keyevent", "66") // ENTER
-		e.lastActionDiagnostics = &protocol.ActionDiagnostics{
+		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
 			ElapsedMS: time.Since(start).Milliseconds(),
@@ -105,7 +105,7 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 		if err != nil {
 			return fmt.Errorf("android: scroll failed: %w", err)
 		}
-		e.lastActionDiagnostics = &protocol.ActionDiagnostics{
+		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
 			ElapsedMS: time.Since(start).Milliseconds(),
@@ -130,7 +130,7 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 						ok = len(matches) == 0
 					}
 					if ok {
-						e.lastActionDiagnostics = &protocol.ActionDiagnostics{
+						e.lastActionResult = &protocol.ActionResult{
 							Action:    req.Action,
 							Success:   true,
 							ElapsedMS: time.Since(start).Milliseconds(),
@@ -140,7 +140,7 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 				}
 
 				if time.Now().After(deadline) {
-					e.lastActionDiagnostics = &protocol.ActionDiagnostics{
+					e.lastActionResult = &protocol.ActionResult{
 						Action:    req.Action,
 						Success:   false,
 						Error:     fmt.Sprintf("wait %s timed out", req.Condition),
@@ -156,20 +156,25 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 		if req.TimeoutMS > 0 {
 			time.Sleep(time.Duration(req.TimeoutMS) * time.Millisecond)
 		}
-		e.lastActionDiagnostics = &protocol.ActionDiagnostics{
+		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
 			ElapsedMS: time.Since(start).Milliseconds(),
 		}
 		return nil
 
-	case "assert":
+	case protocol.ActionAssert:
 		if req.Assertion == nil {
 			e.lastAssertionResult = &protocol.AssertionResult{
 				Success:   false,
 				Type:      "assert",
 				Message:   "assert requires assertion payload",
 				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+			e.lastActionResult = &protocol.ActionResult{
+				Action:  req.Action,
+				Success: false,
+				Error:   "assert requires assertion payload",
 			}
 			return nil
 		}
@@ -249,6 +254,16 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 			Success:   success,
 			Type:      a.Type,
 			Message:   msg,
+			ElapsedMS: time.Since(elapsedStart).Milliseconds(),
+		}
+		errText := ""
+		if !success {
+			errText = msg
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   success,
+			Error:     errText,
 			ElapsedMS: time.Since(elapsedStart).Milliseconds(),
 		}
 		// return nil always: assertion result is surfaced via ObservationResponse.

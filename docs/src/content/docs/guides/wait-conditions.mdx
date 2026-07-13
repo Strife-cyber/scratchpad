@@ -3,6 +3,51 @@ title: Wait Conditions
 description: How to wait for page state changes before proceeding
 ---
 
+## Auto-Wait (Playwright-Style)
+
+When using selector-based actions (click, type, hover, double_click, right_click, drag_drop), the engine automatically waits for the target element before performing the interaction. This means explicit `wait` calls are often unnecessary when you provide a selector.
+
+### How It Works
+
+1. The engine polls the DOM at **50ms intervals** for an element matching the selector that is both **visible** and **enabled**.
+2. If no matching element is found within the timeout (default **10 seconds**, configurable via `timeout_ms`), an error is returned.
+3. If the element is found but is not visible, the error includes the hint `"try scroll_into_view"`.
+4. After a successful action, the engine briefly waits for page stability (network idle + 100ms quiet period) before returning.
+
+### Affected Actions
+
+All of the following actions auto-wait when a `selector` is provided:
+
+- `click`
+- `type`
+- `hover`
+- `double_click`
+- `right_click`
+- `drag_drop`
+
+### Example
+
+```json
+{
+  "action": "click",
+  "selector": {"css": "#submit-btn"}
+}
+```
+
+The engine waits for `#submit-btn` to be visible and enabled, clicks it, then waits for page stability.
+
+### Comparison Table
+
+| Behavior | Old (manual wait) | New (auto-wait) |
+|----------|-------------------|-----------------|
+| Polling interval | ~100ms | **50ms** |
+| Default timeout | 10000ms | 10000ms |
+| Post-action stability | None | Network idle + 100ms quiet |
+| Element visibility check | In `wait` action only | Built into every action |
+| Error messaging | Generic | Selector + match count + hint |
+
+---
+
 The `wait` action pauses execution until a condition is met or a timeout expires.
 
 ## Basic Usage
@@ -96,4 +141,4 @@ If no condition is specified, wait acts as a simple sleep:
 |-------|---------|-------------|
 | `timeout_ms` | 10000 | Maximum wait time in milliseconds |
 | `condition` | `""` | Wait condition type |
-| Polling interval | ~100ms | How often conditions are re-checked |
+| Polling interval | 50ms | How often conditions are re-checked |

@@ -100,3 +100,73 @@ On Android, CSS-like selectors are translated to UIAutomator node property match
 | `role` | Case-insensitive class substring match |
 | `testid` | Content-desc substring match |
 | `placeholder` | Content-desc substring match |
+
+---
+
+## Element Highlighting
+
+When an action targets an element using a **CSS selector**, the engine highlights the element before interacting with it:
+
+- A **red outline** is applied to the matched element.
+- A screenshot of the highlighted element is captured and included in the response as `ActionResult.element_highlight`.
+
+This visual feedback makes it easy to verify that the engine is targeting the correct element, especially during debugging.
+
+| Action | Highlighting Behavior |
+|--------|-----------------------|
+| `click` | Red outline applied before click |
+| `type` | Red outline applied before focusing |
+| `hover` | Red outline applied before hover |
+
+```json
+{
+  "action": "click",
+  "selector": {"css": "#submit-btn"}
+}
+// Response includes: element_highlight: "<base64_png_screenshot>"
+```
+
+---
+
+## Playwright-Style Auto-Wait
+
+Selector-based actions (`click`, `type`, `hover`, `double_click`, `right_click`, `drag_drop`) now include built-in auto-wait behavior:
+
+- The engine polls at **50ms intervals** for a visible and enabled element matching the selector.
+- Default timeout is **10 seconds** (configurable via `timeout_ms`).
+- If the element is not visible, the error includes `"try scroll_into_view"`.
+- After the action, the engine waits for **network idle + 100ms quiet period**.
+
+### Rich Error Messages
+
+When an action fails, the error response includes detailed diagnostics:
+
+| Field | Description |
+|-------|-------------|
+| `selector` | The selector string that was tried (e.g. `"css=#submit-btn"`) |
+| `matches` | How many elements matched the selector |
+| `visible` | How many matched elements were visible |
+| `enabled` | How many matched elements were enabled |
+| `hint` | A descriptive hint about the failure |
+
+```json
+{
+  "error": "Element not available",
+  "details": {
+    "selector": "css=#submit-btn",
+    "matches": 1,
+    "visible": 0,
+    "enabled": 0,
+    "hint": "Element is not visible — try scroll_into_view"
+  }
+}
+```
+
+### Selector Object Methods
+
+The `Selector` object has been extended with two new utility methods:
+
+- **`Describe()`** — returns a human-readable string like `"css=#submit-btn"` or `"text=Sign In"`.
+- **`IsEmpty()`** — returns `true` if the selector has no fields set.
+
+This means you no longer need to explicitly call `wait` before actions that use selectors — the engine handles it for you.

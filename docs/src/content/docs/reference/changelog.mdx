@@ -3,7 +3,22 @@ title: Changelog
 description: Release history and notable changes
 ---
 
-## 0.6.0 (Current)
+## 0.7.0
+
+- **Typed Envelope protocol:** Messages now use `{"type": "navigate|action|observe|resize", "data": {...}}` — legacy `{}` still works for observe-only
+- **ErrorResponse:** Errors are always sent with a screenshot of the page state at the time of failure
+- **Session auto-cleanup:** Sessions expire after 5 minutes of inactivity, cleaned up every 30 seconds
+- **WebSocket keepalive:** Ping/pong at 10s intervals with 15s deadline
+- **ActionResult (new):** Richer action feedback with `action_metadata`, `screenshot`, and `element_highlight` fields
+- **ActionDiagnostics deprecated:** Kept for backward compatibility; prefer `ActionResult`
+- **SpatialNode enhancements:** New `interactive` (bool), `value` (string), `description` (string) fields
+- **Spatial tree breadth:** Now includes both interactive and structural elements (headings, nav, articles, tables, etc.) — filter by `interactive: true` for actionable ones
+- **Auto-wait:** Click, type, hover, double_click, right_click, drag_drop auto-wait for visible+enabled elements (50ms poll, 100ms post-action stability)
+- **Element highlighting:** Selector-targeted elements get a red outline before action, captured as cropped screenshot in `ActionResult.element_highlight`
+- **MCP concurrent safety:** Mutex-protected write-then-read cycles; dial timeout 10s, read timeout 30s
+- **`resize` action:** New typed envelope action to resize the browser viewport
+
+## 0.6.0
 
 - Tab management: list, switch, and close browser tabs
 - Check/uncheck actions for checkboxes and radio buttons

@@ -5,6 +5,8 @@ description: AI agent integration via Model Context Protocol
 
 Scratchpad includes a built-in MCP (Model Context Protocol) server, allowing AI agents like Claude to control browsers and devices directly.
 
+> **Concurrent safety:** The MCP server uses mutex-protected write-then-read cycles, making concurrent tool calls safe. Dial timeout is 10 seconds, read timeout is 30 seconds.
+
 ## Starting the MCP Bridge
 
 ```bash
@@ -40,7 +42,7 @@ Captures the current page state:
 
 ### browser_action
 
-Executes any action on the current page:
+Executes any action on the current page. Selector-based actions (click, type, hover, double_click, right_click, drag_drop) **auto-wait** for the target element — the engine polls at 50ms intervals until the element is visible and enabled, up to the configured timeout.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

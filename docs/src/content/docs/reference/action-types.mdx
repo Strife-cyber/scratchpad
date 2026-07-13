@@ -13,6 +13,7 @@ This page lists every action supported by Scratchpad across all platforms.
       <th>Required Fields</th>
       <th>Optional Fields</th>
       <th>Selector Support</th>
+      <th>Auto-Wait</th>
       <th>Chrome</th>
       <th>Android</th>
     </tr>
@@ -24,6 +25,7 @@ This page lists every action supported by Scratchpad across all platforms.
       <td>—</td>
       <td><code>selector</code>, <code>x</code>, <code>y</code>, <code>timeout_ms</code></td>
       <td>✅</td>
+      <td>✅</td>
       <td class="platform-cell"><span class="check-mark">✓</span></td>
       <td class="platform-cell"><span class="check-mark">✓</span></td>
     </tr>
@@ -32,6 +34,7 @@ This page lists every action supported by Scratchpad across all platforms.
       <td>Type text into a focused element</td>
       <td><code>text</code></td>
       <td><code>selector</code>, <code>timeout_ms</code></td>
+      <td>✅</td>
       <td>✅</td>
       <td class="platform-cell"><span class="check-mark">✓</span></td>
       <td class="platform-cell"><span class="check-mark">✓</span></td>
@@ -60,6 +63,7 @@ This page lists every action supported by Scratchpad across all platforms.
       <td>—</td>
       <td><code>selector</code>, <code>x</code>, <code>y</code></td>
       <td>✅</td>
+      <td>✅</td>
       <td class="platform-cell"><span class="check-mark">✓</span></td>
       <td class="platform-cell"><span class="cross-mark">✗</span></td>
     </tr>
@@ -68,6 +72,7 @@ This page lists every action supported by Scratchpad across all platforms.
       <td>Double-click an element</td>
       <td>—</td>
       <td><code>selector</code>, <code>x</code>, <code>y</code></td>
+      <td>✅</td>
       <td>✅</td>
       <td class="platform-cell"><span class="check-mark">✓</span></td>
       <td class="platform-cell"><span class="cross-mark">✗</span></td>
@@ -78,6 +83,7 @@ This page lists every action supported by Scratchpad across all platforms.
       <td>—</td>
       <td><code>selector</code>, <code>x</code>, <code>y</code></td>
       <td>✅</td>
+      <td>✅</td>
       <td class="platform-cell"><span class="check-mark">✓</span></td>
       <td class="platform-cell"><span class="cross-mark">✗</span></td>
     </tr>
@@ -86,6 +92,7 @@ This page lists every action supported by Scratchpad across all platforms.
       <td>Drag element to target</td>
       <td><code>selector</code>, <code>target_selector</code></td>
       <td>—</td>
+      <td>✅</td>
       <td>✅</td>
       <td class="platform-cell"><span class="check-mark">✓</span></td>
       <td class="platform-cell"><span class="cross-mark">✗</span></td>
@@ -263,3 +270,5 @@ This page lists every action supported by Scratchpad across all platforms.
     </tr>
   </tbody>
 </table>
+
+> **Auto-Wait:** Actions with ✅ auto-wait for the target element before executing. The engine polls at 50ms intervals until the element is visible and enabled, up to the configured timeout. If an element is found but not visible, a "try scroll_into_view" hint is returned.

@@ -160,7 +160,9 @@ To get a fresh observation (screenshot + spatial tree + page info), send an obse
 
 ## 5. Perform an Action
 
-Click on an element using its coordinates from the spatial tree, or use a CSS selector:
+Click on an element using its coordinates from the spatial tree, or use a CSS selector. All actions accept the typed envelope format (`{"type": "click", ...}`) or the raw action format (string shorthand).
+
+Both formats work — the envelope is the canonical protocol format, while the raw format is a convenience shorthand:
 
 <Tabs syncKey="lang">
   <TabItem label="Python">
@@ -169,7 +171,17 @@ Click on an element using its coordinates from the spatial tree, or use a CSS se
         f"http://localhost:8080/api/v1/sessions/{session_id}/actions",
         json={"action": {"type": "click", "x": 100, "y": 200}},
     )
-    # Or with a selector:
+    # Or with a selector (envelope format):
+    requests.post(
+        f"http://localhost:8080/api/v1/sessions/{session_id}/actions",
+        json={
+            "action": {
+                "type": "click",
+                "selector": {"css": "a[href*='more']"},
+            },
+        },
+    )
+    # Raw action format also works:
     requests.post(
         f"http://localhost:8080/api/v1/sessions/{session_id}/actions",
         json={
@@ -185,6 +197,17 @@ Click on an element using its coordinates from the spatial tree, or use a CSS se
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        action: {
+          type: "click",
+          selector: { css: "a[href*='more']" },
+        },
+      }),
+    });
+    // Raw action format also works:
+    await fetch(`http://localhost:8080/api/v1/sessions/${sessionId}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         action: "click",
         selector: { css: "a[href*='more']" },
       }),
@@ -194,13 +217,27 @@ Click on an element using its coordinates from the spatial tree, or use a CSS se
   <TabItem label="Go">
     ```go
     clickReq, _ := json.Marshal(map[string]any{
-        "action":   "click",
-        "selector": map[string]any{"css": "a[href*='more']"},
+        "action": map[string]any{
+            "type":     "click",
+            "selector": map[string]any{"css": "a[href*='more']"},
+        },
     })
     http.Post(url, "application/json", bytes.NewReader(clickReq))
     ```
   </TabItem>
 </Tabs>
+
+> **Auto-wait**: When using selectors, the engine auto-waits for the element to become visible and enabled — no need to call `wait` before clicking.
+>
+> **Element highlighting**: Before clicking a CSS-selector-targeted element, the engine applies a red outline and includes the highlight screenshot in the response (`action_result.element_highlight`).
+>
+> **Error handling**: On failure, the engine returns an `ErrorResponse` with a screenshot, details including the selector tried, match count, visible/enabled counts, and a descriptive hint.
+
+### Typing Text
+
+```json
+{"action": {"type": "type", "selector": {"css": "#email-input"}, "text": "user@example.com"}}
+```
 
 ## 6. Clean Up
 

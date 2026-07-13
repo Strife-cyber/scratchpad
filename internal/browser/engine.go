@@ -18,13 +18,13 @@ import (
 	"scratchpad/internal/engine"
 	"scratchpad/internal/protocol"
 
-	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
-	cdio "github.com/chromedp/cdproto/io"
 	"github.com/chromedp/cdproto/dom"
+	cdio "github.com/chromedp/cdproto/io"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/cdproto/tracing"
 	"github.com/chromedp/chromedp"
@@ -45,16 +45,17 @@ func init() {
 
 // ChromeEngine drives a headless (or headful) Chrome instance over CDP.
 type ChromeEngine struct {
-	allocCtx     context.Context
-	ctx          context.Context
-	cancel       context.CancelFunc
+	allocCtx      context.Context
+	ctx           context.Context
+	cancel        context.CancelFunc // cancels allocCtx (shuts down Chrome)
+	tabCancel     context.CancelFunc // cancels the current tab context
 	inFlightCount int32
-	listeners    []engine.EventHandler
-	mu           sync.RWMutex
+	listeners     []engine.EventHandler
+	mu            sync.RWMutex
 
-	// Phase 1 diagnostics (populated by ExecuteAction and emitted via Observe).
-	lastAssertionResult   *protocol.AssertionResult
-	lastActionDiagnostics *protocol.ActionDiagnostics
+	// Phase 1 action result (populated by ExecuteAction and emitted via Observe).
+	lastAssertionResult *protocol.AssertionResult
+	lastActionResult    *protocol.ActionResult
 
 	// Phase 1 assertions can inspect console errors. We capture them from CDP
 	// at the engine layer (in addition to the session-level collector).
@@ -62,6 +63,8 @@ type ChromeEngine struct {
 	consoleLogs []protocol.ConsoleLog
 
 	// Phase 1 network assertions.
+	// Entries are created on EventRequestWillBeSent and cleaned up on
+	// EventLoadingFinished / EventLoadingFailed to prevent unbounded map growth.
 	networkMu        sync.Mutex
 	networkReqStarts map[network.RequestID]time.Time
 	networkReqMeta   map[network.RequestID]struct {
@@ -69,10 +72,10 @@ type ChromeEngine struct {
 		Method string
 	}
 	networkRequests []struct {
-		URL            string
-		Method         string
-		Status         int
-		DurationMS     int64
+		URL              string
+		Method           string
+		Status           int
+		DurationMS       int64
 		StartedAtRFC3339 string
 	}
 
@@ -82,13 +85,13 @@ type ChromeEngine struct {
 	activeIframeSelector *protocol.Selector
 
 	// Phase 2 video recording (screencast -> frames -> WebM).
-	recordingMu       sync.Mutex
-	recordingActive   bool
-	recordingFramesDir string
+	recordingMu         sync.Mutex
+	recordingActive     bool
+	recordingFramesDir  string
 	recordingOutputPath string
-	recordingFrameIdx int
-	recordingFramesCh chan string // base64-encoded JPEG frames
-	recordingWriteErr chan error
+	recordingFrameIdx   int
+	recordingFramesCh   chan string // base64-encoded JPEG frames
+	recordingWriteErr   chan error
 
 	// Phase 2 performance tracing (Tracing.start/end in return-as-stream mode).
 	tracingMu       sync.Mutex
@@ -97,13 +100,13 @@ type ChromeEngine struct {
 	tracingDir      string
 	tracingDoneCh   chan struct{}
 	tracingStream   cdio.StreamHandle
-	tracingStreamOK  bool
+	tracingStreamOK bool
 
 	// navigationID bumps on every detected navigation (frame navigated, SPA
 	// pushState, or hashchange). Used to populate PageInfo.NavigationID.
-	navMu          sync.Mutex
-	navigationID   int64
-	lastSeenURL    string
+	navMu        sync.Mutex
+	navigationID int64
+	lastSeenURL  string
 
 	// Tab management: tracks all browser targets (tabs/windows) so the agent
 	// can list, switch, and close tabs opened by ads or links.
@@ -113,19 +116,19 @@ type ChromeEngine struct {
 	initialTargetID string // set once on first connection
 
 	// Dialog tracking: set by CDP events, read during Observe.
-	dialogMu       sync.Mutex
-	dialogActive   bool
-	dialogType     string // "alert", "confirm", "prompt", "beforeunload"
+	dialogMu     sync.Mutex
+	dialogActive bool
+	dialogType   string // "alert", "confirm", "prompt", "beforeunload"
 }
 
 // targetInfo holds metadata about a browser tab/window target.
 type targetInfo struct {
-	ID       string
-	URL      string
-	Title    string
+	ID         string
+	URL        string
+	Title      string
 	TargetType string // "page", "iframe", "worker", etc.
-	Active   bool
-	OpenerID string
+	Active     bool
+	OpenerID   string
 }
 
 // NewChromeEngine initialises a new headless Chrome instance.
@@ -136,13 +139,14 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 		chromedp.Flag("hide-scrollbars", false),
 	)
 
-	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, cancel := chromedp.NewContext(allocCtx)
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	ctx, tabCancel := chromedp.NewContext(allocCtx)
 
 	e := &ChromeEngine{
-		allocCtx: allocCtx,
-		ctx:      ctx,
-		cancel:   cancel,
+		allocCtx:         allocCtx,
+		ctx:              ctx,
+		cancel:           cancel,
+		tabCancel:        tabCancel,
 		networkReqStarts: make(map[network.RequestID]time.Time),
 		networkReqMeta: make(map[network.RequestID]struct {
 			URL    string
@@ -160,7 +164,36 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 }
 
 // Close gracefully shuts down the Chrome process and all associated resources.
+// It best-effort stops any active recording or tracing before cancelling.
 func (e *ChromeEngine) Close() {
+	// Best-effort stop recording if active.
+	e.recordingMu.Lock()
+	if e.recordingActive {
+		close(e.recordingFramesCh)
+		_ = os.RemoveAll(e.recordingFramesDir)
+		e.recordingActive = false
+	}
+	e.recordingMu.Unlock()
+
+	// Best-effort stop tracing if active.
+	e.tracingMu.Lock()
+	if e.tracingActive {
+		if e.tracingDoneCh != nil {
+			select {
+			case <-e.tracingDoneCh:
+			default:
+				close(e.tracingDoneCh)
+			}
+		}
+		_ = os.RemoveAll(e.tracingDir)
+		e.tracingActive = false
+	}
+	e.tracingMu.Unlock()
+
+	// Cancel tab context first, then alloc context to shut down Chrome.
+	if e.tabCancel != nil {
+		e.tabCancel()
+	}
 	e.cancel()
 }
 
@@ -189,22 +222,22 @@ func (e *ChromeEngine) setupEventDispatcher() {
 				Timestamp: time.Now().Unix(),
 			})
 			e.consoleMu.Unlock()
+		}
 
-			// Track JavaScript dialog openings (alert/confirm/prompt).
-			if d, ok := ev.(*page.EventJavascriptDialogOpening); ok {
-				e.dialogMu.Lock()
-				e.dialogActive = true
-				e.dialogType = string(d.Type)
-				e.dialogMu.Unlock()
-			}
+		// Track JavaScript dialog openings (alert/confirm/prompt) and closures
+		// at the top level, independent of console events.
+		if d, ok := ev.(*page.EventJavascriptDialogOpening); ok {
+			e.dialogMu.Lock()
+			e.dialogActive = true
+			e.dialogType = string(d.Type)
+			e.dialogMu.Unlock()
+		}
 
-			// Track dialog closures.
-			if _, ok := ev.(*page.EventJavascriptDialogClosed); ok {
-				e.dialogMu.Lock()
-				e.dialogActive = false
-				e.dialogType = ""
-				e.dialogMu.Unlock()
-			}
+		if _, ok := ev.(*page.EventJavascriptDialogClosed); ok {
+			e.dialogMu.Lock()
+			e.dialogActive = false
+			e.dialogType = ""
+			e.dialogMu.Unlock()
 		}
 
 		e.mu.RLock()
@@ -219,11 +252,10 @@ func (e *ChromeEngine) setupEventDispatcher() {
 // that ExecuteAction("wait", condition="network_idle") knows when to unblock.
 func (e *ChromeEngine) setupNetworkListener() {
 	chromedp.ListenTarget(e.ctx, func(ev any) {
-		switch ev.(type) {
+		switch ev2 := ev.(type) {
 		case *network.EventRequestWillBeSent:
 			atomic.AddInt32(&e.inFlightCount, 1)
 			// Record start time + request metadata for Phase 1 network assertions.
-			ev2 := ev.(*network.EventRequestWillBeSent)
 			e.networkMu.Lock()
 			e.networkReqStarts[ev2.RequestID] = time.Now()
 			e.networkReqMeta[ev2.RequestID] = struct {
@@ -236,7 +268,6 @@ func (e *ChromeEngine) setupNetworkListener() {
 			e.networkMu.Unlock()
 
 		case *network.EventResponseReceived:
-			ev2 := ev.(*network.EventResponseReceived)
 			e.networkMu.Lock()
 			start, ok := e.networkReqStarts[ev2.RequestID]
 			meta := e.networkReqMeta[ev2.RequestID]
@@ -251,10 +282,10 @@ func (e *ChromeEngine) setupNetworkListener() {
 					DurationMS       int64
 					StartedAtRFC3339 string
 				}{
-					URL:        meta.URL,
-					Method:     meta.Method,
-					Status:     int(ev2.Response.Status),
-					DurationMS: duration,
+					URL:              meta.URL,
+					Method:           meta.Method,
+					Status:           int(ev2.Response.Status),
+					DurationMS:       duration,
 					StartedAtRFC3339: start.Format(time.RFC3339Nano),
 				})
 				// Keep a small ring buffer.
@@ -267,6 +298,20 @@ func (e *ChromeEngine) setupNetworkListener() {
 		case *network.EventLoadingFinished, *network.EventLoadingFailed:
 			if atomic.LoadInt32(&e.inFlightCount) > 0 {
 				atomic.AddInt32(&e.inFlightCount, -1)
+			}
+			// Prevent unbounded map growth by cleaning up tracked request
+			// metadata when the request completes or fails.
+			if ev2, ok := ev.(*network.EventLoadingFinished); ok {
+				e.networkMu.Lock()
+				delete(e.networkReqStarts, ev2.RequestID)
+				delete(e.networkReqMeta, ev2.RequestID)
+				e.networkMu.Unlock()
+			}
+			if ev2, ok := ev.(*network.EventLoadingFailed); ok {
+				e.networkMu.Lock()
+				delete(e.networkReqStarts, ev2.RequestID)
+				delete(e.networkReqMeta, ev2.RequestID)
+				e.networkMu.Unlock()
 			}
 		}
 	})
@@ -385,18 +430,32 @@ func (e *ChromeEngine) listTabs() []protocol.TabInfo {
 }
 
 // SwitchTab switches the active Chrome context to a different tab.
+// It cancels the previous tab context (preventing goroutine and event listener leaks)
+// and re-wires event dispatchers for the new context.
 func (e *ChromeEngine) SwitchTab(tabID string) error {
 	e.targetMu.Lock()
 	defer e.targetMu.Unlock()
 	if _, ok := e.targets[tabID]; !ok {
 		return fmt.Errorf("tab %q not found", tabID)
 	}
-	targetCtx, _ := chromedp.NewContext(e.allocCtx, chromedp.WithTargetID(target.ID(tabID)))
+
+	// Cancel the old tab context to release goroutines and event listeners.
+	if e.tabCancel != nil {
+		e.tabCancel()
+	}
+
+	targetCtx, tabCancel := chromedp.NewContext(e.allocCtx, chromedp.WithTargetID(target.ID(tabID)))
 	e.ctx = targetCtx
+	e.tabCancel = tabCancel
 	e.activeTargetID = tabID
 	for _, t := range e.targets {
 		t.Active = t.ID == tabID
 	}
+
+	// Re-setup event dispatcher and network listener for the new tab context.
+	e.setupEventDispatcher()
+	e.setupNetworkListener()
+
 	return nil
 }
 
@@ -431,20 +490,19 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 				DocumentStatus:   "interactive",
 				InflightRequests: int(atomic.LoadInt32(&e.inFlightCount)),
 			},
-			AssertionResult:   e.lastAssertionResult,
-			ActionDiagnostics: e.lastActionDiagnostics,
+			AssertionResult: e.lastAssertionResult,
+			ActionResult:    e.lastActionResult,
 		}
 	)
 
 	// Emit diagnostics/assertions once per observation.
 	e.lastAssertionResult = nil
-	e.lastActionDiagnostics = nil
+	e.lastActionResult = nil
 
 	err := chromedp.Run(e.ctx,
 		network.Enable(),
 		accessibility.Enable(),
 		dom.Enable(),
-		chromedp.WaitVisible(`body`, chromedp.ByQuery),
 
 		// Capture the full accessibility tree first.
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -555,7 +613,9 @@ func (e *ChromeEngine) Observe() (*protocol.ObservationResponse, error) {
 // ---------------------------------------------------------------------------
 
 // parseAXTree walks the accessibility tree and returns a flat list of
-// interactive SpatialNodes with best-effort bounding-box information.
+// SpatialNodes with best-effort bounding-box information.
+// Unlike the old version, this includes BOTH interactive and structural
+// elements so agents understand page layout.
 func (e *ChromeEngine) parseAXTree(ctx context.Context, nodes []*accessibility.Node) []protocol.SpatialNode {
 	var result []protocol.SpatialNode
 
@@ -565,7 +625,7 @@ func (e *ChromeEngine) parseAXTree(ctx context.Context, nodes []*accessibility.N
 		}
 
 		role := axValueToString(node.Role)
-		if role == "" || !isInteractive(role) {
+		if role == "" || !isStructuralOrInteractive(role) {
 			continue
 		}
 
@@ -578,10 +638,13 @@ func (e *ChromeEngine) parseAXTree(ctx context.Context, nodes []*accessibility.N
 		}
 
 		result = append(result, protocol.SpatialNode{
-			NodeID: string(node.NodeID),
-			Role:   role,
-			Name:   axValueToString(node.Name),
-			Bounds: bounds,
+			NodeID:      string(node.NodeID),
+			Role:        role,
+			Name:        axValueToString(node.Name),
+			Bounds:      bounds,
+			Interactive: isInteractive(role),
+			Value:       axValueToString(node.Value),
+			Description: axValueToString(node.Description),
 		})
 	}
 	return result
@@ -643,6 +706,34 @@ func axValueToString(v *accessibility.Value) string {
 	return ""
 }
 
+// isStructuralOrInteractive returns true for any AX role that is worth
+// including in the spatial tree — structural elements (headings, containers,
+// lists, etc.) and interactive elements (buttons, links, inputs, etc.).
+func isStructuralOrInteractive(role string) bool {
+	switch role {
+	// Interactive / actionable roles
+	case "button", "checkbox", "link", "radio", "textbox",
+		"menuitem", "menuitemcheckbox", "menuitemradio",
+		"tab", "option", "combobox", "listbox",
+		"searchbox", "spinbutton", "switch", "slider":
+		return true
+	// Structural / informative roles
+	case "heading", "banner", "navigation", "main", "complementary",
+		"contentinfo", "region", "section", "article",
+		"list", "listitem", "paragraph", "form",
+		"table", "row", "cell", "rowgroup",
+		"figure", "caption", "img", "graphics-symbol",
+		"alert", "alertdialog", "status", "timer", "progressbar":
+		return true
+	// Generic container / landmark
+	case "generic", "group", "document", "application",
+		"feed", "math", "note", "presentation", "toolbar",
+		"tooltip", "tree", "treeitem":
+		return true
+	}
+	return false
+}
+
 // isInteractive returns true for ARIA roles that represent actionable elements.
 func isInteractive(role string) bool {
 	switch role {
@@ -653,6 +744,173 @@ func isInteractive(role string) bool {
 		return true
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Auto-wait and element highlighting
+// ---------------------------------------------------------------------------
+
+// waitForElement polls findElementsOnce at 50ms intervals until a visible,
+// enabled element matching sel is found, or the timeout expires.
+// It returns the first visible+enabled match; failing that, the first
+// visible match; failing that, the first match; or a rich error.
+func (e *ChromeEngine) waitForElement(ctx context.Context, sel protocol.Selector, timeout time.Duration) (*ElementHandle, error) {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastMatches []ElementHandle
+	var lastErr error
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, e.buildWaitError(ctx, sel, lastMatches, lastErr, timeout, "context cancelled")
+		case <-ticker.C:
+		}
+
+		matches, err := e.findElementsOnce(ctx, sel)
+		lastMatches = matches
+		if err != nil {
+			lastErr = err
+			if time.Now().After(deadline) {
+				return nil, e.buildWaitError(ctx, sel, matches, err, timeout, "query failed")
+			}
+			continue
+		}
+
+		// Prefer visible+enabled, then visible, then any.
+		for i := range matches {
+			if matches[i].Visible && matches[i].Enabled {
+				return &matches[i], nil
+			}
+		}
+		for i := range matches {
+			if matches[i].Visible {
+				return &matches[i], nil
+			}
+		}
+		if len(matches) > 0 {
+			return &matches[0], nil
+		}
+
+		if time.Now().After(deadline) {
+			return nil, e.buildWaitError(ctx, sel, matches, nil, timeout, "no matching element")
+		}
+	}
+}
+
+// buildWaitError assembles a descriptive error for waitForElement failures.
+func (e *ChromeEngine) buildWaitError(ctx context.Context, sel protocol.Selector, matches []ElementHandle, queryErr error, timeout time.Duration, reason string) error {
+	hint := sel.Describe()
+	hint += " (selector " + sel.Describe() + ")"
+
+	visibleCount := 0
+	enabledCount := 0
+	for _, m := range matches {
+		if m.Visible {
+			visibleCount++
+		}
+		if m.Enabled {
+			enabledCount++
+		}
+	}
+
+	msg := fmt.Sprintf("auto-wait failed after %v: %s", timeout, reason)
+	msg += fmt.Sprintf(" | selector: %s", sel.Describe())
+	msg += fmt.Sprintf(" | matched: %d elements", len(matches))
+	msg += fmt.Sprintf(" | visible: %d", visibleCount)
+	msg += fmt.Sprintf(" | enabled: %d", enabledCount)
+
+	if queryErr != nil {
+		msg += fmt.Sprintf(" | query error: %v", queryErr)
+	}
+
+	if visibleCount == 0 && len(matches) > 0 {
+		msg += " | hint: elements exist but are not visible (try scroll_into_view or wait for them to appear)"
+	} else if len(matches) == 0 {
+		msg += " | hint: no elements matched (selector may be wrong, or page structure changed)"
+	} else if enabledCount == 0 {
+		msg += " | hint: elements exist but are disabled (wait for them to become enabled)"
+	}
+
+	return fmt.Errorf("chrome: %s", msg)
+}
+
+// highlightElement executes JS to add a 2px red outline to the element
+// selected by cssSelector. Returns the element-portion screenshot as a
+// base64 JPEG string.
+func (e *ChromeEngine) highlightElement(ctx context.Context, cssSelector string) (string, error) {
+	// Apply the outline via JS.
+	outlineJS := fmt.Sprintf(`(() => {
+		const el = document.querySelector(%s);
+		if (!el) return false;
+		el.style.outline = '2px solid red';
+		el.style.outlineOffset = '2px';
+		return true;
+	})()`, jsStringLiteral(cssSelector))
+	var ok bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(outlineJS, &ok)); err != nil {
+		return "", fmt.Errorf("highlight: JS apply failed: %w", err)
+	}
+	if !ok {
+		return "", fmt.Errorf("highlight: element not found for selector %s", cssSelector)
+	}
+
+	// Capture a tiny crop of just the element.
+	clipJS := fmt.Sprintf(`(() => {
+		const el = document.querySelector(%s);
+		if (!el) return null;
+		const r = el.getBoundingClientRect();
+		return {x: r.left, y: r.top, width: r.width, height: r.height};
+	})()`, jsStringLiteral(cssSelector))
+	type clipRect struct {
+		X, Y, Width, Height float64
+	}
+	var clip clipRect
+	if err := chromedp.Run(ctx, chromedp.Evaluate(clipJS, &clip)); err != nil {
+		// Best-effort: return empty string rather than failing the entire action.
+		return "", nil
+	}
+
+	var buf []byte
+	if clip.Width > 0 && clip.Height > 0 {
+		err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+			var err error
+			buf, err = page.CaptureScreenshot().
+				WithFormat(page.CaptureScreenshotFormatJpeg).
+				WithQuality(80).
+				WithClip(&page.Viewport{
+					X:      clip.X,
+					Y:      clip.Y,
+					Width:  clip.Width,
+					Height: clip.Height,
+					Scale:  1,
+				}).Do(ctx)
+			return err
+		}))
+		if err == nil {
+			return base64.StdEncoding.EncodeToString(buf), nil
+		}
+	}
+	return "", nil
+}
+
+// waitForStability waits up to 500ms for the page to settle (network idle +
+// a 100ms quiet period). Similar to Playwright's auto-waiting-after-action.
+func (e *ChromeEngine) waitForStability() {
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(&e.inFlightCount) == 0 {
+			// Network idle, wait a brief quiet period to confirm no new
+			// requests are triggered by side effects (e.g. JS reactions).
+			time.Sleep(100 * time.Millisecond)
+			if atomic.LoadInt32(&e.inFlightCount) == 0 {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -671,10 +929,10 @@ func (e *ChromeEngine) GetHAR() ([]byte, error) {
 		Status int `json:"status"`
 	}
 	type harEntry struct {
-		StartedDateTime string `json:"startedDateTime"`
-		Time             int64  `json:"time"` // ms
-		Request          harRequest `json:"request"`
-		Response         harResponse `json:"response"`
+		StartedDateTime string      `json:"startedDateTime"`
+		Time            int64       `json:"time"` // ms
+		Request         harRequest  `json:"request"`
+		Response        harResponse `json:"response"`
 	}
 	type harLog struct {
 		Version string `json:"version"`
@@ -695,7 +953,7 @@ func (e *ChromeEngine) GetHAR() ([]byte, error) {
 	for _, r := range e.networkRequests {
 		entries = append(entries, harEntry{
 			StartedDateTime: r.StartedAtRFC3339,
-			Time:             r.DurationMS,
+			Time:            r.DurationMS,
 			Request: harRequest{
 				Method: r.Method,
 				URL:    r.URL,
@@ -1052,4 +1310,3 @@ func (e *ChromeEngine) StopTracing() ([]byte, string, error) {
 
 	return buf, outPath, nil
 }
-

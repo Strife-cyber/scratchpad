@@ -1,21 +1,21 @@
 package browser
 
 import (
-	"encoding/base64"
 	"context"
+	"encoding/base64"
 	"fmt"
-	"sync/atomic"
-	"time"
-	"strings"
-	"regexp"
-	"strconv"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"time"
 
 	"scratchpad/internal/protocol"
 
-	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -30,15 +30,29 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 	ctx, cancel := context.WithTimeout(e.ctx, timeout)
 	defer cancel()
 
+	// Capture action result at the end of every action.
+	start := time.Now()
+	defer func() {
+		// Only set lastActionResult if it hasn't already been set by
+		// action-specific code (e.g. wait uses its own timing).
+		if e.lastActionResult == nil {
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   true,
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+		}
+	}()
+
 	switch req.Action {
 	case protocol.ActionWait:
 		start := time.Now()
 		success := false
 		var errMsg string
 
-		// Helper: emit diagnostics for this wait.
+		// Helper: emit result for this wait.
 		emit := func() {
-			e.lastActionDiagnostics = &protocol.ActionDiagnostics{
+			e.lastActionResult = &protocol.ActionResult{
 				Action:    req.Action,
 				Success:   success,
 				Error:     errMsg,
@@ -214,17 +228,27 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 
 	case protocol.ActionClick:
 
-		// Phase 1: selector-driven click.
+		// Phase 1: selector-driven click with auto-wait and highlighting.
 		if req.Selector != nil {
-			handle, err := e.FindElement(ctx, *req.Selector, timeout)
+			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
-				return fmt.Errorf("click: selector resolution failed: %w", err)
-			}
-			if !handle.Visible {
-				return fmt.Errorf("click: element is not visible")
+				return err
 			}
 			req.X = int(handle.CenterX)
 			req.Y = int(handle.CenterY)
+
+			// Highlight the element before clicking.
+			if req.Selector.CSS != "" {
+				highlight, hErr := e.highlightElement(ctx, req.Selector.CSS)
+				if hErr == nil && highlight != "" {
+					e.lastActionResult = &protocol.ActionResult{
+						Action:           req.Action,
+						Success:          true,
+						ElapsedMS:        time.Since(start).Milliseconds(),
+						ElementHighlight: highlight,
+					}
+				}
+			}
 		}
 
 		return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
@@ -242,17 +266,26 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}))
 
 	case protocol.ActionType:
-		// Phase 1: selector-driven typing.
-		// For now we rely on focusing via click-to-center and then dispatching
-		// keys into the active element.
+		// Phase 1: selector-driven typing with auto-wait and highlighting.
 		if req.Selector != nil {
-			handle, err := e.FindElement(ctx, *req.Selector, timeout)
+			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
-				return fmt.Errorf("type: selector resolution failed: %w", err)
+				return err
 			}
-			if !handle.Visible {
-				return fmt.Errorf("type: element is not visible")
+
+			// Highlight the element before typing.
+			if req.Selector.CSS != "" {
+				highlight, hErr := e.highlightElement(ctx, req.Selector.CSS)
+				if hErr == nil && highlight != "" {
+					e.lastActionResult = &protocol.ActionResult{
+						Action:           req.Action,
+						Success:          true,
+						ElapsedMS:        time.Since(start).Milliseconds(),
+						ElementHighlight: highlight,
+					}
+				}
 			}
+
 			if err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 				press := input.DispatchMouseEvent(input.MousePressed, handle.CenterX, handle.CenterY).
 					WithButton(input.Left).
@@ -272,18 +305,27 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 
 		return chromedp.Run(ctx, chromedp.KeyEvent(req.Text))
 
-	case "hover":
-		// Phase 1: selector-driven hover.
+	case protocol.ActionHover:
+		// Phase 1: selector-driven hover with auto-wait and highlighting.
 		if req.Selector != nil {
-			handle, err := e.FindElement(ctx, *req.Selector, timeout)
+			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
-				return fmt.Errorf("hover: selector resolution failed: %w", err)
-			}
-			if !handle.Visible {
-				return fmt.Errorf("hover: element is not visible")
+				return err
 			}
 			req.X = int(handle.CenterX)
 			req.Y = int(handle.CenterY)
+
+			if req.Selector.CSS != "" {
+				highlight, hErr := e.highlightElement(ctx, req.Selector.CSS)
+				if hErr == nil && highlight != "" {
+					e.lastActionResult = &protocol.ActionResult{
+						Action:           req.Action,
+						Success:          true,
+						ElapsedMS:        time.Since(start).Milliseconds(),
+						ElementHighlight: highlight,
+					}
+				}
+			}
 		}
 		return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 			return input.DispatchMouseEvent(input.MouseMoved, float64(req.X), float64(req.Y)).
@@ -297,12 +339,9 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 				x, y = 640, 360 // default to viewport centre
 			}
 			if req.Selector != nil {
-				handle, err := e.FindElement(ctx, *req.Selector, timeout)
+				handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 				if err != nil {
-					return fmt.Errorf("scroll: selector resolution failed: %w", err)
-				}
-				if !handle.Visible {
-					return fmt.Errorf("scroll: element is not visible")
+					return err
 				}
 				x, y = handle.CenterX, handle.CenterY
 			}
@@ -312,11 +351,11 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 				Do(ctx)
 		}))
 
-	case "double_click":
+	case protocol.ActionDoubleClick:
 		if req.Selector != nil {
-			handle, err := e.FindElement(ctx, *req.Selector, timeout)
+			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
-				return fmt.Errorf("double_click: selector resolution failed: %w", err)
+				return err
 			}
 			req.X = int(handle.CenterX)
 			req.Y = int(handle.CenterY)
@@ -335,11 +374,11 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			return release.Do(ctx)
 		}))
 
-	case "right_click":
+	case protocol.ActionRightClick:
 		if req.Selector != nil {
-			handle, err := e.FindElement(ctx, *req.Selector, timeout)
+			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
-				return fmt.Errorf("right_click: selector resolution failed: %w", err)
+				return err
 			}
 			req.X = int(handle.CenterX)
 			req.Y = int(handle.CenterY)
@@ -358,17 +397,17 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			return release.Do(ctx)
 		}))
 
-	case "drag_drop":
+	case protocol.ActionDragDrop:
 		if req.Selector == nil || req.TargetSelector == nil {
 			return fmt.Errorf("drag_drop requires selector and target_selector")
 		}
-		src, err := e.FindElement(ctx, *req.Selector, timeout)
+		src, err := e.waitForElement(ctx, *req.Selector, timeout)
 		if err != nil {
-			return fmt.Errorf("drag_drop: source selector resolution failed: %w", err)
+			return err
 		}
-		dst, err := e.FindElement(ctx, *req.TargetSelector, timeout)
+		dst, err := e.waitForElement(ctx, *req.TargetSelector, timeout)
 		if err != nil {
-			return fmt.Errorf("drag_drop: target selector resolution failed: %w", err)
+			return err
 		}
 		return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 			press := input.DispatchMouseEvent(input.MousePressed, src.CenterX, src.CenterY).
@@ -389,7 +428,7 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			return release.Do(ctx)
 		}))
 
-	case "select_option":
+	case protocol.ActionSelectOption:
 		if req.Selector == nil || req.Selector.CSS == "" {
 			return fmt.Errorf("select_option requires selector.css")
 		}
@@ -427,7 +466,7 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}
 		return nil
 
-	case "press_key_combo":
+	case protocol.ActionPressKeyCombo:
 		if req.KeyChord.Key == "" {
 			return fmt.Errorf("press_key_combo requires key_chord.key")
 		}
@@ -467,13 +506,13 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}
 		return nil
 
-	case "execute_js":
+	case protocol.ActionExecuteJS:
 		if strings.TrimSpace(req.JS) == "" {
 			return fmt.Errorf("execute_js requires js")
 		}
 		return chromedp.Run(ctx, chromedp.Evaluate(req.JS, new(interface{})))
 
-	case "scroll_into_view":
+	case protocol.ActionScrollIntoView:
 		if req.Selector == nil || req.Selector.CSS == "" {
 			return fmt.Errorf("scroll_into_view requires selector.css")
 		}
@@ -492,36 +531,26 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}
 		return nil
 
-	case "switch_to_iframe":
+	case protocol.ActionSwitchToIframe:
 		// Phase 1: stub. We record the selector for future iframe-scoped lookups.
 		// Full iframe-aware querying will be added next phase.
 		e.activeIframeSelector = req.IframeSelector
 		return nil
 
-	case "accept_dialog":
+	case protocol.ActionAcceptDialog:
 		// Best-effort: accept the next JavaScript dialog (alert/confirm/prompt).
 		return chromedp.Run(ctx, page.HandleJavaScriptDialog(true))
 
-	case "dismiss_dialog":
+	case protocol.ActionDismissDialog:
 		// Best-effort: dismiss the next JavaScript dialog (alert/confirm/prompt).
 		return chromedp.Run(ctx, page.HandleJavaScriptDialog(false))
 
-	case "upload_file":
+	case protocol.ActionUploadFile:
 		if req.Selector == nil || req.Selector.CSS == "" {
-			e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-				Action:  req.Action,
-				Success: false,
-				Error:   "upload_file requires selector.css",
-			}
-			return nil
+			return fmt.Errorf("upload_file requires selector.css")
 		}
 		if len(req.UploadFiles) == 0 {
-			e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-				Action:  req.Action,
-				Success: false,
-				Error:   "upload_file requires upload_files",
-			}
-			return nil
+			return fmt.Errorf("upload_file requires upload_files")
 		}
 
 		paths := make([]string, 0, len(req.UploadFiles))
@@ -531,12 +560,7 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			}
 			data, err := decodeDataOrBase64(uf.ContentBase64)
 			if err != nil {
-				e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-					Action:  req.Action,
-					Success: false,
-					Error:   fmt.Sprintf("upload_file: failed to decode %q: %v", uf.Name, err),
-				}
-				return nil
+				return fmt.Errorf("upload_file: failed to decode %q: %w", uf.Name, err)
 			}
 
 			ext := filepath.Ext(uf.Name)
@@ -545,54 +569,27 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			}
 			tmp, err := os.CreateTemp("", "scratchpad-upload-*"+ext)
 			if err != nil {
-				e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-					Action:  req.Action,
-					Success: false,
-					Error:   fmt.Sprintf("upload_file: failed to create temp file: %v", err),
-				}
-				return nil
+				return fmt.Errorf("upload_file: failed to create temp file: %w", err)
 			}
 			if _, err := tmp.Write(data); err != nil {
 				_ = tmp.Close()
-				e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-					Action:  req.Action,
-					Success: false,
-					Error:   fmt.Sprintf("upload_file: failed to write temp file: %v", err),
-				}
-				return nil
+				return fmt.Errorf("upload_file: failed to write temp file: %w", err)
 			}
 			if err := tmp.Close(); err != nil {
-				e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-					Action:  req.Action,
-					Success: false,
-					Error:   fmt.Sprintf("upload_file: failed to close temp file: %v", err),
-				}
-				return nil
+				return fmt.Errorf("upload_file: failed to close temp file: %w", err)
 			}
 			paths = append(paths, tmp.Name())
 		}
 
 		if len(paths) == 0 {
-			e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-				Action:  req.Action,
-				Success: false,
-				Error:   "upload_file: no valid decoded upload_files content",
-			}
-			return nil
+			return fmt.Errorf("upload_file: no valid decoded upload_files content")
 		}
 
-		// Best-effort: set file inputs for the first matching node.
-		e.lastActionDiagnostics = &protocol.ActionDiagnostics{Action: req.Action, Success: true}
 		return chromedp.Run(ctx, chromedp.SetUploadFiles(req.Selector.CSS, paths))
 
-	case "set_geolocation":
+	case protocol.ActionSetGeolocation:
 		if req.Geolocation == nil {
-			e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-				Action:  req.Action,
-				Success: false,
-				Error:   "set_geolocation requires geolocation",
-			}
-			return nil
+			return fmt.Errorf("set_geolocation requires geolocation")
 		}
 		acc := req.Geolocation.AccuracyM
 		if acc == 0 {
@@ -603,13 +600,8 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			WithLongitude(req.Geolocation.Longitude).
 			WithAccuracy(acc))
 
-	case "mock_network_response":
-		e.lastActionDiagnostics = &protocol.ActionDiagnostics{
-			Action:  req.Action,
-			Success: false,
-			Error:   "mock_network_response not implemented in Phase 1",
-		}
-		return nil
+	case protocol.ActionMockNetworkResp:
+		return fmt.Errorf("mock_network_response not implemented in Phase 1")
 
 	case protocol.ActionCheck:
 		if req.Selector == nil || req.Selector.CSS == "" {
@@ -791,12 +783,17 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}
 		return e.CloseTab(req.TabID)
 
-	case "assert":
+	case protocol.ActionAssert:
 		if req.Assertion == nil {
 			e.lastAssertionResult = &protocol.AssertionResult{
 				Success: false,
 				Type:    "assert",
 				Message: "assert requires assertion payload",
+			}
+			e.lastActionResult = &protocol.ActionResult{
+				Action:  req.Action,
+				Success: false,
+				Error:   "assert requires assertion payload",
 			}
 			return nil
 		}
@@ -810,6 +807,16 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 				Success:   success,
 				Type:      req.Assertion.Type,
 				Message:   msg,
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+			errText := ""
+			if !success {
+				errText = msg
+			}
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   success,
+				Error:     errText,
 				ElapsedMS: time.Since(start).Milliseconds(),
 			}
 		}()
@@ -1098,7 +1105,7 @@ func pageTextContains(ctx context.Context, needle string) (bool, error) {
 		return false, nil
 	}
 	var res string
-	js := fmt.Sprintf(`(function(){ return (document.body ? document.body.innerText : document.documentElement.innerText) || "" })()`)
+	js := `(function(){ return (document.body ? document.body.innerText : document.documentElement.innerText) || "" })()`
 	// We only need the page text; containment check is done in Go to avoid
 	// regex escape headaches for Phase 1.
 	if err := chromedp.Run(ctx, chromedp.Evaluate(js, &res)); err != nil {

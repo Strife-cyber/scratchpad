@@ -33,6 +33,9 @@ Every `Observe()` call returns an `ObservationResponse`. Here is the full schema
         "can_scroll_up": false,
         "current_percentage": 0
       },
+      "interactive": true,
+      "value": "",
+      "description": "Submit the form",
       "children": []
     }
   ],
@@ -70,7 +73,8 @@ Every `Observe()` call returns an `ObservationResponse`. Here is the full schema
 | `delta` | object | Tree changes when `type` is `"delta"` |
 | `page_info` | object | URL, title, platform, load status |
 | `assertion_result` | object | Result of the last assertion (or null) |
-| `action_diagnostics` | object | Result of the last action (or null) |
+| `action_diagnostics` | object | **Deprecated.** Use `action_result` instead. Result of the last action (or null) |
+| `action_result` | object | Result of the last action with metadata, screenshot, and element highlight (or null) |
 | `logs` | array | Console log entries since last observation |
 | `tabs` | array | Open browser tabs (Chrome only): `id`, `url`, `title`, `active`, `opener_id` |
 
@@ -93,6 +97,8 @@ Every `Observe()` call returns an `ObservationResponse`. Here is the full schema
 
 ## SpatialNode
 
+The spatial tree now includes **both interactive and structural elements** (headings, navigation, articles, tables, etc.). Agents can filter by `interactive: true` to focus on actionable elements.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `node_id` | string | Unique node identifier |
@@ -100,6 +106,9 @@ Every `Observe()` call returns an `ObservationResponse`. Here is the full schema
 | `name` | string | Text label or description |
 | `bounds` | object | Position and size: `x`, `y`, `width`, `height` (all float64) |
 | `scroll_state` | object | `can_scroll_down`, `can_scroll_up`, `current_percentage` |
+| `interactive` | bool | Whether the node is an interactive/actionable element |
+| `value` | string | Current value of the element (e.g., text in an input field) |
+| `description` | string | Extended description or accessibility description of the element |
 | `children` | array | Nested child nodes |
 
 ## TreeDelta
@@ -135,7 +144,35 @@ Present when `type` is `"delta"`:
 | `elapsed_ms` | int64 | Evaluation time |
 | `extra` | object | Type-specific data |
 
-## ActionDiagnostics
+## ActionResult (new)
+
+Replaces `ActionDiagnostics` with a richer structure including metadata, screenshot, and element highlight.
+
+```json
+{
+  "success": true,
+  "action": "click",
+  "error": "",
+  "elapsed_ms": 42,
+  "action_metadata": {"matched_elements": 3, "clicked_index": 0},
+  "screenshot": "<base64 JPEG after action>",
+  "element_highlight": "<base64 JPEG with red outline on targeted element>"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | bool | Whether the action succeeded |
+| `action` | string | The action that was executed |
+| `error` | string | Error message (empty on success) |
+| `elapsed_ms` | int64 | Execution time in milliseconds |
+| `action_metadata` | object | Action-specific data (e.g., matched element count, clicked index) |
+| `screenshot` | string | Base64-encoded JPEG of page state after the action |
+| `element_highlight` | string | Base64-encoded JPEG with a red outline on the targeted element |
+
+## ActionDiagnostics (deprecated)
+
+Kept for backward compatibility. Prefer `ActionResult`.
 
 | Field | Type | Description |
 |-------|------|-------------|

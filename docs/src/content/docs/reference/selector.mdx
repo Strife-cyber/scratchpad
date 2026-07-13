@@ -40,6 +40,14 @@ All fields are optional. The engine tries fields in specificity order and uses t
 - `testid` matches `data-testid` first, falls back to `data-test-id`
 - Visibility and enabled state are checked for every matched element
 
+## Auto-Wait
+
+Selector-based actions (click, type, hover, double_click, right_click, drag_drop) **auto-wait** for the target element before executing. The engine polls at 50ms intervals until an element matching the selector is visible and enabled, up to the configured timeout. If the element is found but not visible, the error includes a hint: *"try scroll_into_view"*.
+
+## Element Highlighting
+
+Before executing a selector-based action (click, type, hover, etc.), the targeted element gets a **red outline** applied via the browser's DevTools overlay. The highlight is captured as a cropped base64-encoded JPEG screenshot and included in the `ActionResult.element_highlight` field. This gives agents visual confirmation of what was targeted.
+
 ## Android-Specific Behavior
 
 - `css` field with `#` prefix → name substring match (e.g., `#welcome` matches nodes with "welcome" in their name)

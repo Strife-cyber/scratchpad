@@ -20,13 +20,16 @@ Client                          Server
   │────  Connect  ───────────────>│
   │<─── {"sessionId":"..."} ─────│
   │                               │
-  │──── InitializeRequest ───────>│
+  │── {"type":"navigate","data":{...}} ──>│
   │<─── ObservationResponse ─────│
   │                               │
-  │──── ActionRequest ───────────>│
+  │── {"type":"action","data":{...}} ───>│
   │<─── ObservationResponse ─────│
   │                               │
-  │──── {} (observe only) ───────>│
+  │── {"type":"observe"} ────────>│
+  │<─── ObservationResponse ─────│
+  │                               │
+  │── {"type":"resize","data":{...}} ──>│
   │<─── ObservationResponse ─────│
   │                               │
   │──── Disconnect ──────────────>│
@@ -34,32 +37,80 @@ Client                          Server
 
 ## Message Types
 
-### InitializeRequest
+All messages use a typed **Envelope** with a `"type"` discriminator field. The envelope structure is:
+
+```json
+{
+  "type": "navigate | action | observe | resize",
+  "data": { ... }
+}
+```
+
+| Type | Purpose |
+|------|---------|
+| `"navigate"` | Navigate to a URL or launch an app |
+| `"action"` | Perform an action (click, type, scroll, etc.) |
+| `"observe"` | Trigger an observation without performing an action |
+| `"resize"` | Resize the browser viewport |
+
+### navigate
 
 Sent first to navigate to a URL or launch an app:
 
 ```json
 {
-  "url": "https://example.com",
-  "viewport": {"width": 1280, "height": 720}
+  "type": "navigate",
+  "data": {
+    "url": "https://example.com",
+    "viewport": {"width": 1280, "height": 720}
+  }
 }
 ```
 
-### ActionRequest
+### action
 
 Sent to perform an action:
 
 ```json
 {
-  "action": "click",
-  "selector": {"css": "#submit-btn"},
-  "timeout_ms": 10000
+  "type": "action",
+  "data": {
+    "action": "click",
+    "selector": {"css": "#submit-btn"},
+    "timeout_ms": 10000
+  }
 }
 ```
 
-### Empty Message
+### observe
 
-Send an empty JSON object `{}` to trigger an observation without performing an action.
+Send an observe message to trigger an observation without performing an action:
+
+```json
+{
+  "type": "observe"
+}
+```
+
+### resize
+
+Resize the browser viewport:
+
+```json
+{
+  "type": "resize",
+  "data": {
+    "width": 1280,
+    "height": 720
+  }
+}
+```
+
+> **Backward compatibility:** Legacy `{}` (empty object) still works for observe-only usage.
+
+### Legacy Empty Message
+
+Send an empty JSON object `{}` to trigger an observation without performing an action (deprecated; prefer `{"type": "observe"}`).
 
 ## Response: ObservationResponse
 
@@ -79,6 +130,9 @@ Send an empty JSON object `{}` to trigger an observation without performing an a
       "name": "Submit",
       "bounds": {"x": 100, "y": 200, "width": 80, "height": 32},
       "scroll_state": {"can_scroll_down": false, "can_scroll_up": false, "current_percentage": 0},
+      "interactive": true,
+      "value": "",
+      "description": "Submit the form",
       "children": []
     }
   ],
@@ -90,7 +144,7 @@ Send an empty JSON object `{}` to trigger an observation without performing an a
     "navigation_id": 1
   },
   "assertion_result": null,
-  "action_diagnostics": null,
+  "action_result": null,
   "logs": null
 }
 ```
@@ -115,6 +169,13 @@ Repeated observations can return **deltas** instead of full spatial trees to red
 
 When `type` is `"delta"`, `spatial_tree` is omitted and `delta` contains only the changes.
 
+## Auto-Wait
+
+Selectors-based actions (click, type, hover, double_click, right_click, drag_drop) now **auto-wait** for the target element before executing. This means the engine polls at 50ms intervals for a visible and enabled element matching the selector, up to the configured timeout.
+
+- If the element is found but not visible, the error includes a hint: *"try scroll_into_view"*
+- After an action completes, the engine briefly waits for page stability (network idle + 100ms of quiet time)
+
 ## Python Example
 
 ```python
@@ -127,20 +188,59 @@ async def automate():
         handshake = json.loads(await ws.recv())
         print(f"Session: {handshake['sessionId']}")
 
-        # Navigate
-        await ws.send(json.dumps({"url": "https://example.com", "viewport": {"width": 1280, "height": 720}}))
+        # Navigate using typed envelope
+        await ws.send(json.dumps({
+            "type": "navigate",
+            "data": {"url": "https://example.com", "viewport": {"width": 1280, "height": 720}}
+        }))
         obs = json.loads(await ws.recv())
         print(f"Title: {obs['page_info']['title']}")
 
-        # Click
-        await ws.send(json.dumps({"action": "click", "x": 100, "y": 200}))
+        # Click using typed envelope
+        await ws.send(json.dumps({
+            "type": "action",
+            "data": {"action": "click", "x": 100, "y": 200}
+        }))
         obs = json.loads(await ws.recv())
 
-        # Observe only
-        await ws.send(json.dumps({}))
+        # Observe only using typed envelope (or legacy {})
+        await ws.send(json.dumps({"type": "observe"}))
         obs = json.loads(await ws.recv())
 ```
 
 ## Error Handling
 
-If an action fails, the WebSocket returns a response with `action_diagnostics.success: false` and an error message in `action_diagnostics.error`. The connection remains open for further commands.
+If an action fails, the WebSocket returns an **ErrorResponse** with screenshot context:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "message": "Failed to click element: element not visible",
+    "code": "ELEMENT_NOT_VISIBLE",
+    "elapsed_ms": 1042
+  },
+  "screenshot": "<base64 JPEG of page state at time of error>",
+  "page_info": {
+    "url": "https://example.com",
+    "title": "Example Domain"
+  }
+}
+```
+
+An `ErrorResponse` is **always** sent on failure. The error includes a screenshot of the page state so agents can inspect what went wrong. The connection remains open for further commands.
+
+## Session Management
+
+Sessions auto-expire after **5 minutes of inactivity** (configurable). A background cleanup loop runs every 30 seconds to evict stale sessions. Any WebSocket message or HTTP API call resets the `lastActivity` timer for the session.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `SCRATCHPAD_SESSION_IDLE_TIMEOUT` | `5m` | Max idle time before session eviction |
+| `SCRATCHPAD_SESSION_CLEANUP_INTERVAL` | `30s` | How often cleanup loop runs |
+
+### Keepalive
+
+The WebSocket connection uses ping/pong keepalive to detect disconnection:
+- Ping sent every **10 seconds**
+- Deadline of **15 seconds** before connection is considered dead
