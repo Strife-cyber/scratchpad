@@ -1,0 +1,5 @@
+- name: "Wait for Visible"
+  steps:
+    - navigate: https://example.com
+    - wait: {selector: "h1", condition: "selector_visible", timeout: 5000}
+    - assert: {selector: "h1", visible: true}

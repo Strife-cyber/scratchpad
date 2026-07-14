@@ -11,6 +11,7 @@ type Manager struct {
 	mu              sync.RWMutex
 	sessions        map[string]*Session
 	maxIdleDuration time.Duration
+	cleanupInterval time.Duration
 }
 
 // NewManager returns an empty Manager ready to create sessions.
@@ -18,7 +19,24 @@ func NewManager() *Manager {
 	return &Manager{
 		sessions:        make(map[string]*Session),
 		maxIdleDuration: 5 * time.Minute,
+		cleanupInterval: 30 * time.Second,
 	}
+}
+
+// SetMaxIdleDuration sets the idle timeout after which a session is eligible for
+// cleanup. Exported for testing; the default is 5 minutes.
+func (m *Manager) SetMaxIdleDuration(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maxIdleDuration = d
+}
+
+// SetCleanupInterval sets how often the cleanup loop sweeps for expired sessions.
+// Exported for testing; the default is 30 seconds.
+func (m *Manager) SetCleanupInterval(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupInterval = d
 }
 
 // StartCleanupLoop spawns a background goroutine that sweeps expired sessions
@@ -26,7 +44,7 @@ func NewManager() *Manager {
 // removed from the map and their engine is closed.
 func (m *Manager) StartCleanupLoop() {
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(m.cleanupInterval)
 		defer ticker.Stop()
 		for range ticker.C {
 			var toClose []*Session

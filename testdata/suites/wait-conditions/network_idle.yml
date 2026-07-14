@@ -1,0 +1,5 @@
+- name: "Wait for Network Idle"
+  steps:
+    - navigate: https://example.com
+    - wait: {condition: "network_idle", timeout: 10000}
+    - assert: {selector: "body", exists: true}

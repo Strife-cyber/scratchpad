@@ -1,0 +1,7 @@
+- name: "Element State Assertions"
+  steps:
+    - navigate: https://example.com
+    - assert: {selector: "body", exists: true}
+    - assert: {selector: "h1", visible: true}
+    - wait: {selector: "p", timeout: 5000}
+    - assert: {selector: "p", exists: true}

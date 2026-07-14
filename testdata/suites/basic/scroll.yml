@@ -1,0 +1,5 @@
+- name: "Scroll Page"
+  steps:
+    - navigate: https://example.com
+    - wait: {selector: "body", timeout: 5000}
+    - observe: ~

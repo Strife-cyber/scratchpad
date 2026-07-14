@@ -1,0 +1,7 @@
+- name: "Text Assertions"
+  steps:
+    - navigate: https://example.com
+    - wait: {selector: "h1", timeout: 5000}
+    - assert: {selector: "h1", text: "Example Domain", equals: true}
+    - assert: {selector: "body", text: "illustrative", contains: true}
+    - assert: {selector: "h1", exists: true}

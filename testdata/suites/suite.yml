@@ -1,0 +1,11 @@
+- name: "Navigation Test"
+  steps:
+    - navigate: https://example.com
+    - wait: {selector: "h1", timeout: 5000}
+    - assert: {selector: "h1", text: "Example Domain", equals: true}
+
+- name: "Element Assertions"
+  steps:
+    - navigate: https://example.com
+    - assert: {selector: "body", exists: true}
+    - assert: {selector: "h1", visible: true}

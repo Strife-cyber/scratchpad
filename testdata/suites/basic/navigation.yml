@@ -1,0 +1,6 @@
+- name: "Basic Navigation"
+  steps:
+    - navigate: https://example.com
+    - wait: {selector: "h1", timeout: 5000}
+    - assert: {selector: "h1", text: "Example Domain", equals: true}
+    - observe: ~
