@@ -22,7 +22,7 @@ jobs:
       - name: Unit tests (short mode)
         run: go test -short -race -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           file: ./coverage.out
           fail_ci_if_error: false
