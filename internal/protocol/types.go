@@ -42,6 +42,9 @@ const (
 // ErrorResponse is sent when an operation fails. Unlike the old silent
 // logging, the client ALWAYS receives an error.
 type ErrorResponse struct {
+	RequestID string `json:"request_id,omitempty"`
+	Code      string `json:"code,omitempty"`
+
 	Type    ErrorLevel `json:"type"`
 	Message string     `json:"message"`
 
@@ -58,6 +61,11 @@ type ErrorResponse struct {
 	// Hint suggests what the agent should try next.
 	Hint string `json:"hint,omitempty"`
 }
+
+const (
+	CodeSelectorNoMatch = "selector_no_match"
+	CodeTimeout         = "timeout"
+)
 
 // =============================================================================
 // Observe options

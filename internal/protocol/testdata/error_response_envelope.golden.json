@@ -1,0 +1,1 @@
+{"request_id":"req-abc123","code":"selector_no_match","type":"action","message":"element not found","action":"click","selector":{"css":".btn"},"hint":"No element matched css=.btn. Try scroll_into_view then retry."}
