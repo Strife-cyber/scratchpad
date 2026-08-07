@@ -8,6 +8,54 @@ import (
 	mcp "github.com/metoro-io/mcp-golang"
 )
 
+// -----------------------------------------------------------------------------
+// Non-action tool argument structs
+// -----------------------------------------------------------------------------
+
+// NavigateArgs loads a URL into the active session.
+type NavigateArgs struct {
+	URL string `json:"url"`
+}
+
+// ObserveArgs is empty — browser_observe takes no arguments.
+type ObserveArgs struct {
+	_ string `json:"-"`
+}
+
+// AssertArgs drives the protocol assert action (element_visible, text_present,
+// screenshot_matches, ...).
+type AssertArgs struct {
+	Assertion protocol.AssertionRequest `json:"assertion"`
+}
+
+type SwitchTabArgs struct {
+	TabID string `json:"tab_id"`
+}
+
+type CloseTabArgs struct {
+	TabID string `json:"tab_id"`
+}
+
+type DismissModalArgs struct {
+	Strategy string `json:"strategy,omitempty"`
+}
+
+type CheckArgs struct {
+	Selector protocol.Selector `json:"selector"`
+}
+
+type UncheckArgs struct {
+	Selector protocol.Selector `json:"selector"`
+}
+
+type SubmitFormArgs struct {
+	Selector protocol.Selector `json:"selector"`
+}
+
+type FillFormArgs struct {
+	Fields []protocol.FormField `json:"fields"`
+}
+
 // =============================================================================
 // Per-action tool argument structs
 // =============================================================================
@@ -226,7 +274,7 @@ var supportedActions = []string{
 // follow the "Example: browser_xxx with {...}" pattern because concrete
 // examples measurably improve LLM tool selection.
 func (s *Server) toolDefs() []toolDef {
-	return []toolDef{
+	return append([]toolDef{
 		// ---- Navigation & observation ----------------------------------------
 		tool(s, "browser_navigate", "Load a URL into the browser.\n\nExample: browser_navigate with {\"url\":\"https://example.com\"} navigates to the URL.", func(a NavigateArgs) protocol.Envelope {
 			return protocol.Envelope{
@@ -341,5 +389,7 @@ func (s *Server) toolDefs() []toolDef {
 		actionTool(s, "browser_wait", "Wait for a condition before continuing (network_idle, selector_visible, text_appear, url_match, ...).\n\nExample: browser_wait with {\"condition\":\"network_idle\"} waits until the network is idle.", func(a WaitArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionWait, Condition: a.Condition, Selector: a.Selector, Text: a.Text, Pattern: a.Pattern, TimeoutMS: a.TimeoutMS}
 		}),
-	}
+
+		// ---- Session lifecycle (appended; see tools_sessions.go) --------------
+	}, s.sessionToolDefs()...)
 }

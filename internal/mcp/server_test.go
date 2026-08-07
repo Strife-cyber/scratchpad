@@ -99,10 +99,10 @@ func TestNewMcpServer_ConnectAndHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMcpServer failed: %v", err)
 	}
-	if server.sessionID != "test-session-123" {
-		t.Errorf("expected sessionID 'test-session-123', got %q", server.sessionID)
+	if server.SessionID() != "test-session-123" {
+		t.Errorf("expected sessionID 'test-session-123', got %q", server.SessionID())
 	}
-	server.conn.Close()
+	server.Close()
 }
 
 func TestNewMcpServer_ConnectFailure(t *testing.T) {
@@ -129,7 +129,7 @@ func TestSendEnvelope_And_ReadObservation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMcpServer failed: %v", err)
 	}
-	defer server.conn.Close()
+	defer server.Close()
 
 	env := protocol.Envelope{
 		Type: protocol.MsgTypeObserve,
@@ -164,7 +164,7 @@ func TestReadResponse_Error(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMcpServer failed: %v", err)
 	}
-	defer server.conn.Close()
+	defer server.Close()
 
 	// Send an envelope first so the server has something to respond to.
 	env := protocol.Envelope{Type: protocol.MsgTypeObserve}
@@ -213,7 +213,7 @@ func TestReadResponse_ErrorWithScreenshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMcpServer failed: %v", err)
 	}
-	defer server.conn.Close()
+	defer server.Close()
 
 	// Send an envelope first so the server has something to respond to.
 	env := protocol.Envelope{Type: protocol.MsgTypeObserve}
@@ -260,7 +260,7 @@ func TestReadResponse_InvalidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMcpServer failed: %v", err)
 	}
-	defer server.conn.Close()
+	defer server.Close()
 
 	// Send an envelope first so the server has something to respond to.
 	env := protocol.Envelope{Type: protocol.MsgTypeObserve}
