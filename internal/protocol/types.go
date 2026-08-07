@@ -320,14 +320,17 @@ type NetworkMock struct {
 // =============================================================================
 
 // AssertionRequest describes a state check the engine should run.
+// Assertions are web-first (Playwright-style): the engine polls until the
+// condition holds or the retry timeout elapses.
 type AssertionRequest struct {
 	// Type determines which assertion to run.
-	// - element_exists, element_visible, element_checked
+	// - element_exists, element_visible, element_checked, element_count
 	// - text_equals, text_contains, text_matches
-	// - attr_equals, attr_contains
-	// - page_title, page_url
+	// - attr_equals, attr_contains, attr_matches
+	// - value_equals
+	// - page_title, page_url, url_matches
 	// - console_error_count
-	// - network_request_status
+	// - network_request_status, network_no_errors
 	// - screenshot_matches
 	Type string `json:"type"`
 
@@ -347,6 +350,14 @@ type AssertionRequest struct {
 
 	// Pattern is used for regex/text/url pattern matching.
 	Pattern string `json:"pattern,omitempty"`
+
+	// ExpectedCount is the expected match count for element_count assertions.
+	ExpectedCount int `json:"expected_count,omitempty"`
+
+	// TimeoutMS is the retry window in milliseconds. When 0 the engine uses a
+	// 5s default (Playwright-style web-first assertion timeout), polling at
+	// ~100ms intervals.
+	TimeoutMS int `json:"timeout_ms,omitempty"`
 
 	// RegexTolerance is used for screenshot/perceptual diffs.
 	RegexTolerance int `json:"tolerance,omitempty"`
@@ -453,11 +464,19 @@ type TreeDelta struct {
 }
 
 type AssertionResult struct {
-	Success   bool           `json:"success"`
-	Type      string         `json:"type,omitempty"`
-	Message   string         `json:"message,omitempty"`
-	ElapsedMS int64          `json:"elapsed_ms,omitempty"`
-	Extra     map[string]any `json:"extra,omitempty"`
+	Success   bool   `json:"success"`
+	Type      string `json:"type,omitempty"`
+	Message   string `json:"message,omitempty"`
+	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
+
+	// Attempts reports how many times the assertion was evaluated before it
+	// succeeded or gave up, so callers can see that polling actually happened.
+	Attempts int `json:"attempts,omitempty"`
+
+	// PollIntervalMS is the polling interval used, in milliseconds.
+	PollIntervalMS int `json:"poll_interval_ms,omitempty"`
+
+	Extra map[string]any `json:"extra,omitempty"`
 }
 
 // PageInfo describes the current page or screen.
