@@ -160,7 +160,14 @@ func handleNavigate(conn *websocket.Conn, session *sandbox.Session, reqID string
 
 	slog.Info("websocket: navigate",
 		"session_id", session.ID, "request_id", reqID, "url", req.URL)
-	if err := session.Engine.Navigate(req.URL); err != nil {
+
+	start := time.Now()
+	err := session.Engine.Navigate(req.URL)
+	dur := time.Since(start)
+	if session.Recorder != nil {
+		_ = session.Recorder.RecordNavigate(req.URL, reqID, dur.Milliseconds(), err)
+	}
+	if err != nil {
 		slog.Warn("websocket: navigate failed",
 			"session_id", session.ID, "request_id", reqID, "err", err)
 		sendError(conn, captureScreenshot(session, errorResponse(fmt.Errorf("navigate failed: %w", err), reqID, protocol.ErrorLevelAction, "navigate", nil)))
@@ -185,6 +192,13 @@ func handleAction(conn *websocket.Conn, session *sandbox.Session, reqID string, 
 	start := time.Now()
 	err := session.Engine.ExecuteAction(req)
 	dur := time.Since(start)
+
+	// Feed the session's action timeline so every action envelope (and any
+	// error it produced) is recorded. The subsequent observation hash is
+	// recorded inside sendObservation.
+	if session.Recorder != nil {
+		_ = session.Recorder.RecordAction(req, reqID, dur.Milliseconds(), err)
+	}
 
 	slog.Info("websocket: action",
 		"session_id", session.ID,
@@ -264,6 +278,12 @@ func sendObservation(conn *websocket.Conn, session *sandbox.Session, reqID strin
 	obs.Logs = session.SessionLogs
 	session.SessionLogs = nil
 	session.LogMu.Unlock()
+
+	// Record the observation hash for this step (the engine view right after
+	// a navigate/action/resize/observe) into the session timeline.
+	if session.Recorder != nil {
+		_ = session.Recorder.RecordObservation(browser.HashObservation(obs), "")
+	}
 
 	writeJSON(conn, obs)
 }
