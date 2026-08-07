@@ -8,3 +8,7 @@ docs/dist/
 docs/.astro/
 # Agent worktrees (isolated git worktrees, not part of the repo)
 .claude/worktrees/
+
+# Runtime artifacts
+/traces/
+/downloads/
