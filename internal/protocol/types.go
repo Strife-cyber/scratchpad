@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/json"
 	"encoding/xml"
+	"time"
 )
 
 // =============================================================================
@@ -13,10 +14,13 @@ import (
 // MUST include a "type" field. This replaces the fragile field-sniffing
 // approach.
 const (
-	MsgTypeNavigate = "navigate"
-	MsgTypeObserve  = "observe"
-	MsgTypeAction   = "action"
-	MsgTypeResize   = "resize"
+	MsgTypeNavigate     = "navigate"
+	MsgTypeObserve      = "observe"
+	MsgTypeAction       = "action"
+	MsgTypeResize       = "resize"
+	MsgTypeCancel       = "cancel"
+	MsgTypeListSessions = "session_list"
+	MsgTypeCloseSession = "session_close"
 )
 
 // Envelope wraps every message with an explicit type discriminator.
@@ -24,6 +28,34 @@ const (
 type Envelope struct {
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data,omitempty"`
+}
+
+// CancelRequest cancels an in-flight action. When ActionID is empty the
+// currently-running action on the session is cancelled.
+type CancelRequest struct {
+	ActionID string `json:"action_id,omitempty"`
+}
+
+// CloseSessionRequest asks the server to shut down and remove a session.
+// When SessionID is empty the session bound to the current connection is closed.
+type CloseSessionRequest struct {
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// SessionInfo describes one live session for session_list / session_snapshot.
+type SessionInfo struct {
+	ID           string    `json:"id"`
+	Kind         string    `json:"kind"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastActivity time.Time `json:"last_activity"`
+	URL          string    `json:"url,omitempty"`
+	Platform     string    `json:"platform,omitempty"`
+	Title        string    `json:"title,omitempty"`
+}
+
+// SessionListResponse is the reply to MsgTypeListSessions.
+type SessionListResponse struct {
+	Sessions []SessionInfo `json:"sessions"`
 }
 
 // =============================================================================
@@ -100,6 +132,10 @@ type ActionResult struct {
 	Action    string `json:"action"`
 	Error     string `json:"error,omitempty"`
 	ElapsedMS int64  `json:"elapsed_ms"`
+
+	// ActionID echoes the action_id from the request that produced this result,
+	// so the agent can correlate a cancellation or a result with its request.
+	ActionID string `json:"action_id,omitempty"`
 
 	// ActionMetadata contains action-specific structured data.
 	// For click: {"matched_elements": 3, "clicked_index": 0, "selector_hint": "button > .submit"}
@@ -184,6 +220,10 @@ type ActionRequest struct {
 	DeltaY    int    `json:"delta_y,omitempty"`
 	Condition string `json:"condition,omitempty"`
 	TimeoutMS int    `json:"timeout_ms,omitempty"`
+
+	// ActionID lets the agent correlate an action with a later cancel and with
+	// the ActionResult echoed back in the observation. Unique per request.
+	ActionID string `json:"action_id,omitempty"`
 
 	// Selector is used by actions to target elements without relying
 	// on fragile coordinates. The engine auto-waits for the element.
