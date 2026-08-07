@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -147,36 +148,14 @@ func (s *Server) sessionToolDefs() []toolDef {
 		},
 		{
 			name:        "session_close",
-			description: "Close a session by id (defaults to the active session), tearing down its engine server-side and dropping the bridge's connection to it. The session is removed from session_list. Use when a session's work is finished.\n\nExample: session_close with {\"session_id\":\"abc-123\"} closes that session.",
+			description: "Close a session by id (defaults to the active session), tearing down its engine server-side and dropping the bridge's connection to it. The session is removed from session_list. Works even when this process holds no connection to the session (e.g. a reconnected or fresh host closing an older session). Use when a session's work is finished.\n\nExample: session_close with {\"session_id\":\"abc-123\"} closes that session.",
 			register: func(srv *mcp.Server) error {
 				return srv.RegisterTool("session_close", "Close a session by id (defaults to the active session).", func(_ context.Context, args SessionCloseArgs) (*mcp.ToolResponse, error) {
 					id := args.SessionID
 					if id == "" {
 						id = s.SessionID()
 					}
-					sc, err := s.getConn(id)
-					if err != nil {
-						return nil, err
-					}
-					env := protocol.Envelope{
-						Type: protocol.MsgTypeCloseSession,
-						Data: mustJSON(protocol.CloseSessionRequest{SessionID: id}),
-					}
-					// Best-effort ack read; drop the connection regardless so a
-					// post-close transport failure doesn't surface as an error.
-					msg, rerr := sc.roundTrip(env)
-					s.dropSession(id)
-					if rerr == nil {
-						var ack protocol.Envelope
-						if json.Unmarshal(msg, &ack) != nil || ack.Type != protocol.MsgTypeCloseSession {
-							rerr = fmt.Errorf("unexpected close ack")
-						}
-					}
-					if rerr != nil {
-						slog.Warn("mcp: session_close ack not received (session may still be closed)",
-							"session_id", id, "err", rerr)
-					}
-					return mcp.NewToolResponse(mcp.NewTextContent(fmt.Sprintf("Session %q closed.", id))), nil
+					return s.closeSession(id)
 				})
 			},
 		},
@@ -247,4 +226,97 @@ func parseSessionList(msg []byte) (protocol.SessionListResponse, error) {
 		}
 	}
 	return resp, nil
+}
+
+// ---------------------------------------------------------------------------
+// session_close
+// ---------------------------------------------------------------------------
+
+// closeSession closes the session with the given id. When the bridge already
+// holds a live connection to that session, the close is forwarded on it (fast
+// path) and the local connection is dropped. When it holds no connection — the
+// common case for a reconnected or fresh stdio host closing a session that
+// outlives its own process — a throwaway connection is opened, attached to the
+// session by id, and used to forward the close (slow path). A session that no
+// longer exists server-side surfaces as the typed session_not_found instead of
+// the local "no connection" error.
+func (s *Server) closeSession(id string) (*mcp.ToolResponse, error) {
+	if id == "" {
+		return nil, fmt.Errorf("mcp: session_close requires a session_id")
+	}
+	env := protocol.Envelope{
+		Type: protocol.MsgTypeCloseSession,
+		Data: mustJSON(protocol.CloseSessionRequest{SessionID: id}),
+	}
+
+	// Fast path: forward the close on the session's live connection, if any.
+	if sc, err := s.getConn(id); err == nil {
+		msg, rerr := sc.roundTrip(env)
+		s.dropSession(id)
+		if rerr != nil {
+			slog.Warn("mcp: session_close ack not received (session may still be closed)",
+				"session_id", id, "err", rerr)
+			return closeAck(id), nil
+		}
+		var ack protocol.Envelope
+		if json.Unmarshal(msg, &ack) == nil && ack.Type == protocol.MsgTypeCloseSession {
+			return closeAck(id), nil
+		}
+		return s.parseResponse(msg)
+	}
+
+	// Slow path: no local connection for this session.
+	resp, err := s.closeSessionRemote(id, env)
+	if err == nil {
+		s.mu.Lock()
+		if s.activeSessionID == id {
+			s.activeSessionID = ""
+		}
+		s.mu.Unlock()
+	}
+	return resp, err
+}
+
+// closeSessionRemote forwards a close for id on a throwaway connection: it
+// dials the engine, attaches to the session by id (releasing the throwaway
+// fresh session when the target exists), sends the close, and closes the
+// connection. A missing session — refused at attach or by the server's close
+// handler — surfaces as the typed session_not_found.
+func (s *Server) closeSessionRemote(id string, env protocol.Envelope) (*mcp.ToolResponse, error) {
+	sc, err := dial(s.engineURL, id)
+	if err != nil {
+		if errors.Is(err, protocol.ErrSessionNotFound) {
+			return typedSessionNotFound(id), nil
+		}
+		return nil, fmt.Errorf("mcp: close session %q: %w", id, err)
+	}
+	defer sc.closeConn()
+
+	msg, rerr := sc.roundTrip(env)
+	if rerr != nil {
+		slog.Warn("mcp: session_close ack not received (session may still be closed)",
+			"session_id", id, "err", rerr)
+		return closeAck(id), nil
+	}
+	var ack protocol.Envelope
+	if json.Unmarshal(msg, &ack) == nil && ack.Type == protocol.MsgTypeCloseSession {
+		return closeAck(id), nil
+	}
+	// The server refused the close (e.g. session_not_found): surface verbatim.
+	return s.parseResponse(msg)
+}
+
+// closeAck builds the success ToolResponse for a closed session.
+func closeAck(id string) *mcp.ToolResponse {
+	return mcp.NewToolResponse(mcp.NewTextContent(fmt.Sprintf("Session %q closed.", id)))
+}
+
+// typedSessionNotFound builds a ToolResponse carrying the typed
+// session_not_found envelope, so agents see the stable code and hint instead of
+// a local "no connection for session" error.
+func typedSessionNotFound(id string) *mcp.ToolResponse {
+	resp := protocol.ErrorResponseFromError(protocol.ErrSessionNotFound, protocol.ErrorLevelAction)
+	resp.Message = fmt.Sprintf("close session: no session with id %q", id)
+	data, _ := json.Marshal(resp)
+	return mcp.NewToolResponse(mcp.NewTextContent(string(data)))
 }

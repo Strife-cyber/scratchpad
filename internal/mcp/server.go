@@ -155,7 +155,11 @@ func dial(engineURL, attachID string) (*sessionConn, error) {
 	}
 	if err := json.Unmarshal(ackMsg, &ack); err != nil || !ack.Attached || ack.SessionID != attachID {
 		_ = conn.Close()
-		return nil, fmt.Errorf("mcp: attach to session %q refused", attachID)
+		// The server refuses the re-attach only when the session does not exist
+		// (tryAttach has no other refusal path). Return the typed sentinel so
+		// callers can surface the stable session_not_found code instead of a
+		// generic "refused" string.
+		return nil, fmt.Errorf("%w: session %q", protocol.ErrSessionNotFound, attachID)
 	}
 
 	sc.id = attachID

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -231,5 +232,165 @@ func TestReconnect_AfterConnectionDrop(t *testing.T) {
 	}
 	if server.SessionID() != "sess-keep" {
 		t.Errorf("active session after reconnect %q, want %q", server.SessionID(), "sess-keep")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// session_close: no local connection (item 6 fix)
+// ---------------------------------------------------------------------------
+
+// startCloseWSServer simulates the engine for session_close. Every connection
+// gets a fresh handshake; an attach rebind {"sessionId":X} is acked when known
+// returns true and refused with a session_not_found error otherwise; a
+// MsgTypeCloseSession envelope is answered with a close ack when the target is
+// known, or a typed session_not_found error otherwise.
+func startCloseWSServer(t *testing.T, known func(string) bool) *httptest.Server {
+	t.Helper()
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		hs, _ := json.Marshal(map[string]string{"sessionId": "fresh-handshake"})
+		conn.WriteMessage(websocket.TextMessage, hs)
+
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			// Attach rebind {"sessionId":X}.
+			var rb struct {
+				SessionID string `json:"sessionId"`
+			}
+			if json.Unmarshal(msg, &rb) == nil && rb.SessionID != "" {
+				if !known(rb.SessionID) {
+					errResp, _ := json.Marshal(protocol.ErrorResponse{
+						Type:    protocol.ErrorLevelAction,
+						Code:    protocol.CodeSessionNotFound,
+						Message: fmt.Sprintf("attach: session %q not found", rb.SessionID),
+					})
+					conn.WriteMessage(websocket.TextMessage, errResp)
+					return
+				}
+				ack, _ := json.Marshal(map[string]any{"sessionId": rb.SessionID, "attached": true})
+				conn.WriteMessage(websocket.TextMessage, ack)
+				continue
+			}
+
+			// Close request.
+			var env protocol.Envelope
+			if err := json.Unmarshal(msg, &env); err != nil || env.Type != protocol.MsgTypeCloseSession {
+				return
+			}
+			var cr protocol.CloseSessionRequest
+			_ = json.Unmarshal(env.Data, &cr)
+			if !known(cr.SessionID) {
+				errResp, _ := json.Marshal(protocol.ErrorResponse{
+					Type:    protocol.ErrorLevelAction,
+					Code:    protocol.CodeSessionNotFound,
+					Message: fmt.Sprintf("close session: %v", protocol.ErrSessionNotFound),
+				})
+				conn.WriteMessage(websocket.TextMessage, errResp)
+				return
+			}
+			ack, _ := json.Marshal(map[string]any{
+				"type": protocol.MsgTypeCloseSession,
+				"data": map[string]any{"ok": true, "session_id": cr.SessionID},
+			})
+			conn.WriteMessage(websocket.TextMessage, ack)
+			return
+		}
+	}))
+}
+
+// closeTestServer returns a bare Server with engineURL set and no local
+// connections — the state of a fresh/reconnected stdio host.
+func closeTestServer(t *testing.T, known func(string) bool) *Server {
+	t.Helper()
+	srv := startCloseWSServer(t, known)
+	t.Cleanup(srv.Close)
+	return &Server{
+		engineURL: "ws" + strings.TrimPrefix(srv.URL, "http"),
+		conns:     map[string]*sessionConn{},
+	}
+}
+
+// TestCloseSession_NoLocalConnection_ForwardsClose covers the item-6 fix: a
+// host holding no connection to the session must still be able to close it by
+// id. The close is forwarded on a throwaway connection (attach handshake +
+// MsgTypeCloseSession) rather than failing with the local "no connection" error.
+func TestCloseSession_NoLocalConnection_ForwardsClose(t *testing.T) {
+	server := closeTestServer(t, func(id string) bool { return id == "target-exists" })
+
+	resp, err := server.closeSession("target-exists")
+	if err != nil {
+		t.Fatalf("closeSession with no local connection: %v", err)
+	}
+	if len(resp.Content) == 0 || resp.Content[0].TextContent == nil {
+		t.Fatal("expected a text content block")
+	}
+	if !strings.Contains(resp.Content[0].TextContent.Text, "closed") {
+		t.Errorf("expected close ack, got: %s", resp.Content[0].TextContent.Text)
+	}
+}
+
+// TestCloseSession_NoLocalConnection_MissingSession_TypedError asserts that
+// closing a session that no longer exists server-side surfaces the typed
+// session_not_found envelope instead of the local "no connection" error.
+func TestCloseSession_NoLocalConnection_MissingSession_TypedError(t *testing.T) {
+	server := closeTestServer(t, func(string) bool { return false })
+
+	resp, err := server.closeSession("gone-session")
+	if err != nil {
+		t.Fatalf("expected a ToolResponse carrying the typed error, got error: %v", err)
+	}
+	if len(resp.Content) == 0 || resp.Content[0].TextContent == nil {
+		t.Fatal("expected a text content block")
+	}
+	body := resp.Content[0].TextContent.Text
+	if !strings.Contains(body, `"code":"session_not_found"`) {
+		t.Errorf("expected typed session_not_found envelope, got: %s", body)
+	}
+}
+
+// TestCloseSession_LocalConnection_FastPath keeps the fast path intact: when a
+// live connection exists, the close is forwarded on it and the local connection
+// is dropped.
+func TestCloseSession_LocalConnection_FastPath(t *testing.T) {
+	srv := startCloseWSServer(t, func(id string) bool { return id == "fresh-handshake" })
+	defer srv.Close()
+
+	server, err := NewMcpServer("ws" + strings.TrimPrefix(srv.URL, "http"))
+	if err != nil {
+		t.Fatalf("NewMcpServer: %v", err)
+	}
+	defer server.Close()
+
+	if server.SessionID() != "fresh-handshake" {
+		t.Fatalf("expected active session %q, got %q", "fresh-handshake", server.SessionID())
+	}
+
+	resp, err := server.closeSession("fresh-handshake")
+	if err != nil {
+		t.Fatalf("closeSession (fast path): %v", err)
+	}
+	if len(resp.Content) == 0 || resp.Content[0].TextContent == nil {
+		t.Fatal("expected a text content block")
+	}
+	if !strings.Contains(resp.Content[0].TextContent.Text, "closed") {
+		t.Errorf("expected close ack, got: %s", resp.Content[0].TextContent.Text)
+	}
+	server.mu.Lock()
+	_, stillHeld := server.conns["fresh-handshake"]
+	server.mu.Unlock()
+	if stillHeld {
+		t.Error("fast path must drop the closed session's local connection")
 	}
 }
