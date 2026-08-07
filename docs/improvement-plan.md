@@ -106,6 +106,8 @@ The fix: every request gets a `request_id`, every error (HTTP, WS, MCP, engine) 
 
 ## 2. One MCP Tool Per Action, With Examples In The Schema
 
+- [x] DONE (wave W2, B1 — 0bedb0f execute_js returns JS result, cc6665b descriptor-driven per-action tools with examples, browser_eval, aliases)
+
 ### What & Why
 
 The MCP surface is 12 tools (`internal/mcp/tools.go`), and `browser_action` is a **mega-tool** that takes the raw `protocol.ActionRequest` — a struct with ~30 fields, most irrelevant to any given action. An LLM must guess which of `target_id`, `delta_x`, `option_value`, `key_chord`, `network_mock`, `iframe_selector`… apply to "click". Weak models get this wrong constantly, which burns tokens and erodes trust. Meanwhile 17 supported actions have **no dedicated tool at all** (hover, double_click, right_click, drag_drop, select_option, press_key_combo, execute_js, scroll_into_view, upload_file, set_geolocation, accept/dismiss_dialog, switch_to_iframe…).
