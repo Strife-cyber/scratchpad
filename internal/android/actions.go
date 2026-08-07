@@ -178,83 +178,53 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 			}
 			return nil
 		}
+
 		a := req.Assertion
 		elapsedStart := time.Now()
 
-		var (
-			success bool
-			msg     string
-		)
-		var matches []protocol.SpatialNode
-		var err error
-		if a.Selector != nil {
-			matches, err = e.findAndroidMatches(a.Selector)
-			if err != nil {
-				success = false
-				msg = fmt.Sprintf("assert selector resolution failed: %v", err)
-			}
+		// Playwright-style web-first assertions: poll until the condition holds,
+		// the retry timeout elapses, or a permanent configuration error occurs.
+		timeout := defaultAssertTimeout
+		if a.TimeoutMS > 0 {
+			timeout = time.Duration(a.TimeoutMS) * time.Millisecond
 		}
+		poll := assertPollInterval
+		deadline := time.Now().Add(timeout)
 
-		switch a.Type {
-		case "element_exists", "element_visible":
-			success = len(matches) > 0
-			if !success {
-				msg = "no elements matched selector"
-			}
-		case "element_checked":
-			success = false
-			msg = "element_checked not supported on Android Phase 5"
-		case "text_equals":
-			success = false
-			for _, m := range matches {
-				if m.Name == a.Text {
-					success = true
+		success := false
+		msg := ""
+		attempts := 0
+
+		for {
+			attempts++
+			var matches []protocol.SpatialNode
+			if a.Selector != nil {
+				var rErr error
+				matches, rErr = e.findAndroidMatches(a.Selector)
+				if rErr != nil {
+					msg = fmt.Sprintf("assert selector resolution failed: %v", rErr)
 					break
 				}
 			}
-			if !success {
-				msg = fmt.Sprintf("text_equals mismatch: want %q", a.Text)
-			}
-		case "text_contains":
-			success = false
-			for _, m := range matches {
-				if containsText(m.Name, a.Text) {
-					success = true
-					break
-				}
-			}
-			if !success {
-				msg = fmt.Sprintf("text_contains mismatch: want substring %q", a.Text)
-			}
-		case "text_matches":
-			re, reErr := regexp.Compile(a.Pattern)
-			if reErr != nil {
-				success = false
-				msg = fmt.Sprintf("invalid regex: %v", reErr)
+			res := evaluateAndroidAssert(a, matches)
+			if res.success || res.permanent {
+				success, msg = res.success, res.msg
 				break
 			}
-			success = false
-			for _, m := range matches {
-				if re.MatchString(m.Name) {
-					success = true
-					break
-				}
+			if time.Now().After(deadline) {
+				success, msg = false, res.msg
+				break
 			}
-			if !success {
-				msg = "text regex did not match"
-			}
-		default:
-			if msg == "" {
-				msg = fmt.Sprintf("unsupported assertion type: %q", a.Type)
-			}
-			success = false
+			time.Sleep(poll)
 		}
 
 		e.lastAssertionResult = &protocol.AssertionResult{
-			Success:   success,
-			Type:      a.Type,
-			Message:   msg,
-			ElapsedMS: time.Since(elapsedStart).Milliseconds(),
+			Success:        success,
+			Type:           a.Type,
+			Message:        msg,
+			ElapsedMS:      time.Since(elapsedStart).Milliseconds(),
+			Attempts:       attempts,
+			PollIntervalMS: int(poll.Milliseconds()),
 		}
 		errText := ""
 		if !success {
@@ -267,7 +237,6 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 			ElapsedMS: time.Since(elapsedStart).Milliseconds(),
 		}
 		// return nil always: assertion result is surfaced via ObservationResponse.
-		_ = err
 		return nil
 
 	default:
@@ -348,4 +317,70 @@ func filterSpatial(in []protocol.SpatialNode, pred func(protocol.SpatialNode) bo
 		}
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// Assertions (Playwright-style web-first polling, mirrored from the browser)
+// ---------------------------------------------------------------------------
+
+const (
+	// defaultAssertTimeout is the retry window when AssertionRequest.TimeoutMS
+	// is unset (Playwright-style web-first assertion timeout).
+	defaultAssertTimeout = 5 * time.Second
+
+	// assertPollInterval is how often Android re-dumps the UI hierarchy.
+	assertPollInterval = 100 * time.Millisecond
+)
+
+// androidAssertResult is the outcome of a single Android assertion evaluation.
+type androidAssertResult struct {
+	success   bool
+	permanent bool
+	msg       string
+}
+
+// evaluateAndroidAssert evaluates one snapshot of an Android assertion against
+// the already-resolved UI hierarchy. It is pure so it can be unit-tested
+// without a connected device.
+func evaluateAndroidAssert(a *protocol.AssertionRequest, matches []protocol.SpatialNode) androidAssertResult {
+	fail := func(msg string) androidAssertResult { return androidAssertResult{msg: msg} }
+	perm := func(msg string) androidAssertResult { return androidAssertResult{permanent: true, msg: msg} }
+	ok := func(msg string) androidAssertResult { return androidAssertResult{success: true, msg: msg} }
+
+	switch a.Type {
+	case "element_exists", "element_visible":
+		if len(matches) > 0 {
+			return ok(fmt.Sprintf("%s passed (%d match(es))", a.Type, len(matches)))
+		}
+		return fail("no elements matched selector")
+	case "element_checked":
+		return perm("element_checked not supported on Android Phase 5")
+	case "text_equals":
+		for _, m := range matches {
+			if m.Name == a.Text {
+				return ok("text_equals passed")
+			}
+		}
+		return fail(fmt.Sprintf("text_equals mismatch: want %q", a.Text))
+	case "text_contains":
+		for _, m := range matches {
+			if containsText(m.Name, a.Text) {
+				return ok("text_contains passed")
+			}
+		}
+		return fail(fmt.Sprintf("text_contains mismatch: want substring %q", a.Text))
+	case "text_matches":
+		re, reErr := regexp.Compile(a.Pattern)
+		if reErr != nil {
+			return perm(fmt.Sprintf("invalid regex: %v", reErr))
+		}
+		for _, m := range matches {
+			if re.MatchString(m.Name) {
+				return ok("text_matches passed")
+			}
+		}
+		return fail("text regex did not match")
+	default:
+		return perm(fmt.Sprintf("unsupported assertion type: %q", a.Type))
+	}
 }
