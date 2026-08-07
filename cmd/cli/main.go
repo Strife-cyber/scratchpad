@@ -19,6 +19,8 @@ func main() {
 	switch os.Args[1] {
 	case "run":
 		runCmd(os.Args[2:])
+	case "doctor":
+		doctorCmd(os.Args[2:])
 	case "mcp":
 		// Phase 3.1 request: same CLI can run existing MCP bridge.
 		testrunner.RunMcp(os.Args[2:])
@@ -30,11 +32,38 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "Usage:")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli run -i <suite.yml|suite.json> [flags]")
+	fmt.Fprintln(os.Stderr, "  scratchpad-cli doctor [--fix] [--json] [--server URL] [--port N]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli mcp [flags]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Examples:")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli run -i tests/login.yml --parallel 4 --format junit")
+	fmt.Fprintln(os.Stderr, "  scratchpad-cli doctor --fix")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli mcp --engine-url ws://localhost:8080/ws")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "doctor exit codes: 0 when every check passes, 1 when any check fails.")
+}
+
+func doctorCmd(args []string) {
+	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	var (
+		serverURL = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		port      = fs.Int("port", 8080, "server port to probe for conflicts")
+		docsDir   = fs.String("docs-dir", "docs", "documentation directory to check")
+		fix       = fs.Bool("fix", false, "attempt to fix automatable failures (create missing dirs)")
+		jsonOut   = fs.Bool("json", false, "emit a machine-readable JSON report")
+	)
+	_ = fs.Parse(args)
+
+	opts := testrunner.DoctorOptions{
+		ServerURL: strings.TrimRight(*serverURL, "/"),
+		Port:      *port,
+		DocsDir:   *docsDir,
+		Fix:       *fix,
+		JSON:      *jsonOut,
+	}
+	if err := testrunner.RunDoctor(opts); err != nil {
+		os.Exit(1)
+	}
 }
 
 func runCmd(args []string) {
@@ -61,19 +90,18 @@ func runCmd(args []string) {
 	}
 
 	opts := testrunner.RunOptions{
-		InputPath:  *inputPath,
-		ServerURL:  strings.TrimRight(*serverURL, "/"),
-		Headless:   *headless,
-		Platform:   strings.ToLower(strings.TrimSpace(*platform)),
-		Parallel:   *parallel,
-		Retries:    *retries,
-		TimeoutMS:  *timeoutMS,
-		Format:     *format,
-		OutPath:    *outPath,
-		JUnitOut:   *junitPath,
+		InputPath: *inputPath,
+		ServerURL: strings.TrimRight(*serverURL, "/"),
+		Headless:  *headless,
+		Platform:  strings.ToLower(strings.TrimSpace(*platform)),
+		Parallel:  *parallel,
+		Retries:   *retries,
+		TimeoutMS: *timeoutMS,
+		Format:    *format,
+		OutPath:   *outPath,
+		JUnitOut:  *junitPath,
 	}
 	if err := testrunner.RunSuites(opts); err != nil {
 		log.Fatal(err)
 	}
 }
-
