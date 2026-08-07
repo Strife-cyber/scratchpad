@@ -334,6 +334,8 @@ The YAML test runner (`internal/testrunner/runner.go`) parses suites via `reflec
 
 ## 9. Real OpenAPI Spec + Generated Client SDKs
 
+- [x] DONE (wave W2, B3 — f985b64 complete OpenAPI 3.0 spec, 8da9f52 /openapi.json, 762f8dd Python SDK, 256d4f2 TypeScript SDK; caveat: REST `ActionRequest` parity beyond the six validated actions deferred)
+
 ### What & Why
 
 `cmd/server/main.go` already mounts `/swagger.json` and `/docs` (Swagger UI) via `internal/docs` — but the current spec is minimal and the REST API (`internal/api/`) is hand-dispatched with **no request validation and no structured responses**, so external clients and AI tools can't discover or trust it. Meanwhile the HTTP `ActionPayload` supports only 6 of ~25 actions — the REST API is far behind WS and MCP.
