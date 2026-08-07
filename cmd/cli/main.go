@@ -23,6 +23,8 @@ func main() {
 		doctorCmd(os.Args[2:])
 	case "lint":
 		lintCmd(os.Args[2:])
+	case "timeline":
+		timelineCmd(os.Args[2:])
 	case "init":
 		initCmd(os.Args[2:])
 	case "mcp":
@@ -39,6 +41,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli lint -i <suite.yml|suite.json> [--json]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli init [--dir DIR] [--force]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli doctor [--fix] [--json] [--server URL] [--port N]")
+	fmt.Fprintln(os.Stderr, "  scratchpad-cli timeline <session_id> [--server URL] [--trace-dir DIR] [--json]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli mcp [flags]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Examples:")
@@ -48,6 +51,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli lint -i tests/smoke.yml")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli init --dir tests")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli doctor --fix")
+	fmt.Fprintln(os.Stderr, "  scratchpad-cli timeline <session_id> --json")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli mcp --engine-url ws://localhost:8080/ws")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Exit codes:")
@@ -92,6 +96,33 @@ func lintCmd(args []string) {
 		JSON:      *jsonOut,
 	}
 	if err := testrunner.RunLint(opts); err != nil {
+		os.Exit(1)
+	}
+}
+
+func timelineCmd(args []string) {
+	fs := flag.NewFlagSet("timeline", flag.ExitOnError)
+	var (
+		serverURL = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		traceDir  = fs.String("trace-dir", "", "read the timeline from a local trace dir instead of the server")
+		jsonOut   = fs.Bool("json", false, "emit machine-readable JSON for AI consumption")
+	)
+	_ = fs.Parse(args)
+
+	sessionID := fs.Arg(0)
+	if strings.TrimSpace(sessionID) == "" {
+		fmt.Fprintln(os.Stderr, "timeline: missing <session_id>")
+		os.Exit(1)
+	}
+
+	opts := testrunner.TimelineOptions{
+		SessionID: sessionID,
+		ServerURL: strings.TrimRight(*serverURL, "/"),
+		JSON:      *jsonOut,
+		TraceDir:  *traceDir,
+	}
+	if err := testrunner.RunTimeline(opts); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }

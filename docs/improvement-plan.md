@@ -421,6 +421,8 @@ Agents fail, and today the only record of what happened is a pile of stdout line
 
 **Debuggability.** Timeline makes every failure explainable, and it feeds directly into the trace viewer (item 24) and the YAML codegen recorder (item 25).
 
+- [x] DONE (wave B2 — recorder bf71046, sandbox attach dc0b9ab, ws feed 06944c3, api dc43750, cli 317364f; caveat: actions dispatched via REST `/actions` are not yet fed to the recorder — only the websocket path records)
+
 ---
 
 ## 12. Fix the Known Misbehaving Tools

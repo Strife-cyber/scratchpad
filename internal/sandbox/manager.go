@@ -110,7 +110,7 @@ func (m *Manager) StartCleanupLoop() {
 				}
 			}
 			for _, s := range toClose {
-				s.Engine.Close()
+				s.Close()
 			}
 		}
 	}()
