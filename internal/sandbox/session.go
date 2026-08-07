@@ -16,8 +16,13 @@ import (
 
 // Session holds all state for a single connected agent.
 type Session struct {
-	ID          string
-	Kind        engine.Kind
+	ID   string
+	Kind engine.Kind
+
+	// CreatedAt is when the session was created; exposed via session_list /
+	// session_snapshot so agents can reason about session age.
+	CreatedAt time.Time
+
 	Engine      engine.Engine // interface — could be Chrome, Android, etc.
 	SessionLogs []protocol.ConsoleLog
 	LogMu       sync.Mutex
@@ -29,6 +34,12 @@ type Session struct {
 	// manager's cleanup loop reads the timestamp to decide eviction.
 	activityMu   sync.Mutex
 	LastActivity time.Time
+
+	// inFlight tracks whether an action is currently executing on this session.
+	// Guarded by actionMu. The cleanup loop skips sessions with an in-flight
+	// action so a mid-action session is never reaped from underneath the action.
+	actionMu sync.Mutex
+	inFlight bool
 
 	// ConsoleRing stores recent console logs for observability endpoints.
 	// It is appended during WebSocket observation cycles.
@@ -59,11 +70,40 @@ func (s *Session) IsExpired(timeout time.Duration) bool {
 }
 
 // Touch updates the LastActivity timestamp to now, marking the session as
-// recently used. Call this whenever the session processes a message.
+// recently used. Call this whenever the session processes a message, and when
+// a client attaches to the session (the "keep alive" lease).
 func (s *Session) Touch() {
 	s.activityMu.Lock()
 	s.LastActivity = time.Now()
 	s.activityMu.Unlock()
+}
+
+// BeginAction marks the session as running an action. It returns false when
+// another action is already in flight (callers should not start a second one).
+func (s *Session) BeginAction() bool {
+	s.actionMu.Lock()
+	defer s.actionMu.Unlock()
+	if s.inFlight {
+		return false
+	}
+	s.inFlight = true
+	return true
+}
+
+// EndAction clears the in-flight marker for the session.
+func (s *Session) EndAction() {
+	s.actionMu.Lock()
+	s.inFlight = false
+	s.actionMu.Unlock()
+}
+
+// HasActiveAction reports whether an action is currently executing on the
+// session. Used by the Manager's cleanup loop to avoid reaping a mid-action
+// session.
+func (s *Session) HasActiveAction() bool {
+	s.actionMu.Lock()
+	defer s.actionMu.Unlock()
+	return s.inFlight
 }
 
 // CreateSession instantiates a brand-new engine of the requested Kind and
@@ -76,12 +116,14 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 	}
 
 	id := uuid.New().String()
+	now := time.Now()
 	s := &Session{
 		ID:               id,
 		Kind:             kind,
 		Engine:           eng,
+		CreatedAt:        now,
 		ConsoleRingLimit: 500,
-		LastActivity:     time.Now(),
+		LastActivity:     now,
 	}
 
 	// Browser sessions get an action timeline recorder so every step is

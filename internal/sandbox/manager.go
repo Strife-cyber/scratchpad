@@ -2,8 +2,11 @@ package sandbox
 
 import (
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
+
+	"scratchpad/internal/protocol"
 )
 
 // Manager owns the lifecycle of all active sessions.
@@ -80,9 +83,30 @@ func (m *Manager) ActiveCountByKind() map[string]int {
 	return out
 }
 
+// ListSessions returns a snapshot of every live session as SessionInfo, ordered
+// by creation time. It powers the WS session_list message and the MCP
+// session_list tool.
+func (m *Manager) ListSessions() []protocol.SessionInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]protocol.SessionInfo, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		out = append(out, protocol.SessionInfo{
+			ID:           s.ID,
+			Kind:         string(s.Kind),
+			CreatedAt:    s.CreatedAt,
+			LastActivity: s.LastActivityAt(),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
 // StartCleanupLoop spawns a background goroutine that sweeps expired sessions
 // every 30 seconds. Sessions whose LastActivity exceeds maxIdleDuration are
-// removed from the map and their engine is closed.
+// removed from the map and their engine is closed — unless an action is
+// currently in flight on that session, in which case the sweep is skipped and
+// the session's idle deadline is effectively extended by one tick.
 func (m *Manager) StartCleanupLoop() {
 	go func() {
 		ticker := time.NewTicker(m.cleanupInterval)
@@ -92,15 +116,23 @@ func (m *Manager) StartCleanupLoop() {
 			var toEvict []string
 			m.mu.Lock()
 			for id, s := range m.sessions {
-				if s.IsExpired(m.maxIdleDuration) {
-					slog.Info("sandbox: cleaning up idle session",
+				if !s.IsExpired(m.maxIdleDuration) {
+					continue
+				}
+				if s.HasActiveAction() {
+					slog.Debug("sandbox: skipping cleanup of busy session",
 						"session_id", id,
 						"idle", time.Since(s.LastActivityAt()).Round(time.Second),
 					)
-					delete(m.sessions, id)
-					toClose = append(toClose, s)
-					toEvict = append(toEvict, id)
+					continue
 				}
+				slog.Info("sandbox: cleaning up idle session",
+					"session_id", id,
+					"idle", time.Since(s.LastActivityAt()).Round(time.Second),
+				)
+				delete(m.sessions, id)
+				toClose = append(toClose, s)
+				toEvict = append(toEvict, id)
 			}
 			destroyHook := m.sessionDestroyed
 			m.mu.Unlock()
