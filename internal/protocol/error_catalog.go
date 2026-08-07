@@ -157,7 +157,7 @@ var messageRules = []messageRule{
 		class:   classUnsupported,
 	},
 	{
-		pattern: regexp.MustCompile(`(?i)invalid|malformed|bad request|requires |required|missing|unrecognized|invalid message format`),
+		pattern: regexp.MustCompile(`(?i)invalid|malformed|bad request|requires |required|missing|unrecognized|unknown message type|invalid message format`),
 		class:   classInvalidRequest,
 	},
 }

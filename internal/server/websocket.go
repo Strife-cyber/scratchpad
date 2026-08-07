@@ -10,6 +10,7 @@ import (
 
 	"scratchpad/internal/browser"
 	"scratchpad/internal/engine"
+	"scratchpad/internal/middleware"
 	"scratchpad/internal/protocol"
 	"scratchpad/internal/sandbox"
 
@@ -36,6 +37,10 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 			return
 		}
 		defer conn.Close()
+
+		// Correlate every message on this connection with the request_id the
+		// middleware stamped on the upgrade request ("" when not wired up).
+		requestID := middleware.FromRequest(r)
 
 		// Each WebSocket connection gets its own isolated engine session.
 		session, err := mgr.CreateSession(kind, engine.Options{})
@@ -93,39 +98,33 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 			var envelope protocol.Envelope
 			if err := json.Unmarshal(msg, &envelope); err != nil {
 				log.Printf("websocket: invalid envelope — session=%s err=%v", session.ID, err)
-				writeJSON(conn, protocol.ErrorResponse{
-					Type:    protocol.ErrorLevelWarning,
-					Message: fmt.Sprintf("invalid message format: %v", err),
-				})
+				writeJSON(conn, errorResponse(fmt.Errorf("invalid message format: %w", err), requestID, protocol.ErrorLevelWarning, "", nil))
 				continue
 			}
 
 			switch envelope.Type {
 			case protocol.MsgTypeNavigate:
-				handleNavigate(conn, session, envelope.Data)
+				handleNavigate(conn, session, requestID, envelope.Data)
 
 			case protocol.MsgTypeAction:
-				handleAction(conn, session, envelope.Data)
+				handleAction(conn, session, requestID, envelope.Data)
 
 			case protocol.MsgTypeObserve:
 				log.Printf("websocket: observe — session=%s", session.ID)
-				sendObservation(conn, session)
+				sendObservation(conn, session, requestID)
 
 			case protocol.MsgTypeResize:
-				handleResize(conn, session, envelope.Data)
+				handleResize(conn, session, requestID, envelope.Data)
 
 			default:
 				// Also handle legacy messages with no type field (empty object {}).
 				// This keeps the MCP bridge's browser_observe tool working.
 				if envelope.Type == "" && envelope.Data == nil {
-					sendObservation(conn, session)
+					sendObservation(conn, session, requestID)
 					continue
 				}
 				log.Printf("websocket: unknown message type %q — session=%s", envelope.Type, session.ID)
-				writeJSON(conn, protocol.ErrorResponse{
-					Type:    protocol.ErrorLevelWarning,
-					Message: fmt.Sprintf("unknown message type: %q", envelope.Type),
-				})
+				writeJSON(conn, errorResponse(fmt.Errorf("unknown message type: %q", envelope.Type), requestID, protocol.ErrorLevelWarning, "", nil))
 			}
 		}
 	}
@@ -135,72 +134,56 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 // Message-type handlers
 // ---------------------------------------------------------------------------
 
-func handleNavigate(conn *websocket.Conn, session *sandbox.Session, raw json.RawMessage) {
+func handleNavigate(conn *websocket.Conn, session *sandbox.Session, reqID string, raw json.RawMessage) {
 	var req protocol.InitializeRequest
 	if raw != nil {
 		_ = json.Unmarshal(raw, &req)
 	}
 	if req.URL == "" {
 		log.Printf("websocket: navigate with empty URL — session=%s", session.ID)
-		writeJSON(conn, protocol.ErrorResponse{
-			Type:    protocol.ErrorLevelWarning,
-			Message: "navigate: url is required",
-		})
+		writeJSON(conn, errorResponse(fmt.Errorf("navigate: url is required"), reqID, protocol.ErrorLevelWarning, "navigate", nil))
 		return
 	}
 
 	log.Printf("websocket: navigate — session=%s url=%s", session.ID, req.URL)
 	if err := session.Engine.Navigate(req.URL); err != nil {
 		log.Printf("websocket: navigate failed — session=%s err=%v", session.ID, err)
-		writeJSON(conn, captureScreenshot(session, protocol.ErrorResponse{
-			Type:    protocol.ErrorLevelAction,
-			Message: fmt.Sprintf("navigate failed: %v", err),
-			Action:  "navigate",
-		}))
+		writeJSON(conn, captureScreenshot(session, errorResponse(fmt.Errorf("navigate failed: %w", err), reqID, protocol.ErrorLevelAction, "navigate", nil)))
 		return
 	}
 
-	sendObservation(conn, session)
+	sendObservation(conn, session, reqID)
 }
 
-func handleAction(conn *websocket.Conn, session *sandbox.Session, raw json.RawMessage) {
+func handleAction(conn *websocket.Conn, session *sandbox.Session, reqID string, raw json.RawMessage) {
 	var req protocol.ActionRequest
 	if raw != nil {
 		_ = json.Unmarshal(raw, &req)
 	}
 	if req.Action == "" {
 		log.Printf("websocket: action with empty action field — session=%s", session.ID)
-		writeJSON(conn, protocol.ErrorResponse{
-			Type:    protocol.ErrorLevelWarning,
-			Message: "action: action field is required",
-		})
+		writeJSON(conn, errorResponse(fmt.Errorf("action: action field is required"), reqID, protocol.ErrorLevelWarning, "", nil))
 		return
 	}
 
 	log.Printf("websocket: action — session=%s action=%s", session.ID, req.Action)
 	if err := session.Engine.ExecuteAction(req); err != nil {
 		log.Printf("websocket: action failed — session=%s err=%v", session.ID, err)
-		writeJSON(conn, captureScreenshot(session, protocol.ErrorResponse{
-			Type:     protocol.ErrorLevelAction,
-			Message:  fmt.Sprintf("action %q failed: %v", req.Action, err),
-			Action:   req.Action,
-			Selector: req.Selector,
-			Hint:     "try a different selector or action",
-		}))
+		writeJSON(conn, captureScreenshot(session, errorResponse(fmt.Errorf("action %q failed: %w", req.Action, err), reqID, protocol.ErrorLevelAction, req.Action, req.Selector)))
 		return
 	}
 
-	sendObservation(conn, session)
+	sendObservation(conn, session, reqID)
 }
 
-func handleResize(conn *websocket.Conn, session *sandbox.Session, raw json.RawMessage) {
+func handleResize(conn *websocket.Conn, session *sandbox.Session, reqID string, raw json.RawMessage) {
 	var vp protocol.Viewport
 	if raw != nil {
 		_ = json.Unmarshal(raw, &vp)
 	}
 	log.Printf("websocket: resize — session=%s %dx%d", session.ID, vp.Width, vp.Height)
 	// Resize is a no-op for now; the engine can be extended later.
-	sendObservation(conn, session)
+	sendObservation(conn, session, reqID)
 }
 
 // ---------------------------------------------------------------------------
@@ -210,14 +193,11 @@ func handleResize(conn *websocket.Conn, session *sandbox.Session, raw json.RawMe
 // sendObservation captures the current engine state and pushes it over the
 // WebSocket. It sends a delta when the estimated serialized size of the diff
 // is smaller than the full tree, saving bandwidth for both Chrome and Android.
-func sendObservation(conn *websocket.Conn, session *sandbox.Session) {
+func sendObservation(conn *websocket.Conn, session *sandbox.Session, reqID string) {
 	obs, err := session.Engine.Observe()
 	if err != nil {
 		log.Printf("websocket: observe failed — session=%s err=%v", session.ID, err)
-		writeJSON(conn, protocol.ErrorResponse{
-			Type:    protocol.ErrorLevelFatal,
-			Message: fmt.Sprintf("observe failed: %v", err),
-		})
+		writeJSON(conn, errorResponse(fmt.Errorf("observe failed: %w", err), reqID, protocol.ErrorLevelFatal, "", nil))
 		return
 	}
 
@@ -261,6 +241,18 @@ func writeJSON(conn *websocket.Conn, v any) {
 	if err := conn.WriteJSON(v); err != nil {
 		log.Printf("websocket: write failed: %v", err)
 	}
+}
+
+// errorResponse builds a typed protocol.ErrorResponse from err via the error
+// catalog (stable code + human hint), attaching the connection's request_id
+// and any action/selector context. This is how every WS error gets the same
+// envelope shape as the HTTP and MCP transports.
+func errorResponse(err error, reqID string, level protocol.ErrorLevel, action string, sel *protocol.Selector) protocol.ErrorResponse {
+	resp := protocol.ErrorResponseFromError(err, level)
+	resp.RequestID = reqID
+	resp.Action = action
+	resp.Selector = sel
+	return resp
 }
 
 // captureScreenshot populates the Screenshot field of an ErrorResponse by
