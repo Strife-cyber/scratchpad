@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"scratchpad/internal/protocol"
 	"sync"
 	"time"
@@ -62,9 +62,9 @@ func (s *Server) connect() error {
 	s.sessionID = handshake.SessionID
 
 	if s.sessionID != "" {
-		log.Printf("mcp: connected to session %s", s.sessionID)
+		slog.Info("mcp: connected", "session_id", s.sessionID)
 	} else {
-		log.Printf("mcp: connected (sessionId missing — legacy engine)")
+		slog.Info("mcp: connected", "session_id", "", "note", "sessionId missing — legacy engine")
 	}
 	return nil
 }

@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -31,21 +31,22 @@ type screenshotter interface {
 // WebSocket, creates a dedicated engine session, and drives the agent loop.
 func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Correlate every message on this connection with the request_id the
+		// middleware stamped on the upgrade request ("" when not wired up).
+		requestID := middleware.FromRequest(r)
+		connStart := time.Now()
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Println("websocket: upgrade failed:", err)
+			slog.Warn("websocket: upgrade failed", "request_id", requestID, "err", err)
 			return
 		}
 		defer conn.Close()
 
-		// Correlate every message on this connection with the request_id the
-		// middleware stamped on the upgrade request ("" when not wired up).
-		requestID := middleware.FromRequest(r)
-
 		// Each WebSocket connection gets its own isolated engine session.
 		session, err := mgr.CreateSession(kind, engine.Options{})
 		if err != nil {
-			log.Println("websocket: failed to create session:", err)
+			slog.Error("websocket: failed to create session", "request_id", requestID, "err", err)
 			return
 		}
 		defer mgr.DeleteSession(session.ID)
@@ -57,12 +58,17 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 			)
 		}
 
-		log.Printf("websocket: agent connected — session=%s kind=%s", session.ID, session.Kind)
+		slog.Info("websocket: agent connected",
+			"session_id", session.ID,
+			"kind", session.Kind,
+			"request_id", requestID,
+		)
 
 		// WebSocket handshake: send session ID as the first message so
 		// external clients (including the MCP bridge) can bind to a session.
 		if err := conn.WriteJSON(map[string]string{"sessionId": session.ID}); err != nil {
-			log.Printf("websocket: handshake failed — session=%s err=%v", session.ID, err)
+			slog.Warn("websocket: handshake failed",
+				"session_id", session.ID, "request_id", requestID, "err", err)
 			return
 		}
 
@@ -87,7 +93,12 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 		for {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
-				log.Printf("websocket: agent disconnected — session=%s err=%v", session.ID, err)
+				slog.Info("websocket: agent disconnected",
+					"session_id", session.ID,
+					"request_id", requestID,
+					"duration_ms", time.Since(connStart).Milliseconds(),
+					"err", err,
+				)
 				break
 			}
 
@@ -97,8 +108,9 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 			// Parse using the Envelope type discriminator.
 			var envelope protocol.Envelope
 			if err := json.Unmarshal(msg, &envelope); err != nil {
-				log.Printf("websocket: invalid envelope — session=%s err=%v", session.ID, err)
-				writeJSON(conn, errorResponse(fmt.Errorf("invalid message format: %w", err), requestID, protocol.ErrorLevelWarning, "", nil))
+				slog.Warn("websocket: invalid envelope",
+					"session_id", session.ID, "request_id", requestID, "err", err)
+				sendError(conn, errorResponse(fmt.Errorf("invalid message format: %w", err), requestID, protocol.ErrorLevelWarning, "", nil))
 				continue
 			}
 
@@ -110,7 +122,6 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 				handleAction(conn, session, requestID, envelope.Data)
 
 			case protocol.MsgTypeObserve:
-				log.Printf("websocket: observe — session=%s", session.ID)
 				sendObservation(conn, session, requestID)
 
 			case protocol.MsgTypeResize:
@@ -123,8 +134,9 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind) http.HandlerFunc {
 					sendObservation(conn, session, requestID)
 					continue
 				}
-				log.Printf("websocket: unknown message type %q — session=%s", envelope.Type, session.ID)
-				writeJSON(conn, errorResponse(fmt.Errorf("unknown message type: %q", envelope.Type), requestID, protocol.ErrorLevelWarning, "", nil))
+				slog.Warn("websocket: unknown message type",
+					"session_id", session.ID, "request_id", requestID, "type", envelope.Type)
+				sendError(conn, errorResponse(fmt.Errorf("unknown message type: %q", envelope.Type), requestID, protocol.ErrorLevelWarning, "", nil))
 			}
 		}
 	}
@@ -140,15 +152,18 @@ func handleNavigate(conn *websocket.Conn, session *sandbox.Session, reqID string
 		_ = json.Unmarshal(raw, &req)
 	}
 	if req.URL == "" {
-		log.Printf("websocket: navigate with empty URL — session=%s", session.ID)
-		writeJSON(conn, errorResponse(fmt.Errorf("navigate: url is required"), reqID, protocol.ErrorLevelWarning, "navigate", nil))
+		slog.Warn("websocket: navigate with empty URL",
+			"session_id", session.ID, "request_id", reqID)
+		sendError(conn, errorResponse(fmt.Errorf("navigate: url is required"), reqID, protocol.ErrorLevelWarning, "navigate", nil))
 		return
 	}
 
-	log.Printf("websocket: navigate — session=%s url=%s", session.ID, req.URL)
+	slog.Info("websocket: navigate",
+		"session_id", session.ID, "request_id", reqID, "url", req.URL)
 	if err := session.Engine.Navigate(req.URL); err != nil {
-		log.Printf("websocket: navigate failed — session=%s err=%v", session.ID, err)
-		writeJSON(conn, captureScreenshot(session, errorResponse(fmt.Errorf("navigate failed: %w", err), reqID, protocol.ErrorLevelAction, "navigate", nil)))
+		slog.Warn("websocket: navigate failed",
+			"session_id", session.ID, "request_id", reqID, "err", err)
+		sendError(conn, captureScreenshot(session, errorResponse(fmt.Errorf("navigate failed: %w", err), reqID, protocol.ErrorLevelAction, "navigate", nil)))
 		return
 	}
 
@@ -161,15 +176,28 @@ func handleAction(conn *websocket.Conn, session *sandbox.Session, reqID string, 
 		_ = json.Unmarshal(raw, &req)
 	}
 	if req.Action == "" {
-		log.Printf("websocket: action with empty action field — session=%s", session.ID)
-		writeJSON(conn, errorResponse(fmt.Errorf("action: action field is required"), reqID, protocol.ErrorLevelWarning, "", nil))
+		slog.Warn("websocket: action with empty action field",
+			"session_id", session.ID, "request_id", reqID)
+		sendError(conn, errorResponse(fmt.Errorf("action: action field is required"), reqID, protocol.ErrorLevelWarning, "", nil))
 		return
 	}
 
-	log.Printf("websocket: action — session=%s action=%s", session.ID, req.Action)
-	if err := session.Engine.ExecuteAction(req); err != nil {
-		log.Printf("websocket: action failed — session=%s err=%v", session.ID, err)
-		writeJSON(conn, captureScreenshot(session, errorResponse(fmt.Errorf("action %q failed: %w", req.Action, err), reqID, protocol.ErrorLevelAction, req.Action, req.Selector)))
+	start := time.Now()
+	err := session.Engine.ExecuteAction(req)
+	dur := time.Since(start)
+
+	slog.Info("websocket: action",
+		"session_id", session.ID,
+		"request_id", reqID,
+		"action", req.Action,
+		"duration_ms", dur.Milliseconds(),
+	)
+	metrics.RecordAction(req.Action)
+
+	if err != nil {
+		slog.Warn("websocket: action failed",
+			"session_id", session.ID, "request_id", reqID, "action", req.Action, "err", err)
+		sendError(conn, captureScreenshot(session, errorResponse(fmt.Errorf("action %q failed: %w", req.Action, err), reqID, protocol.ErrorLevelAction, req.Action, req.Selector)))
 		return
 	}
 
@@ -181,7 +209,8 @@ func handleResize(conn *websocket.Conn, session *sandbox.Session, reqID string, 
 	if raw != nil {
 		_ = json.Unmarshal(raw, &vp)
 	}
-	log.Printf("websocket: resize — session=%s %dx%d", session.ID, vp.Width, vp.Height)
+	slog.Debug("websocket: resize",
+		"session_id", session.ID, "request_id", reqID, "width", vp.Width, "height", vp.Height)
 	// Resize is a no-op for now; the engine can be extended later.
 	sendObservation(conn, session, reqID)
 }
@@ -194,10 +223,18 @@ func handleResize(conn *websocket.Conn, session *sandbox.Session, reqID string, 
 // WebSocket. It sends a delta when the estimated serialized size of the diff
 // is smaller than the full tree, saving bandwidth for both Chrome and Android.
 func sendObservation(conn *websocket.Conn, session *sandbox.Session, reqID string) {
+	start := time.Now()
 	obs, err := session.Engine.Observe()
+	dur := time.Since(start)
+
+	slog.Debug("websocket: observe",
+		"session_id", session.ID, "request_id", reqID, "duration_ms", dur.Milliseconds())
+	metrics.RecordObserve(dur)
+
 	if err != nil {
-		log.Printf("websocket: observe failed — session=%s err=%v", session.ID, err)
-		writeJSON(conn, errorResponse(fmt.Errorf("observe failed: %w", err), reqID, protocol.ErrorLevelFatal, "", nil))
+		slog.Warn("websocket: observe failed",
+			"session_id", session.ID, "request_id", reqID, "err", err)
+		sendError(conn, errorResponse(fmt.Errorf("observe failed: %w", err), reqID, protocol.ErrorLevelFatal, "", nil))
 		return
 	}
 
@@ -239,8 +276,15 @@ func sendObservation(conn *websocket.Conn, session *sandbox.Session, reqID strin
 // WebSocket and logs write errors.
 func writeJSON(conn *websocket.Conn, v any) {
 	if err := conn.WriteJSON(v); err != nil {
-		log.Printf("websocket: write failed: %v", err)
+		slog.Warn("websocket: write failed", "err", err)
 	}
+}
+
+// sendError writes an ErrorResponse envelope over the WebSocket and records its
+// machine code in the error-count metric.
+func sendError(conn *websocket.Conn, resp protocol.ErrorResponse) {
+	metrics.RecordError(resp.Code)
+	writeJSON(conn, resp)
 }
 
 // errorResponse builds a typed protocol.ErrorResponse from err via the error
@@ -265,7 +309,8 @@ func captureScreenshot(session *sandbox.Session, errResp protocol.ErrorResponse)
 	}
 	_, data, ssErr := ss.CaptureScreenshot("jpeg", false)
 	if ssErr != nil {
-		log.Printf("websocket: screenshot capture failed — session=%s err=%v", session.ID, ssErr)
+		slog.Warn("websocket: screenshot capture failed",
+			"session_id", session.ID, "err", ssErr)
 		return errResp
 	}
 	errResp.Screenshot = base64.StdEncoding.EncodeToString(data)

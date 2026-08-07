@@ -62,7 +62,12 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 
 	m.mu.Lock()
 	m.sessions[id] = s
+	hook := m.sessionCreated
 	m.mu.Unlock()
+
+	if hook != nil {
+		hook(id)
+	}
 
 	return s, nil
 }
@@ -79,14 +84,20 @@ func (m *Manager) GetSession(id string) (*Session, bool) {
 func (m *Manager) DeleteSession(id string) error {
 	m.mu.Lock()
 	s, ok := m.sessions[id]
+	var hook func(sessionID string)
 	if ok {
 		delete(m.sessions, id)
+		hook = m.sessionDestroyed
 	}
 	m.mu.Unlock()
 
 	// Close outside the lock so a slow driver doesn't stall other operations.
 	if !ok {
 		return fmt.Errorf("session not found")
+	}
+
+	if hook != nil {
+		hook(id)
 	}
 
 	s.Engine.Close()
