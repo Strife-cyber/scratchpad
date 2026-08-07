@@ -1,0 +1,20 @@
+{
+  "name": "scratchpad-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript client for the Scratchpad engine REST API (from its OpenAPI 3.0 spec)",
+  "keywords": ["scratchpad", "automation", "browser", "openapi", "client"],
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
