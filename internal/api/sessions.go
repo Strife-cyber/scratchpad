@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -37,7 +38,7 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	}(); err != nil {
-		http.Error(w, "bad request body", http.StatusBadRequest)
+		writeError(w, r, fmt.Errorf("bad request body"))
 		return
 	}
 
@@ -62,7 +63,7 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := h.mgr.CreateSession(kind, opts)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, r, err)
 		return
 	}
 
@@ -74,7 +75,7 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) DeleteSession(w http.ResponseWriter, r *http.Request, id string) {
 	if err := h.mgr.DeleteSession(id); err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -13,7 +13,7 @@ import (
 func (h *handler) GetHAR(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
@@ -22,13 +22,13 @@ func (h *handler) GetHAR(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	hg, ok := sess.Engine.(harGetter)
 	if !ok {
-		http.Error(w, "HAR not supported for this engine", http.StatusNotImplemented)
+		writeError(w, r, fmt.Errorf("HAR not supported for this engine"))
 		return
 	}
 
 	data, err := hg.GetHAR()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to build HAR: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("failed to build HAR: %w", err))
 		return
 	}
 
@@ -40,7 +40,7 @@ func (h *handler) GetHAR(w http.ResponseWriter, r *http.Request, id string) {
 func (h *handler) GetDOM(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
@@ -49,13 +49,13 @@ func (h *handler) GetDOM(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	dg, ok := sess.Engine.(domGetter)
 	if !ok {
-		http.Error(w, "DOM not supported for this engine", http.StatusNotImplemented)
+		writeError(w, r, fmt.Errorf("DOM not supported for this engine"))
 		return
 	}
 
 	html, err := dg.GetDOM()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to capture DOM: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("failed to capture DOM: %w", err))
 		return
 	}
 
@@ -67,7 +67,7 @@ func (h *handler) GetDOM(w http.ResponseWriter, r *http.Request, id string) {
 func (h *handler) GetScreenshot(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
@@ -76,7 +76,7 @@ func (h *handler) GetScreenshot(w http.ResponseWriter, r *http.Request, id strin
 	}
 	sg, ok := sess.Engine.(screenshotGetter)
 	if !ok {
-		http.Error(w, "screenshot not supported for this engine", http.StatusNotImplemented)
+		writeError(w, r, fmt.Errorf("screenshot not supported for this engine"))
 		return
 	}
 
@@ -93,7 +93,7 @@ func (h *handler) GetScreenshot(w http.ResponseWriter, r *http.Request, id strin
 
 	mime, data, err := sg.CaptureScreenshot(format, fullPage)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to capture screenshot: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("failed to capture screenshot: %w", err))
 		return
 	}
 
@@ -105,7 +105,7 @@ func (h *handler) GetScreenshot(w http.ResponseWriter, r *http.Request, id strin
 func (h *handler) PostScreenshotDiff(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
@@ -115,11 +115,11 @@ func (h *handler) PostScreenshotDiff(w http.ResponseWriter, r *http.Request, id 
 	}
 	var body reqBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad request body", http.StatusBadRequest)
+		writeError(w, r, fmt.Errorf("bad request body"))
 		return
 	}
 	if body.ExpectedBase64 == "" {
-		http.Error(w, "expected_base64 is required", http.StatusBadRequest)
+		writeError(w, r, fmt.Errorf("expected_base64 is required"))
 		return
 	}
 
@@ -132,18 +132,18 @@ func (h *handler) PostScreenshotDiff(w http.ResponseWriter, r *http.Request, id 
 			ScreenshotTolerance: body.Tolerance,
 		},
 	}); err != nil {
-		http.Error(w, fmt.Sprintf("assert failed: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("assert failed: %w", err))
 		return
 	}
 
 	obs, err := sess.Engine.Observe()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("observe failed: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("observe failed: %w", err))
 		return
 	}
 
 	if obs.AssertionResult == nil {
-		http.Error(w, "assertion_result missing", http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("assertion_result missing"))
 		return
 	}
 
@@ -157,7 +157,7 @@ func (h *handler) PostScreenshotDiff(w http.ResponseWriter, r *http.Request, id 
 func (h *handler) PostRecordingStart(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
@@ -166,7 +166,7 @@ func (h *handler) PostRecordingStart(w http.ResponseWriter, r *http.Request, id 
 	}
 	rec, ok := sess.Engine.(recorder)
 	if !ok {
-		http.Error(w, "recording not supported for this engine", http.StatusNotImplemented)
+		writeError(w, r, fmt.Errorf("recording not supported for this engine"))
 		return
 	}
 
@@ -177,7 +177,7 @@ func (h *handler) PostRecordingStart(w http.ResponseWriter, r *http.Request, id 
 
 	videoPath, err := rec.StartRecording(body.Dir)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to start recording: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("failed to start recording: %w", err))
 		return
 	}
 
@@ -191,7 +191,7 @@ func (h *handler) PostRecordingStart(w http.ResponseWriter, r *http.Request, id 
 func (h *handler) PostRecordingStop(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
@@ -200,13 +200,13 @@ func (h *handler) PostRecordingStop(w http.ResponseWriter, r *http.Request, id s
 	}
 	rec, ok := sess.Engine.(recorder)
 	if !ok {
-		http.Error(w, "recording not supported for this engine", http.StatusNotImplemented)
+		writeError(w, r, fmt.Errorf("recording not supported for this engine"))
 		return
 	}
 
 	videoBytes, outputPath, err := rec.StopRecording()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to stop recording: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("failed to stop recording: %w", err))
 		return
 	}
 
@@ -219,7 +219,7 @@ func (h *handler) PostRecordingStop(w http.ResponseWriter, r *http.Request, id s
 func (h *handler) PostTracingStart(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
@@ -228,7 +228,7 @@ func (h *handler) PostTracingStart(w http.ResponseWriter, r *http.Request, id st
 	}
 	tr, ok := sess.Engine.(tracer)
 	if !ok {
-		http.Error(w, "tracing not supported for this engine", http.StatusNotImplemented)
+		writeError(w, r, fmt.Errorf("tracing not supported for this engine"))
 		return
 	}
 
@@ -239,7 +239,7 @@ func (h *handler) PostTracingStart(w http.ResponseWriter, r *http.Request, id st
 
 	outPath, err := tr.StartTracing(body.Dir)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to start tracing: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("failed to start tracing: %w", err))
 		return
 	}
 
@@ -253,7 +253,7 @@ func (h *handler) PostTracingStart(w http.ResponseWriter, r *http.Request, id st
 func (h *handler) PostTracingStop(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
@@ -262,13 +262,13 @@ func (h *handler) PostTracingStop(w http.ResponseWriter, r *http.Request, id str
 	}
 	tr, ok := sess.Engine.(tracer)
 	if !ok {
-		http.Error(w, "tracing not supported for this engine", http.StatusNotImplemented)
+		writeError(w, r, fmt.Errorf("tracing not supported for this engine"))
 		return
 	}
 
 	traceBytes, outPath, err := tr.StopTracing()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to stop tracing: %v", err), http.StatusInternalServerError)
+		writeError(w, r, fmt.Errorf("failed to stop tracing: %w", err))
 		return
 	}
 
@@ -281,7 +281,7 @@ func (h *handler) PostTracingStop(w http.ResponseWriter, r *http.Request, id str
 func (h *handler) GetConsole(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 

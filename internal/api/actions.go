@@ -43,20 +43,20 @@ type actionEnvelope struct {
 func (h *handler) Actions(w http.ResponseWriter, r *http.Request, id string) {
 	sess, ok := h.mgr.GetSession(id)
 	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
+		writeError(w, r, protocol.ErrSessionNotFound)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		writeErrorStatus(w, r, http.StatusBadRequest, fmt.Errorf("failed to read request body: %w", err))
 		return
 	}
 
 	// Try to parse the Phase 0 envelope: {"action": {...}}.
 	var env actionEnvelope
 	if err := json.Unmarshal(body, &env); err == nil && strings.TrimSpace(env.Action.Type) != "" {
-		h.handleTypedAction(w, sess, env.Action)
+		h.handleTypedAction(w, r, sess, env.Action)
 		return
 	}
 
@@ -65,10 +65,10 @@ func (h *handler) Actions(w http.ResponseWriter, r *http.Request, id string) {
 	var initReq protocol.InitializeRequest
 	if err := json.Unmarshal(body, &initReq); err == nil && strings.TrimSpace(initReq.URL) != "" {
 		if err := sess.Engine.Navigate(initReq.URL); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, err)
 			return
 		}
-		h.writeObservation(w, sess)
+		h.writeObservation(w, r, sess)
 		return
 	}
 
@@ -77,30 +77,30 @@ func (h *handler) Actions(w http.ResponseWriter, r *http.Request, id string) {
 	var actionReq protocol.ActionRequest
 	if err := json.Unmarshal(body, &actionReq); err == nil && strings.TrimSpace(actionReq.Action) != "" {
 		if err := sess.Engine.ExecuteAction(actionReq); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, err)
 			return
 		}
-		h.writeObservation(w, sess)
+		h.writeObservation(w, r, sess)
 		return
 	}
 
-	http.Error(w, "bad request: unrecognized action payload", http.StatusBadRequest)
+	writeError(w, r, fmt.Errorf("bad request: unrecognized action payload"))
 }
 
-func (h *handler) handleTypedAction(w http.ResponseWriter, sess *sandbox.Session, p ActionPayload) {
+func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess *sandbox.Session, p ActionPayload) {
 	switch p.Type {
 	case "navigate":
 		if strings.TrimSpace(p.URL) == "" {
-			http.Error(w, "navigate requires url", http.StatusBadRequest)
+			writeError(w, r, fmt.Errorf("navigate requires url"))
 			return
 		}
 		if err := sess.Engine.Navigate(p.URL); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, err)
 			return
 		}
-		h.writeObservation(w, sess)
+		h.writeObservation(w, r, sess)
 	case "observe":
-		h.writeObservation(w, sess)
+		h.writeObservation(w, r, sess)
 	case "click":
 		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
 			Action:    protocol.ActionClick,
@@ -108,19 +108,19 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, sess *sandbox.Session
 			Y:         p.Y,
 			TimeoutMS: p.TimeoutMS,
 		}); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, err)
 			return
 		}
-		h.writeObservation(w, sess)
+		h.writeObservation(w, r, sess)
 	case "type":
 		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
 			Action: protocol.ActionType,
 			Text:   p.Text,
 		}); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, err)
 			return
 		}
-		h.writeObservation(w, sess)
+		h.writeObservation(w, r, sess)
 	case "scroll":
 		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
 			Action: protocol.ActionScroll,
@@ -131,28 +131,28 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, sess *sandbox.Session
 			// scroll uses TimeoutMS only as a generic timeout knob (engine-side may ignore)
 			TimeoutMS: p.TimeoutMS,
 		}); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, err)
 			return
 		}
-		h.writeObservation(w, sess)
+		h.writeObservation(w, r, sess)
 	case "wait":
 		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
 			Action:    protocol.ActionWait,
 			TimeoutMS: p.TimeoutMS,
 		}); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, err)
 			return
 		}
-		h.writeObservation(w, sess)
+		h.writeObservation(w, r, sess)
 	default:
-		http.Error(w, fmt.Sprintf("unsupported action type: %q", p.Type), http.StatusBadRequest)
+		writeErrorStatus(w, r, http.StatusBadRequest, fmt.Errorf("unsupported action type: %q", p.Type))
 	}
 }
 
-func (h *handler) writeObservation(w http.ResponseWriter, sess *sandbox.Session) {
+func (h *handler) writeObservation(w http.ResponseWriter, r *http.Request, sess *sandbox.Session) {
 	obs, err := sess.Engine.Observe()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, r, err)
 		return
 	}
 
