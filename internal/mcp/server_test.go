@@ -144,7 +144,15 @@ func TestSendEnvelope_And_ReadObservation(t *testing.T) {
 }
 
 func TestReadResponse_Error(t *testing.T) {
-	errJSON := errorResponseJSON(t, protocol.ErrorLevelAction, "click", "element not found", "try a different selector")
+	errResp := protocol.ErrorResponse{
+		Type:      protocol.ErrorLevelAction,
+		Message:   "element not found",
+		Action:    "click",
+		Hint:      "try a different selector",
+		Code:      protocol.CodeSelectorNoMatch,
+		RequestID: "req-abc123",
+	}
+	errJSON, _ := json.Marshal(errResp)
 
 	srv := startTestWSServer(t, "sess-err", func(msg []byte) []byte {
 		return errJSON
@@ -166,6 +174,22 @@ func TestReadResponse_Error(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("expected non-nil response even on error")
+	}
+
+	// The error envelope must be passed through verbatim: the machine code and
+	// request_id (which the old reformatted summary dropped) must survive.
+	if len(resp.Content) == 0 || resp.Content[0].TextContent == nil {
+		t.Fatal("expected a text content block carrying the verbatim envelope")
+	}
+	body := resp.Content[0].TextContent.Text
+	if !strings.Contains(body, `"code":"selector_no_match"`) {
+		t.Errorf("verbatim envelope must preserve the machine code, got: %s", body)
+	}
+	if !strings.Contains(body, `"request_id":"req-abc123"`) {
+		t.Errorf("verbatim envelope must preserve the request_id, got: %s", body)
+	}
+	if !strings.Contains(body, `"hint":"try a different selector"`) {
+		t.Errorf("verbatim envelope must preserve the hint, got: %s", body)
 	}
 }
 

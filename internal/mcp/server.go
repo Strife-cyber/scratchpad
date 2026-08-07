@@ -305,20 +305,20 @@ func (s *Server) readResponse() (*mcp.ToolResponse, error) {
 		return nil, fmt.Errorf("mcp: read error: %w", err)
 	}
 
-	// Try ErrorResponse first — the engine always sends this on failure.
+	// Try ErrorResponse first — the engine always sends this on failure. The
+	// envelope is passed through VERBATIM (preserving code, hint, request_id,
+	// selector and screenshot) so the AI sees the same stable error grammar as
+	// the HTTP and WS transports, instead of a reformatted summary that drops
+	// the machine code. The screenshot, when present, is also attached as an
+	// image so it stays viewable.
 	var errResp protocol.ErrorResponse
 	if err := json.Unmarshal(message, &errResp); err == nil && errResp.Type != "" && errResp.Message != "" {
-		text := fmt.Sprintf("❌ %s: %s", errResp.Action, errResp.Message)
-		if errResp.Hint != "" {
-			text += "\n💡 Hint: " + errResp.Hint
-		}
+		data, _ := json.Marshal(errResp)
+		contents := []*mcp.Content{mcp.NewTextContent(string(data))}
 		if errResp.Screenshot != "" {
-			return mcp.NewToolResponse(
-				mcp.NewTextContent(text),
-				mcp.NewImageContent(errResp.Screenshot, "image/jpeg"),
-			), nil
+			contents = append(contents, mcp.NewImageContent(errResp.Screenshot, "image/jpeg"))
 		}
-		return mcp.NewToolResponse(mcp.NewTextContent(text)), nil
+		return mcp.NewToolResponse(contents...), nil
 	}
 
 	// Fall back to ObservationResponse (success path).
