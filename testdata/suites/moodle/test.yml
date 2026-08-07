@@ -1,0 +1,9 @@
+- name: "Moodle Authentification Test"
+  steps:
+    - navigate: https://moodle.icam-afrique.com/login/index.php
+    - wait: {selector: {placeholder: "Username"}, timeout: 10000}
+    - type: {selector: {placeholder: "Username"}, text: "__EMAIL__"}
+    - type: {selector: {placeholder: "Password"}, text: "__PASSWORD__"}
+    - click: {selector: {css: "#loginbtn"}}
+    - wait: {timeout: 20000}
+    - observe: ~
