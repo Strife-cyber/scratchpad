@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,17 +42,17 @@ type Suite struct {
 }
 
 type SuiteResult struct {
-	Name        string        `json:"name"`
-	Passed      bool          `json:"passed"`
-	Attempts    int           `json:"attempts"`
-	DurationMS  int64         `json:"duration_ms"`
-	FailureStep string        `json:"failure_step,omitempty"`
-	Error       string        `json:"error,omitempty"`
+	Name        string `json:"name"`
+	Passed      bool   `json:"passed"`
+	Attempts    int    `json:"attempts"`
+	DurationMS  int64  `json:"duration_ms"`
+	FailureStep string `json:"failure_step,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type Report struct {
-	StartedAtRFC3339 string         `json:"started_at"`
-	DurationMS       int64          `json:"duration_ms"`
+	StartedAtRFC3339 string        `json:"started_at"`
+	DurationMS       int64         `json:"duration_ms"`
 	Suites           []SuiteResult `json:"suites"`
 }
 
@@ -323,11 +324,30 @@ func execStep(ctx context.Context, serverURL, sessionID string, step Step) error
 	case "assert":
 		return handleAssert(ctx, serverURL, sessionID, step.RawValue)
 	case "observe":
-		// no-op: observe via "observe" step
 		obs := &protocol.ObservationResponse{}
-		actionReq := protocol.ActionRequest{Action: "observe"} // not supported; fallback to empty payload observation via typed observe
-		_ = actionReq
-		return postTypedObserve(ctx, serverURL, sessionID, obs)
+		if err := postTypedObserve(ctx, serverURL, sessionID, obs); err != nil {
+			return err
+		}
+		// Print all visible text from the spatial tree.
+		fmt.Println("=== PAGE CONTENT ===")
+		var printTree func(nodes []protocol.SpatialNode, depth int)
+		printTree = func(nodes []protocol.SpatialNode, depth int) {
+			for _, n := range nodes {
+				indent := strings.Repeat("  ", depth)
+				if n.Name != "" {
+					fmt.Printf("%s[%s] %s\n", indent, n.Role, n.Name)
+				}
+				if n.Value != "" {
+					fmt.Printf("%s  value: %q\n", indent, n.Value)
+				}
+				if len(n.Children) > 0 {
+					printTree(n.Children, depth+1)
+				}
+			}
+		}
+		printTree(obs.SpatialTree, 0)
+		fmt.Println("=== END PAGE CONTENT ===")
+		return nil
 	default:
 		return fmt.Errorf("unsupported step key %q", step.RawKey)
 	}
@@ -389,7 +409,8 @@ func postAction(ctx context.Context, serverURL, sessionID string, payload any, o
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("action request failed: %s", resp.Status)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("action request failed: %s: %s", resp.Status, strings.TrimSpace(string(bodyBytes)))
 	}
 	return json.NewDecoder(resp.Body).Decode(obs)
 }
@@ -407,10 +428,10 @@ func handleWait(ctx context.Context, serverURL, sessionID string, v any) error {
 		return fmt.Errorf("wait expects object")
 	}
 	timeout := asInt(m["timeout"])
-	selector := asString(m["selector"])
+	sel := parseSelector(m["selector"])
 	condition := asString(m["condition"])
 	if condition == "" {
-		if selector != "" {
+		if sel != nil {
 			condition = "selector_visible"
 		} else {
 			condition = ""
@@ -421,9 +442,9 @@ func handleWait(ctx context.Context, serverURL, sessionID string, v any) error {
 		Action:    protocol.ActionWait,
 		TimeoutMS: timeout,
 	}
-	if selector != "" {
+	if sel != nil {
 		req.Condition = condition
-		req.Selector = &protocol.Selector{CSS: selector}
+		req.Selector = sel
 	}
 
 	obs := &protocol.ObservationResponse{}
@@ -438,13 +459,13 @@ func handleType(ctx context.Context, serverURL, sessionID string, v any) error {
 	if !ok {
 		return fmt.Errorf("type expects object")
 	}
-	selector := asString(m["selector"])
+	sel := parseSelector(m["selector"])
 	text := asString(m["text"])
 	timeout := asInt(m["timeout_ms"])
 	if timeout == 0 {
 		timeout = asInt(m["timeout"])
 	}
-	if selector == "" {
+	if sel == nil {
 		return fmt.Errorf("type requires selector")
 	}
 
@@ -452,31 +473,31 @@ func handleType(ctx context.Context, serverURL, sessionID string, v any) error {
 		Action:    protocol.ActionType,
 		Text:      text,
 		TimeoutMS: timeout,
-		Selector:  &protocol.Selector{CSS: selector},
+		Selector:  sel,
 	}
 	obs := &protocol.ObservationResponse{}
 	return postAction(ctx, serverURL, sessionID, req, obs)
 }
 
 func handleClick(ctx context.Context, serverURL, sessionID string, v any) error {
-	selector := ""
 	timeout := 0
+	var sel *protocol.Selector
 	switch vv := v.(type) {
 	case string:
-		selector = vv
+		sel = &protocol.Selector{CSS: vv}
 	case map[string]any:
-		selector = asString(vv["selector"])
+		sel = parseSelector(vv["selector"])
 		timeout = asInt(vv["timeout"])
 	default:
 		return fmt.Errorf("click expects string selector or object")
 	}
-	if selector == "" {
+	if sel == nil || sel.IsEmpty() {
 		return fmt.Errorf("click requires selector")
 	}
 	req := protocol.ActionRequest{
 		Action:    protocol.ActionClick,
 		TimeoutMS: timeout,
-		Selector:  &protocol.Selector{CSS: selector},
+		Selector:  sel,
 	}
 	obs := &protocol.ObservationResponse{}
 	return postAction(ctx, serverURL, sessionID, req, obs)
@@ -488,7 +509,7 @@ func handleAssert(ctx context.Context, serverURL, sessionID string, v any) error
 		return fmt.Errorf("assert expects object")
 	}
 
-	selectorStr := asString(m["selector"])
+	sel := parseSelector(m["selector"])
 	txt := asString(m["text"])
 	contains := asBool(m["contains"])
 	equals := asBool(m["equals"])
@@ -497,10 +518,7 @@ func handleAssert(ctx context.Context, serverURL, sessionID string, v any) error
 	exists := asBool(m["exists"])
 	checked := asBool(m["checked"])
 
-	a := &protocol.AssertionRequest{Selector: nil}
-	if selectorStr != "" {
-		a.Selector = &protocol.Selector{CSS: selectorStr}
-	}
+	a := &protocol.AssertionRequest{Selector: sel}
 
 	// Priority: element assertions when booleans are present; otherwise text assertions.
 	switch {
@@ -546,6 +564,46 @@ func handleAssert(ctx context.Context, serverURL, sessionID string, v any) error
 		return fmt.Errorf("assertion failed: %s", obs.AssertionResult.Message)
 	}
 	return nil
+}
+
+// parseSelector parses a selector value from YAML into a structured Selector.
+// It accepts either a plain CSS string (legacy) or a map with keys:
+// css, xpath, text, role, test_id, placeholder.
+// Returns nil if the value is absent or empty.
+func parseSelector(v any) *protocol.Selector {
+	s := &protocol.Selector{}
+	switch val := v.(type) {
+	case string:
+		if val == "" {
+			return nil
+		}
+		s.CSS = val
+	case map[string]any:
+		if css, ok := val["css"].(string); ok {
+			s.CSS = css
+		}
+		if xpath, ok := val["xpath"].(string); ok {
+			s.XPath = xpath
+		}
+		if text, ok := val["text"].(string); ok {
+			s.Text = text
+		}
+		if role, ok := val["role"].(string); ok {
+			s.Role = role
+		}
+		if testID, ok := val["test_id"].(string); ok {
+			s.TestID = testID
+		}
+		if placeholder, ok := val["placeholder"].(string); ok {
+			s.Placeholder = placeholder
+		}
+		if s.IsEmpty() {
+			return nil
+		}
+	default:
+		return nil
+	}
+	return s
 }
 
 func asString(v any) string {
@@ -635,4 +693,3 @@ func xmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "\"", "&quot;")
 	return s
 }
-
