@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -799,291 +797,28 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}
 
 		start := time.Now()
-		success := false
-		msg := ""
+		out := e.runAssert(ctx, req.Assertion)
+		success := out.success
+		msg := out.msg
 
-		defer func() {
-			e.lastAssertionResult = &protocol.AssertionResult{
-				Success:   success,
-				Type:      req.Assertion.Type,
-				Message:   msg,
-				ElapsedMS: time.Since(start).Milliseconds(),
-			}
-			errText := ""
-			if !success {
-				errText = msg
-			}
-			e.lastActionResult = &protocol.ActionResult{
-				Action:    req.Action,
-				Success:   success,
-				Error:     errText,
-				ElapsedMS: time.Since(start).Milliseconds(),
-			}
-		}()
-
-		a := req.Assertion
-		switch a.Type {
-		case "element_exists":
-			if a.Selector == nil {
-				msg = "element_exists requires selector"
-				return nil
-			}
-			matches, _ := e.findElementsOnce(ctx, *a.Selector)
-			success = len(matches) > 0
-			if !success {
-				msg = "no elements matched selector"
-			}
-		case "element_visible":
-			if a.Selector == nil {
-				msg = "element_visible requires selector"
-				return nil
-			}
-			matches, _ := e.findElementsOnce(ctx, *a.Selector)
-			for _, m := range matches {
-				if m.Visible {
-					success = true
-					break
-				}
-			}
-			if !success {
-				msg = "no visible elements matched selector"
-			}
-		case "element_checked":
-			if a.Selector == nil {
-				msg = "element_checked requires selector"
-				return nil
-			}
-			matches, _ := e.findElementsOnce(ctx, *a.Selector)
-			for _, m := range matches {
-				if m.Checked != nil && *m.Checked {
-					success = true
-					break
-				}
-			}
-			if !success {
-				msg = "no checked element matched selector"
-			}
-		case "text_equals":
-			if a.Selector == nil {
-				msg = "text_equals requires selector"
-				return nil
-			}
-			matches, _ := e.findElementsOnce(ctx, *a.Selector)
-			got := ""
-			for _, m := range matches {
-				if m.Visible && strings.TrimSpace(m.Text) != "" {
-					got = strings.TrimSpace(m.Text)
-					break
-				}
-			}
-			success = got == strings.TrimSpace(a.Text)
-			if !success {
-				msg = fmt.Sprintf("text mismatch: got %q want %q", got, a.Text)
-			}
-		case "text_contains":
-			if a.Selector == nil {
-				msg = "text_contains requires selector"
-				return nil
-			}
-			matches, _ := e.findElementsOnce(ctx, *a.Selector)
-			got := ""
-			for _, m := range matches {
-				if m.Visible {
-					got = m.Text
-					break
-				}
-			}
-			success = strings.Contains(got, a.Text)
-			if !success {
-				msg = fmt.Sprintf("text does not contain %q", a.Text)
-			}
-		case "text_matches":
-			if a.Selector == nil {
-				msg = "text_matches requires selector"
-				return nil
-			}
-			re, err := regexp.Compile(a.Pattern)
-			if err != nil {
-				msg = fmt.Sprintf("invalid regex: %v", err)
-				return nil
-			}
-			matches, _ := e.findElementsOnce(ctx, *a.Selector)
-			got := ""
-			for _, m := range matches {
-				if m.Visible {
-					got = m.Text
-					break
-				}
-			}
-			success = re.MatchString(got)
-			if !success {
-				msg = "text regex did not match"
-			}
-		case "attr_equals", "attr_contains":
-			if a.Selector == nil {
-				msg = "attr assertions require selector"
-				return nil
-			}
-			attr := strings.TrimSpace(a.Attribute)
-			if attr == "" {
-				msg = "attr assertions require attribute"
-				return nil
-			}
-			val := ""
-			// Phase 1: support CSS-only attribute reads for now.
-			if a.Selector.CSS != "" {
-				js := fmt.Sprintf(`(() => {
-					const el = document.querySelector(%s);
-					return el ? (el.getAttribute(%s) || '') : '';
-				})()`, jsStringLiteral(a.Selector.CSS), jsStringLiteral(attr))
-				var out string
-				if err := chromedp.Run(ctx, chromedp.Evaluate(js, &out)); err != nil {
-					msg = fmt.Sprintf("attr evaluate failed: %v", err)
-					return nil
-				}
-				val = out
-			}
-			if a.Type == "attr_equals" {
-				success = val == a.Value
-				if !success {
-					msg = fmt.Sprintf("attribute mismatch: got %q want %q", val, a.Value)
-				}
-			} else {
-				success = strings.Contains(val, a.Value)
-				if !success {
-					msg = fmt.Sprintf("attribute does not contain %q", a.Value)
-				}
-			}
-		case "page_title":
-			var title string
-			if err := chromedp.Run(ctx, chromedp.Evaluate(`document.title`, &title)); err != nil {
-				msg = fmt.Sprintf("page_title evaluate failed: %v", err)
-				return nil
-			}
-			success = title == a.Text
-			if !success {
-				msg = fmt.Sprintf("title mismatch: got %q want %q", title, a.Text)
-			}
-		case "page_url":
-			var href string
-			if err := chromedp.Run(ctx, chromedp.Evaluate(`window.location.href`, &href)); err != nil {
-				msg = fmt.Sprintf("page_url evaluate failed: %v", err)
-				return nil
-			}
-			success = href == a.Value || (a.Pattern != "" && strings.Contains(href, a.Pattern))
-			if !success {
-				msg = "url did not match expected value/pattern"
-			}
-		case "console_error_count":
-			want := int64(0)
-			if a.Value != "" {
-				// best-effort parse
-				if n, err := strconv.ParseInt(strings.TrimSpace(a.Value), 10, 64); err == nil {
-					want = n
-				}
-			} else if a.Checked != nil {
-				// allow alternate encoding (bool checked -> 0/1) for legacy tests
-				if *a.Checked {
-					want = 1
-				}
-			}
-			e.consoleMu.Lock()
-			errCount := int64(0)
-			for _, l := range e.consoleLogs {
-				if strings.ToLower(l.Level) == "error" {
-					errCount++
-				}
-			}
-			e.consoleMu.Unlock()
-			success = errCount == want
-			if !success {
-				msg = fmt.Sprintf("console error count mismatch: got %d want %d", errCount, want)
-			}
-		case "network_request_status":
-			// Phase 1: best-effort matching against recorded requests.
-			// - a.Pattern is treated as substring match against request URL.
-			// - a.Value is treated as expected HTTP status code.
-			urlPattern := strings.TrimSpace(a.Pattern)
-			if urlPattern == "" {
-				urlPattern = strings.TrimSpace(a.Text)
-			}
-			if strings.TrimSpace(a.Value) == "" {
-				msg = "network_request_status requires assertion.value (expected status code)"
-				success = false
-				break
-			}
-			expectedStatus, err := strconv.Atoi(strings.TrimSpace(a.Value))
-			if err != nil {
-				msg = fmt.Sprintf("network_request_status: invalid assertion.value=%q (expected int): %v", a.Value, err)
-				success = false
-				break
-			}
-
-			e.networkMu.Lock()
-			gotStatus := -1
-			var gotDur int64
-			found := false
-			for i := range e.networkRequests {
-				r := e.networkRequests[i]
-				if urlPattern == "" || strings.Contains(r.URL, urlPattern) {
-					gotStatus = r.Status
-					gotDur = r.DurationMS
-					found = true
-					break
-				}
-			}
-			e.networkMu.Unlock()
-
-			if !found {
-				msg = fmt.Sprintf("no network request matched pattern %q", urlPattern)
-				success = false
-				break
-			}
-
-			success = gotStatus == expectedStatus
-			if !success {
-				msg = fmt.Sprintf("network status mismatch: got %d want %d (duration_ms=%d)", gotStatus, expectedStatus, gotDur)
-			} else {
-				msg = fmt.Sprintf("network matched: status=%d duration_ms=%d", gotStatus, gotDur)
-			}
-		case "screenshot_matches":
-			if a.ScreenshotBase64 == "" {
-				msg = "screenshot_matches requires screenshot_base64"
-				return nil
-			}
-			expectedBytes, err := decodeDataOrBase64(a.ScreenshotBase64)
-			if err != nil {
-				msg = fmt.Sprintf("failed to decode expected screenshot: %v", err)
-				return nil
-			}
-			var actual []byte
-			var capErr error
-			actual, capErr = page.CaptureScreenshot().
-				WithFormat(page.CaptureScreenshotFormatJpeg).
-				WithQuality(80).
-				Do(ctx)
-			if capErr != nil {
-				msg = fmt.Sprintf("screenshot capture failed: %v", capErr)
-				return nil
-			}
-			tol := a.ScreenshotTolerance
-			if tol == 0 {
-				tol = a.RegexTolerance
-			}
-			ok, dist, err := perceptualMatch(actual, expectedBytes, tol)
-			if err != nil {
-				msg = fmt.Sprintf("screenshot diff failed: %v", err)
-				return nil
-			}
-			success = ok
-			if !success {
-				msg = fmt.Sprintf("screenshot mismatch: perceptual_distance=%d tol=%d", dist, tol)
-			}
-		default:
-			msg = fmt.Sprintf("unsupported assertion type: %q", a.Type)
-			success = false
+		e.lastAssertionResult = &protocol.AssertionResult{
+			Success:        success,
+			Type:           req.Assertion.Type,
+			Message:        msg,
+			ElapsedMS:      time.Since(start).Milliseconds(),
+			Attempts:       out.attempts,
+			PollIntervalMS: int(out.pollInterval.Milliseconds()),
 		}
-
+		errText := ""
+		if !success {
+			errText = msg
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   success,
+			Error:     errText,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
 		return nil
 	default:
 		if h, ok := getRegisteredAction(req.Action); ok {
