@@ -1,0 +1,173 @@
+package browser
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"scratchpad/internal/protocol"
+)
+
+// ---------------------------------------------------------------------------
+// runAssert — polling semantics
+// ---------------------------------------------------------------------------
+
+// TestRunAssert_PermanentFailure_DoesNotPoll proves that configuration errors
+// (missing selector) fail immediately instead of polling for the full timeout.
+func TestRunAssert_PermanentFailure_DoesNotPoll(t *testing.T) {
+	e := &ChromeEngine{}
+	start := time.Now()
+	out := e.runAssert(context.Background(), &protocol.AssertionRequest{Type: "element_exists"}) // nil selector
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("permanent failure should return immediately, took %v", elapsed)
+	}
+	if out.success {
+		t.Fatal("expected failure for nil selector")
+	}
+	if out.attempts != 1 {
+		t.Errorf("attempts = %d, want 1 (permanent failures must not poll)", out.attempts)
+	}
+	if !strings.Contains(out.msg, "requires selector") {
+		t.Errorf("msg = %q, want mention of missing selector", out.msg)
+	}
+	if out.pollInterval != assertPollInterval {
+		t.Errorf("pollInterval = %v, want %v", out.pollInterval, assertPollInterval)
+	}
+}
+
+// TestRunAssert_UnsupportedType_IsPermanent covers the "unknown type" path.
+func TestRunAssert_UnsupportedType_IsPermanent(t *testing.T) {
+	e := &ChromeEngine{}
+	out := e.runAssert(context.Background(), &protocol.AssertionRequest{Type: "no_such_type"})
+	if out.success {
+		t.Fatal("expected failure for unknown type")
+	}
+	if out.attempts != 1 {
+		t.Errorf("attempts = %d, want 1", out.attempts)
+	}
+	if !strings.Contains(out.msg, "unsupported assertion type") {
+		t.Errorf("msg = %q, want unsupported-type notice", out.msg)
+	}
+}
+
+// TestRunAssert_PollsUntilTimeout proves the retry loop actually polls: with a
+// short timeout and a selector that never resolves (no live CDP allocator), the
+// engine should make multiple attempts and report attempts/poll_interval.
+func TestRunAssert_PollsUntilTimeout(t *testing.T) {
+	e := &ChromeEngine{}
+	start := time.Now()
+	out := e.runAssert(context.Background(), &protocol.AssertionRequest{
+		Type:      "element_exists",
+		Selector:  &protocol.Selector{CSS: ".never-matches"},
+		TimeoutMS: 300,
+	})
+	elapsed := time.Since(start)
+	if out.success {
+		t.Fatal("expected failure: selector should never resolve")
+	}
+	if out.attempts < 2 {
+		t.Errorf("attempts = %d, want >= 2 (retry loop should have polled)", out.attempts)
+	}
+	if elapsed < 150*time.Millisecond {
+		t.Errorf("elapsed = %v, want >= 150ms (should have polled across the timeout window)", elapsed)
+	}
+	if out.pollInterval != assertPollInterval {
+		t.Errorf("pollInterval = %v, want %v", out.pollInterval, assertPollInterval)
+	}
+	if !strings.Contains(out.msg, "query failed") && !strings.Contains(out.msg, "no elements") {
+		t.Errorf("msg = %q, want a query/no-match diagnostic", out.msg)
+	}
+}
+
+// TestRunAssert_HonorsCancellation proves a cancelled context aborts polling
+// promptly instead of waiting out the timeout.
+func TestRunAssert_HonorsCancellation(t *testing.T) {
+	e := &ChromeEngine{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	out := e.runAssert(ctx, &protocol.AssertionRequest{
+		Type:     "element_exists",
+		Selector: &protocol.Selector{CSS: ".never-matches"},
+	})
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("cancelled context should return promptly, took %v", elapsed)
+	}
+	if out.success {
+		t.Fatal("expected failure")
+	}
+	if !strings.Contains(out.msg, "interrupted") {
+		t.Errorf("msg = %q, want interruption notice", out.msg)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// truncate
+// ---------------------------------------------------------------------------
+
+func TestTruncate(t *testing.T) {
+	if got := truncate("short", 80); got != "short" {
+		t.Errorf("truncate(short) = %q", got)
+	}
+	if got := truncate("hello world", 5); got != "hello..." {
+		t.Errorf("truncate long = %q, want %q", got, "hello...")
+	}
+	if got := truncate("", 5); got != "" {
+		t.Errorf("truncate empty = %q", got)
+	}
+	// Rune-aware: don't split a multi-byte rune.
+	if got := truncate("héllo wörld", 6); !strings.HasSuffix(got, "...") {
+		t.Errorf("truncate runes = %q, want ellipsis suffix", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// New protocol fields round-trip (AssertionRequest/AssertionResult)
+// ---------------------------------------------------------------------------
+
+func TestAssertionRequest_NewFieldsRoundtrip(t *testing.T) {
+	req := protocol.AssertionRequest{
+		Type:          "element_count",
+		Selector:      &protocol.Selector{CSS: "li.item"},
+		ExpectedCount: 3,
+		TimeoutMS:     2500,
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded protocol.AssertionRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.ExpectedCount != 3 || decoded.TimeoutMS != 2500 {
+		t.Errorf("roundtrip mismatch: %+v", decoded)
+	}
+}
+
+func TestAssertionResult_AttemptsFieldsRoundtrip(t *testing.T) {
+	res := protocol.AssertionResult{
+		Success:        false,
+		Type:           "element_visible",
+		Message:        "no visible elements",
+		ElapsedMS:      412,
+		Attempts:       6,
+		PollIntervalMS: 100,
+	}
+	data, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), "attempts") || !strings.Contains(string(data), "poll_interval_ms") {
+		t.Errorf("serialized result missing new fields: %s", data)
+	}
+	var decoded protocol.AssertionResult
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Attempts != 6 || decoded.PollIntervalMS != 100 {
+		t.Errorf("roundtrip mismatch: %+v", decoded)
+	}
+}
