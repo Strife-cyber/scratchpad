@@ -211,52 +211,52 @@ func TestObserveRequestOptOut(t *testing.T) {
 
 func TestSelectorMethods(t *testing.T) {
 	tests := []struct {
-		name          string
-		selector      protocol.Selector
-		wantEmpty     bool
-		wantDescribe  string
+		name         string
+		selector     protocol.Selector
+		wantEmpty    bool
+		wantDescribe string
 	}{
 		{
-			name:          "empty selector",
-			selector:      protocol.Selector{},
-			wantEmpty:     true,
-			wantDescribe:  "empty selector",
+			name:         "empty selector",
+			selector:     protocol.Selector{},
+			wantEmpty:    true,
+			wantDescribe: "empty selector",
 		},
 		{
-			name:          "css selector",
-			selector:      protocol.Selector{CSS: ".btn-primary"},
-			wantEmpty:     false,
-			wantDescribe:  "css=.btn-primary",
+			name:         "css selector",
+			selector:     protocol.Selector{CSS: ".btn-primary"},
+			wantEmpty:    false,
+			wantDescribe: "css=.btn-primary",
 		},
 		{
-			name:          "xpath selector",
-			selector:      protocol.Selector{XPath: "//div[@id='main']"},
-			wantEmpty:     false,
-			wantDescribe:  "xpath=//div[@id='main']",
+			name:         "xpath selector",
+			selector:     protocol.Selector{XPath: "//div[@id='main']"},
+			wantEmpty:    false,
+			wantDescribe: "xpath=//div[@id='main']",
 		},
 		{
-			name:          "text selector",
-			selector:      protocol.Selector{Text: "Submit"},
-			wantEmpty:     false,
-			wantDescribe:  "text=Submit",
+			name:         "text selector",
+			selector:     protocol.Selector{Text: "Submit"},
+			wantEmpty:    false,
+			wantDescribe: "text=Submit",
 		},
 		{
-			name:          "role selector",
-			selector:      protocol.Selector{Role: "button"},
-			wantEmpty:     false,
-			wantDescribe:  "role=button",
+			name:         "role selector",
+			selector:     protocol.Selector{Role: "button"},
+			wantEmpty:    false,
+			wantDescribe: "role=button",
 		},
 		{
-			name:          "test_id selector",
-			selector:      protocol.Selector{TestID: "login-btn"},
-			wantEmpty:     false,
-			wantDescribe:  "testid=login-btn",
+			name:         "test_id selector",
+			selector:     protocol.Selector{TestID: "login-btn"},
+			wantEmpty:    false,
+			wantDescribe: "testid=login-btn",
 		},
 		{
-			name:          "placeholder selector",
-			selector:      protocol.Selector{Placeholder: "Enter email"},
-			wantEmpty:     false,
-			wantDescribe:  "placeholder=Enter email",
+			name:         "placeholder selector",
+			selector:     protocol.Selector{Placeholder: "Enter email"},
+			wantEmpty:    false,
+			wantDescribe: "placeholder=Enter email",
 		},
 	}
 
@@ -278,9 +278,9 @@ func TestSelectorMethods(t *testing.T) {
 
 func TestResolveTimeout(t *testing.T) {
 	tests := []struct {
-		name     string
-		req      protocol.ActionRequest
-		want     int
+		name string
+		req  protocol.ActionRequest
+		want int
 	}{
 		{
 			name: "zero timeout defaults to 10000",
@@ -320,15 +320,15 @@ func TestResolveTimeout(t *testing.T) {
 func TestAssertionRequestRoundtrip(t *testing.T) {
 	checked := true
 	original := protocol.AssertionRequest{
-		Type:               "element_visible",
-		Selector:           &protocol.Selector{CSS: ".modal"},
-		Text:               "Welcome",
-		Attribute:          "class",
-		Value:              "active",
-		Checked:            &checked,
-		Pattern:            `modal.*`,
-		RegexTolerance:     100,
-		ScreenshotBase64:   "iVBORw0KGgo=",
+		Type:                "element_visible",
+		Selector:            &protocol.Selector{CSS: ".modal"},
+		Text:                "Welcome",
+		Attribute:           "class",
+		Value:               "active",
+		Checked:             &checked,
+		Pattern:             `modal.*`,
+		RegexTolerance:      100,
+		ScreenshotBase64:    "iVBORw0KGgo=",
 		ScreenshotTolerance: 5,
 	}
 
@@ -594,17 +594,17 @@ func TestSpatialNodeWithChildren(t *testing.T) {
 		Bounds: protocol.Bounds{X: 0, Y: 0, Width: 200, Height: 300},
 		Children: []protocol.SpatialNode{
 			{
-				NodeID: "child-1",
-				Role:   "link",
-				Name:   "Home",
-				Bounds: protocol.Bounds{X: 0, Y: 0, Width: 200, Height: 40},
+				NodeID:      "child-1",
+				Role:        "link",
+				Name:        "Home",
+				Bounds:      protocol.Bounds{X: 0, Y: 0, Width: 200, Height: 40},
 				Interactive: true,
 			},
 			{
-				NodeID: "child-2",
-				Role:   "link",
-				Name:   "About",
-				Bounds: protocol.Bounds{X: 0, Y: 40, Width: 200, Height: 40},
+				NodeID:      "child-2",
+				Role:        "link",
+				Name:        "About",
+				Bounds:      protocol.Bounds{X: 0, Y: 40, Width: 200, Height: 40},
 				Interactive: true,
 				Children: []protocol.SpatialNode{
 					{

@@ -65,4 +65,3 @@ func NewRouter(mgr *sandbox.Manager) http.Handler {
 		http.NotFound(w, r)
 	})
 }
-

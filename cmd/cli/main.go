@@ -61,19 +61,18 @@ func runCmd(args []string) {
 	}
 
 	opts := testrunner.RunOptions{
-		InputPath:  *inputPath,
-		ServerURL:  strings.TrimRight(*serverURL, "/"),
-		Headless:   *headless,
-		Platform:   strings.ToLower(strings.TrimSpace(*platform)),
-		Parallel:   *parallel,
-		Retries:    *retries,
-		TimeoutMS:  *timeoutMS,
-		Format:     *format,
-		OutPath:    *outPath,
-		JUnitOut:   *junitPath,
+		InputPath: *inputPath,
+		ServerURL: strings.TrimRight(*serverURL, "/"),
+		Headless:  *headless,
+		Platform:  strings.ToLower(strings.TrimSpace(*platform)),
+		Parallel:  *parallel,
+		Retries:   *retries,
+		TimeoutMS: *timeoutMS,
+		Format:    *format,
+		OutPath:   *outPath,
+		JUnitOut:  *junitPath,
 	}
 	if err := testrunner.RunSuites(opts); err != nil {
 		log.Fatal(err)
 	}
 }
-

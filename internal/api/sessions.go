@@ -79,4 +79,3 @@ func (h *handler) DeleteSession(w http.ResponseWriter, r *http.Request, id strin
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-

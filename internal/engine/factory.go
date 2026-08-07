@@ -35,4 +35,3 @@ func New(kind Kind, opts Options) (Engine, error) {
 
 	return newFromRegistry(kind, resolved)
 }
-

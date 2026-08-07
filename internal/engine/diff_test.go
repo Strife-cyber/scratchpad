@@ -81,9 +81,9 @@ func TestComputeDiff_Mixed(t *testing.T) {
 		makeNode("gone", "tab", "Tab1", 0, 100, 40, 20),
 	}
 	new := []protocol.SpatialNode{
-		makeNode("keep", "link", "Home", 0, 0, 60, 20),            // unchanged
-		makeNode("change", "button", "New Label", 0, 50, 80, 30),  // name changed
-		makeNode("fresh", "checkbox", "Accept", 0, 200, 20, 20),   // brand new
+		makeNode("keep", "link", "Home", 0, 0, 60, 20),           // unchanged
+		makeNode("change", "button", "New Label", 0, 50, 80, 30), // name changed
+		makeNode("fresh", "checkbox", "Accept", 0, 200, 20, 20),  // brand new
 	}
 
 	delta := ComputeDiff(old, new)

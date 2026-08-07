@@ -128,7 +128,7 @@ func (h *handler) PostScreenshotDiff(w http.ResponseWriter, r *http.Request, id 
 		Action: "assert",
 		Assertion: &protocol.AssertionRequest{
 			Type:                "screenshot_matches",
-			ScreenshotBase64:   body.ExpectedBase64,
+			ScreenshotBase64:    body.ExpectedBase64,
 			ScreenshotTolerance: body.Tolerance,
 		},
 	}); err != nil {
@@ -149,7 +149,7 @@ func (h *handler) PostScreenshotDiff(w http.ResponseWriter, r *http.Request, id 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"sessionId":      id,
+		"sessionId":       id,
 		"assertionResult": obs.AssertionResult,
 	})
 }
@@ -183,7 +183,7 @@ func (h *handler) PostRecordingStart(w http.ResponseWriter, r *http.Request, id 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"sessionId": id,
+		"sessionId":  id,
 		"outputPath": videoPath,
 	})
 }
@@ -245,8 +245,8 @@ func (h *handler) PostTracingStart(w http.ResponseWriter, r *http.Request, id st
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"sessionId":   id,
-		"outputPath":  outPath,
+		"sessionId":  id,
+		"outputPath": outPath,
 	})
 }
 
@@ -313,4 +313,3 @@ func (h *handler) GetConsole(w http.ResponseWriter, r *http.Request, id string) 
 
 // Keep file referenced.
 var _ = sandbox.Session{}
-

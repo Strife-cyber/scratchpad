@@ -71,4 +71,3 @@ func perceptualMatch(actualJpegBytes, expectedJpegBytes []byte, tolerance int) (
 	d := dhashDistance(aImg, bImg)
 	return d <= tolerance, d, nil
 }
-

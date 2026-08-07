@@ -165,8 +165,8 @@ func TestFlattenAndroidTree_NodeIDUniqueness(t *testing.T) {
 
 func TestBoundsRegex(t *testing.T) {
 	cases := []struct {
-		input         string
-		valid         bool
+		input          string
+		valid          bool
 		x1, y1, x2, y2 string
 	}{
 		{"[100,200][300,400]", true, "100", "200", "300", "400"},
@@ -198,10 +198,10 @@ func TestBoundsRegex(t *testing.T) {
 
 func TestSizeRegex(t *testing.T) {
 	cases := []struct {
-		name   string
-		input  string
-		wantW  string
-		wantH  string
+		name  string
+		input string
+		wantW string
+		wantH string
 	}{
 		{"physical only", "Physical size: 1080x2400\n", "1080", "2400"},
 		{"override wins (last match)", "Physical size: 1080x2400\nOverride size: 720x1280\n", "720", "1280"},

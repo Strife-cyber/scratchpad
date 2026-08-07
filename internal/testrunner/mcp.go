@@ -40,4 +40,3 @@ func RunMcp(args []string) {
 
 	select {}
 }
-

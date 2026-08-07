@@ -34,4 +34,3 @@ func getRegisteredAction(name string) (ActionHandler, bool) {
 	h, ok := actionRegistry[name]
 	return h, ok
 }
-

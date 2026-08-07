@@ -12,14 +12,14 @@ import (
 // ---------------------------------------------------------------------------
 
 var (
-	benchEnvelope      Envelope
-	benchEnvelopeRaw   []byte
-	benchObservation   ObservationResponse
+	benchEnvelope       Envelope
+	benchEnvelopeRaw    []byte
+	benchObservation    ObservationResponse
 	benchObservationRaw []byte
-	benchActionRequest ActionRequest
-	benchActionRaw     []byte
-	benchNode          SpatialNode
-	benchNodeRaw       []byte
+	benchActionRequest  ActionRequest
+	benchActionRaw      []byte
+	benchNode           SpatialNode
+	benchNodeRaw        []byte
 )
 
 func init() {
@@ -122,20 +122,20 @@ func initActionRequestData() {
 		Condition: "visible",
 		TimeoutMS: 5000,
 		Selector: &Selector{
-			CSS:   "button.submit",
-			Role:  "button",
-			Text:  "Submit",
+			CSS:    "button.submit",
+			Role:   "button",
+			Text:   "Submit",
 			TestID: "submit-btn",
 		},
 		TargetSelector: &Selector{
 			CSS: "#drop-zone",
 		},
-		Pattern:  "success",
-		Attribute: "aria-label",
-		Value:    "Submit form",
-		OptionValue: "opt-1",
-		OptionText:  "Option One",
-		JS:       "document.querySelector('button').click()",
+		Pattern:      "success",
+		Attribute:    "aria-label",
+		Value:        "Submit form",
+		OptionValue:  "opt-1",
+		OptionText:   "Option One",
+		JS:           "document.querySelector('button').click()",
 		DialogAction: "accept",
 		UploadFiles: []UploadFile{
 			{Name: "report.pdf", ContentBase64: "base64datahere"},
@@ -192,14 +192,14 @@ func initSpatialNodeData() {
 	}
 
 	benchNode = SpatialNode{
-		NodeID:       "container-1",
-		Role:         "list",
-		Name:         "Item List",
-		Bounds:       Bounds{X: 10, Y: 20, Width: 300, Height: 200},
-		Children:     children,
-		Interactive:  false,
-		Value:        "",
-		Description:  "A list of items for demonstration",
+		NodeID:      "container-1",
+		Role:        "list",
+		Name:        "Item List",
+		Bounds:      Bounds{X: 10, Y: 20, Width: 300, Height: 200},
+		Children:    children,
+		Interactive: false,
+		Value:       "",
+		Description: "A list of items for demonstration",
 		ScrollState: ScrollState{
 			CanScrollDown:     true,
 			CanScrollUp:       false,

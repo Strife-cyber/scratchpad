@@ -123,11 +123,11 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, sess *sandbox.Session
 		h.writeObservation(w, sess)
 	case "scroll":
 		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
-			Action:  protocol.ActionScroll,
-			X:       p.X,
-			Y:       p.Y,
-			DeltaX:  p.DeltaX,
-			DeltaY:  p.DeltaY,
+			Action: protocol.ActionScroll,
+			X:      p.X,
+			Y:      p.Y,
+			DeltaX: p.DeltaX,
+			DeltaY: p.DeltaY,
 			// scroll uses TimeoutMS only as a generic timeout knob (engine-side may ignore)
 			TimeoutMS: p.TimeoutMS,
 		}); err != nil {
@@ -176,4 +176,3 @@ func (h *handler) writeObservation(w http.ResponseWriter, sess *sandbox.Session)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(obs)
 }
-

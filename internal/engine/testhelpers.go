@@ -17,14 +17,14 @@ type CallRecord struct {
 // MemoryEngine is an in-memory mock implementing engine.Engine.
 // It records every call made to it and allows tests to configure return values.
 type MemoryEngine struct {
-	t          testing.TB
-	mu         sync.Mutex
-	responses  *protocol.ObservationResponse
-	navErr     error
-	actionErr  error
-	calls      []CallRecord
-	listeners  []EventHandler
-	closed     bool
+	t         testing.TB
+	mu        sync.Mutex
+	responses *protocol.ObservationResponse
+	navErr    error
+	actionErr error
+	calls     []CallRecord
+	listeners []EventHandler
+	closed    bool
 }
 
 // NewMemoryEngine returns a new MemoryEngine with a default empty observation

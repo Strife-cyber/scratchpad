@@ -8,9 +8,9 @@ import (
 	_ "scratchpad/internal/android"
 	_ "scratchpad/internal/browser"
 
+	"scratchpad/internal/api"
 	"scratchpad/internal/docs"
 	"scratchpad/internal/engine"
-	"scratchpad/internal/api"
 	"scratchpad/internal/sandbox"
 	"scratchpad/internal/server"
 )

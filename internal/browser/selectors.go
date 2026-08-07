@@ -117,12 +117,12 @@ func (e *ChromeEngine) findElementsOnce(ctx context.Context, sel protocol.Select
 				Width:  m.Width,
 				Height: m.Height,
 			},
-			CenterX:  m.CenterX,
-			CenterY:  m.CenterY,
-			Visible:  m.Visible,
-			Enabled:  m.Enabled,
-			Text:     m.Text,
-			Checked:  m.Checked,
+			CenterX: m.CenterX,
+			CenterY: m.CenterY,
+			Visible: m.Visible,
+			Enabled: m.Enabled,
+			Text:    m.Text,
+			Checked: m.Checked,
 		})
 	}
 
@@ -326,4 +326,3 @@ func evalMatches(ctx context.Context, execCtx context.Context, js string) (strin
 	}
 	return res, nil
 }
-
