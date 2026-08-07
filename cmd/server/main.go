@@ -28,6 +28,8 @@ var version = "dev"
 
 func main() {
 	logFormat := flag.String("log-format", "text", "log output format: json or text")
+	maxConcurrent := flag.Int("max-concurrent-actions", 0,
+		"cap on actions executing concurrently across all sessions (0 = unlimited)")
 	flag.Parse()
 
 	// Configure the process-wide structured logger.
@@ -53,6 +55,18 @@ func main() {
 	mgr.SetSessionCreatedHook(func(string) { server.RecordSessionsCreated() })
 	mgr.SetSessionDestroyedHook(func(string) { server.RecordSessionsDestroyed() })
 
+	// Server-wide action concurrency cap (item 33.4). nil means unlimited.
+	// Actions queue at the session executor while waiting for a slot; the
+	// reader goroutine is never blocked, so cancel/resize stay responsive even
+	// when the pool is saturated.
+	wsOpts := server.Options{}
+	if *maxConcurrent > 0 {
+		wsOpts.Concurrency = server.NewConcurrency(*maxConcurrent)
+		logger.Info("Max concurrent actions",
+			"max", *maxConcurrent,
+		)
+	}
+
 	mux := http.NewServeMux()
 
 	// /docs — Swagger UI; /swagger.json and /openapi.json — OpenAPI spec
@@ -73,10 +87,10 @@ func main() {
 	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", apiHandler))
 
 	// /ws  — Chrome CDP driver (default for web agents)
-	mux.HandleFunc("/ws", server.HandleWS(mgr, engine.KindChrome, server.Options{}))
+	mux.HandleFunc("/ws", server.HandleWS(mgr, engine.KindChrome, wsOpts))
 
 	// /ws/android — Android UIAutomator2 driver (stub, ready for the next phase)
-	mux.HandleFunc("/ws/android", server.HandleWS(mgr, engine.KindAndroid, server.Options{}))
+	mux.HandleFunc("/ws/android", server.HandleWS(mgr, engine.KindAndroid, wsOpts))
 
 	// Request-ID middleware stamps every request (HTTP + WS upgrade) with a
 	// correlation id echoed in X-Request-ID and threaded onto error envelopes.
