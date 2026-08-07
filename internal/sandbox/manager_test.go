@@ -170,6 +170,48 @@ func TestDeleteSession_ClosesEngine(t *testing.T) {
 	}
 }
 
+// TestStartCleanupLoop_SkipsBusySession verifies the in-flight guard (item
+// 33.3): a session with an active action is never reaped by idle cleanup, even
+// when it has long since exceeded the idle timeout.
+func TestStartCleanupLoop_SkipsBusySession(t *testing.T) {
+	m := sandbox.NewManager()
+	m.SetMaxIdleDuration(1 * time.Millisecond)
+	m.SetCleanupInterval(1 * time.Millisecond)
+
+	s, err := m.CreateSession(testEngineKind, engine.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	s.LastActivity = time.Time{} // always expired
+
+	if !s.BeginAction() {
+		t.Fatal("expected BeginAction to succeed")
+	}
+
+	m.StartCleanupLoop()
+
+	// Let several cleanup ticks pass; the busy session must survive.
+	time.Sleep(50 * time.Millisecond)
+	if _, ok := m.GetSession(s.ID); !ok {
+		t.Fatal("busy session was reaped by idle cleanup")
+	}
+
+	// Once the action ends, the next tick must reap it.
+	s.EndAction()
+	deadline := time.After(100 * time.Millisecond)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("session was not reaped after its action ended")
+		default:
+			if _, ok := m.GetSession(s.ID); !ok {
+				return
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+}
+
 func TestStartCleanupLoop(t *testing.T) {
 	m := sandbox.NewManager()
 	m.SetMaxIdleDuration(1 * time.Millisecond)
