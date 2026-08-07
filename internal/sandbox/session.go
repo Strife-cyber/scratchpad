@@ -2,9 +2,12 @@ package sandbox
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
 	"sync"
 	"time"
 
+	"scratchpad/internal/browser"
 	"scratchpad/internal/engine"
 	"scratchpad/internal/protocol"
 
@@ -31,6 +34,13 @@ type Session struct {
 	// It is appended during WebSocket observation cycles.
 	ConsoleRing      []protocol.ConsoleLog
 	ConsoleRingLimit int
+
+	// Recorder captures every action step to an append-only JSONL timeline
+	// under SCRATCHPAD_TRACE_DIR. Only set for browser-kind sessions; nil for
+	// platforms that have no timeline recorder. Writes are mutex-guarded
+	// inside the recorder, so it is safe to feed from the websocket goroutine
+	// while the CDP event loop also writes via the engine listener.
+	Recorder *browser.ActionRecorder
 }
 
 // LastActivityAt returns the last-activity timestamp, synchronized so the
@@ -74,6 +84,22 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 		LastActivity:     time.Now(),
 	}
 
+	// Browser sessions get an action timeline recorder so every step is
+	// captured to an append-only JSONL stream. A recorder failure (e.g. an
+	// unwritable trace dir) must not prevent the session from being created.
+	if kind == engine.KindChrome {
+		rec, rerr := browser.NewActionRecorder(os.Getenv(browser.TraceDirEnv), id)
+		if rerr != nil {
+			slog.Warn("sandbox: action timeline recorder unavailable",
+				"session_id", id, "err", rerr)
+		} else {
+			s.Recorder = rec
+			// Register the recorder with the engine so the CDP event loop can
+			// capture runtime exceptions into the timeline.
+			eng.AddListener(rec.Listener())
+		}
+	}
+
 	m.mu.Lock()
 	m.sessions[id] = s
 	hook := m.sessionCreated
@@ -114,6 +140,18 @@ func (m *Manager) DeleteSession(id string) error {
 		hook(id)
 	}
 
-	s.Engine.Close()
+	s.Close()
 	return nil
+}
+
+// Close shuts down the session, flushing and closing the action timeline
+// recorder (if any) before closing the engine. Safe to call once.
+func (s *Session) Close() {
+	if s.Recorder != nil {
+		if err := s.Recorder.Close(); err != nil {
+			slog.Warn("sandbox: closing action timeline recorder",
+				"session_id", s.ID, "err", err)
+		}
+	}
+	s.Engine.Close()
 }
