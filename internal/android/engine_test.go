@@ -1,6 +1,7 @@
 package android
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -231,7 +232,7 @@ func TestSizeRegex(t *testing.T) {
 func TestExecuteAction_Wait(t *testing.T) {
 	e := NewAndroidEngine()
 	start := time.Now()
-	err := e.ExecuteAction(protocol.ActionRequest{
+	err := e.ExecuteAction(context.Background(), protocol.ActionRequest{
 		Action:    protocol.ActionWait,
 		TimeoutMS: 50,
 	})
@@ -247,7 +248,7 @@ func TestExecuteAction_Wait(t *testing.T) {
 
 func TestExecuteAction_WaitZeroIsNoop(t *testing.T) {
 	e := NewAndroidEngine()
-	err := e.ExecuteAction(protocol.ActionRequest{Action: protocol.ActionWait, TimeoutMS: 0})
+	err := e.ExecuteAction(context.Background(), protocol.ActionRequest{Action: protocol.ActionWait, TimeoutMS: 0})
 	if err != nil {
 		t.Errorf("ActionWait with 0ms should not error: %v", err)
 	}
@@ -255,7 +256,7 @@ func TestExecuteAction_WaitZeroIsNoop(t *testing.T) {
 
 func TestExecuteAction_UnsupportedAction(t *testing.T) {
 	e := NewAndroidEngine()
-	err := e.ExecuteAction(protocol.ActionRequest{Action: "fly"})
+	err := e.ExecuteAction(context.Background(), protocol.ActionRequest{Action: "fly"})
 	if err == nil {
 		t.Error("expected error for unsupported action, got nil")
 	}

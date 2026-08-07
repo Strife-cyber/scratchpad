@@ -124,7 +124,7 @@ func (h *handler) PostScreenshotDiff(w http.ResponseWriter, r *http.Request, id 
 	}
 
 	// Execute assertion and then observe to fetch assertion_result.
-	if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
+	if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
 		Action: "assert",
 		Assertion: &protocol.AssertionRequest{
 			Type:                "screenshot_matches",

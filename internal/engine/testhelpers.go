@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -25,6 +26,15 @@ type MemoryEngine struct {
 	calls     []CallRecord
 	listeners []EventHandler
 	closed    bool
+
+	// actionStarted, when non-nil, is closed the first time ExecuteAction is
+	// called so tests can observe an in-flight action.
+	actionStarted chan struct{}
+
+	// blockAction, when true, makes ExecuteAction block until its ctx is
+	// cancelled. Tests use this to hold an action in-flight while sending a
+	// cancel.
+	blockAction bool
 }
 
 // NewMemoryEngine returns a new MemoryEngine with a default empty observation
@@ -65,16 +75,30 @@ func (m *MemoryEngine) Observe() (*protocol.ObservationResponse, error) {
 }
 
 // ExecuteAction records the call and returns nil (or the error configured via
-// SetActionError).
-func (m *MemoryEngine) ExecuteAction(req protocol.ActionRequest) error {
+// SetActionError). When blocking mode is enabled (SetBlockOnAction), it holds
+// the call in-flight until the supplied ctx is cancelled, returning nil.
+func (m *MemoryEngine) ExecuteAction(ctx context.Context, req protocol.ActionRequest) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.calls = append(m.calls, CallRecord{
 		Method: "ExecuteAction",
-		Args:   map[string]any{"action": req.Action},
+		Args:   map[string]any{"action": req.Action, "action_id": req.ActionID},
 	})
-	return m.actionErr
+	started := m.actionStarted
+	block := m.blockAction
+	actionErr := m.actionErr
+	m.mu.Unlock()
+
+	if started != nil {
+		close(started)
+		m.mu.Lock()
+		m.actionStarted = nil
+		m.mu.Unlock()
+	}
+	if block {
+		<-ctx.Done()
+		return nil
+	}
+	return actionErr
 }
 
 // AddListener registers an event handler.
@@ -120,6 +144,22 @@ func (m *MemoryEngine) SetActionError(err error) {
 	defer m.mu.Unlock()
 
 	m.actionErr = err
+}
+
+// SetActionStartedSignal registers a channel that ExecuteAction closes the
+// first time it is called, letting tests wait until an action is in-flight.
+func (m *MemoryEngine) SetActionStartedSignal(ch chan struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.actionStarted = ch
+}
+
+// SetBlockOnAction enables/disables blocking mode: when enabled, ExecuteAction
+// holds the call in-flight until its ctx is cancelled, then returns nil.
+func (m *MemoryEngine) SetBlockOnAction(block bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blockAction = block
 }
 
 // GetCalls returns a copy of the recorded call records for test assertions.

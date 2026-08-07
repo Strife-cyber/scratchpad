@@ -76,7 +76,7 @@ func (h *handler) Actions(w http.ResponseWriter, r *http.Request, id string) {
 	// {"action":"click","x":...,"y":...}
 	var actionReq protocol.ActionRequest
 	if err := json.Unmarshal(body, &actionReq); err == nil && strings.TrimSpace(actionReq.Action) != "" {
-		if err := sess.Engine.ExecuteAction(actionReq); err != nil {
+		if err := sess.Engine.ExecuteAction(r.Context(), actionReq); err != nil {
 			writeError(w, r, err)
 			return
 		}
@@ -102,7 +102,7 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess
 	case "observe":
 		h.writeObservation(w, r, sess)
 	case "click":
-		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
+		if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
 			Action:    protocol.ActionClick,
 			X:         p.X,
 			Y:         p.Y,
@@ -113,7 +113,7 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess
 		}
 		h.writeObservation(w, r, sess)
 	case "type":
-		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
+		if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
 			Action: protocol.ActionType,
 			Text:   p.Text,
 		}); err != nil {
@@ -122,7 +122,7 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess
 		}
 		h.writeObservation(w, r, sess)
 	case "scroll":
-		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
+		if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
 			Action: protocol.ActionScroll,
 			X:      p.X,
 			Y:      p.Y,
@@ -136,7 +136,7 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess
 		}
 		h.writeObservation(w, r, sess)
 	case "wait":
-		if err := sess.Engine.ExecuteAction(protocol.ActionRequest{
+		if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
 			Action:    protocol.ActionWait,
 			TimeoutMS: p.TimeoutMS,
 		}); err != nil {

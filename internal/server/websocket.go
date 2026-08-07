@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -190,7 +191,7 @@ func handleAction(conn *websocket.Conn, session *sandbox.Session, reqID string, 
 	}
 
 	start := time.Now()
-	err := session.Engine.ExecuteAction(req)
+	err := session.Engine.ExecuteAction(context.Background(), req)
 	dur := time.Since(start)
 
 	// Feed the session's action timeline so every action envelope (and any

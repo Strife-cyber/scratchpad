@@ -6,6 +6,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"scratchpad/internal/protocol"
 )
@@ -33,7 +34,10 @@ type Engine interface {
 	Observe() (*protocol.ObservationResponse, error)
 
 	// ExecuteAction dispatches a single user-style action (click, type, scroll, wait).
-	ExecuteAction(req protocol.ActionRequest) error
+	// The provided ctx carries the action's cancellation signal: cancelling it must
+	// abort the in-flight work (chromedp calls, adb polls, sleep loops) and return a
+	// clean, non-fatal result so callers can branch on the cancellation.
+	ExecuteAction(ctx context.Context, req protocol.ActionRequest) error
 
 	// AddListener registers a handler that receives raw platform events.
 	// Handlers are invoked synchronously inside the event loop; keep them fast.

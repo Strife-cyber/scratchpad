@@ -20,13 +20,19 @@ import (
 
 // ExecuteAction dispatches a single agent action to the Chrome instance.
 // Implements engine.Engine.
-func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
+func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionRequest) error {
 	timeout := time.Duration(req.TimeoutMS) * time.Millisecond
 	if req.TimeoutMS == 0 {
 		timeout = 10 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(e.ctx, timeout)
-	defer cancel()
+	// Derive the action context from the engine's CDP context so chromedp.Run
+	// keeps working, while cancelling it whenever the caller's ctx is cancelled.
+	// This lets a MsgTypeCancel abort the in-flight chromedp work mid-action.
+	actx, cancel := context.WithCancel(e.ctx)
+	stopWatch := context.AfterFunc(ctx, cancel)
+	defer stopWatch()
+	ctx, cancel2 := context.WithTimeout(actx, timeout)
+	defer cancel2()
 
 	// Capture action result at the end of every action.
 	start := time.Now()
@@ -58,6 +64,16 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			}
 		}
 
+		// failureMsg explains why the wait stopped: a cancellation reports the
+		// clean, non-fatal "cancelled after Xs" (agents branch on it); anything
+		// else is reported as a timeout.
+		failureMsg := func(cond string) string {
+			if ctx.Err() == context.Canceled {
+				return fmt.Sprintf("cancelled after %.1fs", time.Since(start).Seconds())
+			}
+			return fmt.Sprintf("wait: %s timed out after %s", cond, timeout)
+		}
+
 		switch req.Condition {
 		case "network_idle":
 			ticker := time.NewTicker(100 * time.Millisecond)
@@ -65,7 +81,7 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			for {
 				select {
 				case <-ctx.Done():
-					errMsg = fmt.Sprintf("wait: network_idle timed out after %s", timeout)
+					errMsg = failureMsg("network_idle")
 					success = false
 					emit()
 					return nil
@@ -90,7 +106,7 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			for {
 				select {
 				case <-ctx.Done():
-					errMsg = fmt.Sprintf("wait: %s timed out after %s", req.Condition, timeout)
+					errMsg = failureMsg(req.Condition)
 					success = false
 					emit()
 					return nil
@@ -150,7 +166,7 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			for {
 				select {
 				case <-ctx.Done():
-					errMsg = fmt.Sprintf("wait: text_appear timed out after %s", timeout)
+					errMsg = failureMsg("text_appear")
 					success = false
 					emit()
 					return nil
@@ -200,7 +216,7 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			for {
 				select {
 				case <-ctx.Done():
-					errMsg = fmt.Sprintf("wait: url_match timed out after %s", timeout)
+					errMsg = failureMsg("url_match")
 					success = false
 					emit()
 					return nil
@@ -215,9 +231,21 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 			}
 
 		default:
-			// Generic time-based wait (no specific condition).
+			// Generic time-based wait (no specific condition). The sleep is
+			// interruptible so a cancel returns promptly with a clean result.
 			if req.TimeoutMS > 0 {
-				time.Sleep(timeout)
+				timer := time.NewTimer(timeout)
+				select {
+				case <-ctx.Done():
+					if !timer.Stop() {
+						<-timer.C
+					}
+					errMsg = failureMsg("wait")
+					success = false
+					emit()
+					return nil
+				case <-timer.C:
+				}
 			}
 			success = true
 			emit()

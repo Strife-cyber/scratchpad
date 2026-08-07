@@ -1,6 +1,7 @@
 package android
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,8 +11,9 @@ import (
 )
 
 // ExecuteAction dispatches a single agent action to the connected Android device.
-// Implements engine.Engine.
-func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
+// Implements engine.Engine. The ctx carries the action's cancellation signal:
+// cancelling it aborts the poll/sleep loops with a clean, non-fatal result.
+func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRequest) error {
 	start := time.Now()
 
 	switch req.Action {
@@ -120,6 +122,18 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 			}
 			deadline := time.Now().Add(time.Duration(req.TimeoutMS) * time.Millisecond)
 			for {
+				select {
+				case <-ctx.Done():
+					// Clean, non-fatal cancellation so agents can branch on it.
+					e.lastActionResult = &protocol.ActionResult{
+						Action:    req.Action,
+						Success:   false,
+						Error:     fmt.Sprintf("cancelled after %.1fs", time.Since(start).Seconds()),
+						ElapsedMS: time.Since(start).Milliseconds(),
+					}
+					return nil
+				default:
+				}
 				matches, err := e.findAndroidMatches(req.Selector)
 				if err == nil {
 					ok := false
@@ -153,8 +167,23 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 		}
 
 		// Generic time-based wait (Android has no network-idle equivalent).
+		// The sleep is interruptible so a cancel returns promptly and cleanly.
 		if req.TimeoutMS > 0 {
-			time.Sleep(time.Duration(req.TimeoutMS) * time.Millisecond)
+			timer := time.NewTimer(time.Duration(req.TimeoutMS) * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				e.lastActionResult = &protocol.ActionResult{
+					Action:    req.Action,
+					Success:   false,
+					Error:     fmt.Sprintf("cancelled after %.1fs", time.Since(start).Seconds()),
+					ElapsedMS: time.Since(start).Milliseconds(),
+				}
+				return nil
+			case <-timer.C:
+			}
 		}
 		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
@@ -215,8 +244,17 @@ func (e *AndroidEngine) ExecuteAction(req protocol.ActionRequest) error {
 				success, msg = false, res.msg
 				break
 			}
-			time.Sleep(poll)
+			// Cancellation aborts the assertion with a clean, non-fatal result.
+			select {
+			case <-ctx.Done():
+				success = false
+				msg = fmt.Sprintf("cancelled after %.1fs", time.Since(start).Seconds())
+				goto assertDone
+			default:
+				time.Sleep(poll)
+			}
 		}
+	assertDone:
 
 		e.lastAssertionResult = &protocol.AssertionResult{
 			Success:        success,
