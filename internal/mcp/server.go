@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -118,162 +117,14 @@ type FillFormArgs struct {
 // ---------------------------------------------------------------------------
 
 func (s *Server) RegisterTools(srv *mcp.Server) {
-	// 1. browser_navigate
-	err := srv.RegisterTool("browser_navigate", "Load a URL into the browser", func(ctx context.Context, args NavigateArgs) (*mcp.ToolResponse, error) {
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeNavigate,
-			Data: mustJSON(protocol.InitializeRequest{URL: args.URL}),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register navigate: %v\n", err)
-	}
-
-	// 2. browser_observe
-	err = srv.RegisterTool("browser_observe", "Capture the current page state (screenshot + spatial tree + page info)", func(ctx context.Context, args ObserveArgs) (*mcp.ToolResponse, error) {
-		return s.sendEnvelope(protocol.Envelope{Type: protocol.MsgTypeObserve})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register observe: %v\n", err)
-	}
-
-	// 3. browser_action
-	err = srv.RegisterTool("browser_action", "Interact with the page", func(ctx context.Context, args protocol.ActionRequest) (*mcp.ToolResponse, error) {
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(args),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register action: %v\n", err)
-	}
-
-	// 4. browser_assert
-	err = srv.RegisterTool("browser_assert", "Assert page state (selectors/text/attributes/screenshot)", func(ctx context.Context, args AssertArgs) (*mcp.ToolResponse, error) {
-		req := protocol.ActionRequest{
-			Action:    protocol.ActionAssert,
-			Assertion: &args.Assertion,
+	// Descriptor-driven registration: every tool (including the mega
+	// browser_action fallback) lives in the table returned by toolDefs()
+	// (see tools.go). Each entry carries its name, description-with-example,
+	// and a register closure, so this method stays a simple loop.
+	for _, td := range s.toolDefs() {
+		if err := td.register(srv); err != nil {
+			fmt.Printf("Failed to register %s: %v\n", td.name, err)
 		}
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(req),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register assert tool: %v\n", err)
-	}
-
-	// 5. browser_list_tabs
-	err = srv.RegisterTool("browser_list_tabs", "List all open browser tabs", func(ctx context.Context, args ObserveArgs) (*mcp.ToolResponse, error) {
-		return s.sendEnvelope(protocol.Envelope{Type: protocol.MsgTypeObserve})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register list_tabs tool: %v\n", err)
-	}
-
-	// 6. browser_switch_tab
-	err = srv.RegisterTool("browser_switch_tab", "Switch to a different browser tab by ID from browser_list_tabs", func(ctx context.Context, args SwitchTabArgs) (*mcp.ToolResponse, error) {
-		req := protocol.ActionRequest{
-			Action: protocol.ActionSwitchTab,
-			TabID:  args.TabID,
-		}
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(req),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register switch_tab tool: %v\n", err)
-	}
-
-	// 7. browser_close_tab
-	err = srv.RegisterTool("browser_close_tab", "Close a browser tab by ID from browser_list_tabs", func(ctx context.Context, args CloseTabArgs) (*mcp.ToolResponse, error) {
-		req := protocol.ActionRequest{
-			Action: protocol.ActionCloseTab,
-			TabID:  args.TabID,
-		}
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(req),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register close_tab tool: %v\n", err)
-	}
-
-	// 8. browser_dismiss_modal
-	err = srv.RegisterTool("browser_dismiss_modal", "Dismiss modal dialogs, popups, cookie banners, or overlays", func(ctx context.Context, args DismissModalArgs) (*mcp.ToolResponse, error) {
-		req := protocol.ActionRequest{
-			Action:        protocol.ActionDismissModal,
-			ModalStrategy: args.Strategy,
-		}
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(req),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register dismiss_modal tool: %v\n", err)
-	}
-
-	// 9. browser_check
-	err = srv.RegisterTool("browser_check", "Check a checkbox or radio button", func(ctx context.Context, args CheckArgs) (*mcp.ToolResponse, error) {
-		req := protocol.ActionRequest{
-			Action:   protocol.ActionCheck,
-			Selector: &args.Selector,
-		}
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(req),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register check tool: %v\n", err)
-	}
-
-	// 10. browser_uncheck
-	err = srv.RegisterTool("browser_uncheck", "Uncheck a checkbox or radio button", func(ctx context.Context, args UncheckArgs) (*mcp.ToolResponse, error) {
-		req := protocol.ActionRequest{
-			Action:   protocol.ActionUncheck,
-			Selector: &args.Selector,
-		}
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(req),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register uncheck tool: %v\n", err)
-	}
-
-	// 11. browser_submit_form
-	err = srv.RegisterTool("browser_submit_form", "Submit a form by selector (CSS of form or child element)", func(ctx context.Context, args SubmitFormArgs) (*mcp.ToolResponse, error) {
-		req := protocol.ActionRequest{
-			Action:   protocol.ActionSubmitForm,
-			Selector: &args.Selector,
-		}
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(req),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register submit_form tool: %v\n", err)
-	}
-
-	// 12. browser_fill_form
-	err = srv.RegisterTool("browser_fill_form", "Fill multiple form fields at once", func(ctx context.Context, args FillFormArgs) (*mcp.ToolResponse, error) {
-		req := protocol.ActionRequest{
-			Action:     protocol.ActionFillForm,
-			FormFields: args.Fields,
-		}
-		return s.sendEnvelope(protocol.Envelope{
-			Type: protocol.MsgTypeAction,
-			Data: mustJSON(req),
-		})
-	})
-	if err != nil {
-		fmt.Printf("Failed to register fill_form tool: %v\n", err)
 	}
 }
 
@@ -351,6 +202,14 @@ func (s *Server) readResponse() (*mcp.ToolResponse, error) {
 		}
 		if obs.ActionResult.ElapsedMS > 0 {
 			actionResult += fmt.Sprintf(" (%dms)", obs.ActionResult.ElapsedMS)
+		}
+		// Surface the JavaScript return value for execute_js / browser_eval.
+		if obs.ActionResult.Action == protocol.ActionExecuteJS {
+			if raw, ok := obs.ActionResult.ActionMetadata["result"]; ok {
+				if v, err := json.Marshal(raw); err == nil {
+					actionResult += "\nJS result: " + string(v)
+				}
+			}
 		}
 	}
 
