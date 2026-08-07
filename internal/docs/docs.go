@@ -1,4 +1,5 @@
-// Package docs provides Swagger UI at /docs and OpenAPI spec at /swagger.json.
+// Package docs provides Swagger UI at /docs and the OpenAPI 3.0 spec at
+// /swagger.json and /openapi.json.
 package docs
 
 import (
@@ -34,13 +35,16 @@ const swaggerUIHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-// Handler routes to appropriate handler based on path.
+// Handler routes the OpenAPI spec JSON for /swagger.json and /openapi.json,
+// and the Swagger UI for every other path (/docs and anything else, so a bare
+// index visit still lands on the documentation page).
 func Handler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/swagger.json" {
+	switch r.URL.Path {
+	case "/swagger.json", "/openapi.json":
 		swaggerJSON(w, r)
-		return
+	default:
+		swaggerUI(w, r)
 	}
-	swaggerUI(w, r)
 }
 
 func swaggerUI(w http.ResponseWriter, r *http.Request) {
