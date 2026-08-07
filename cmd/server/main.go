@@ -55,9 +55,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// /docs — Swagger UI, /swagger.json — OpenAPI spec
+	// /docs — Swagger UI; /swagger.json and /openapi.json — OpenAPI spec
 	mux.HandleFunc("/docs", docs.Handler)
 	mux.HandleFunc("/swagger.json", docs.Handler)
+	mux.HandleFunc("/openapi.json", docs.Handler)
 
 	// /healthz — JSON readiness probe with per-engine session status.
 	mux.HandleFunc("/healthz", healthzHandler(mgr))
