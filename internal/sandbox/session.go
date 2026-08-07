@@ -22,6 +22,9 @@ type Session struct {
 
 	// LastActivity is updated every time the session receives a message.
 	// Used by the cleanup loop to detect and close idle sessions.
+	// It is guarded by activityMu: websocket goroutines call Touch while the
+	// manager's cleanup loop reads the timestamp to decide eviction.
+	activityMu   sync.Mutex
 	LastActivity time.Time
 
 	// ConsoleRing stores recent console logs for observability endpoints.
@@ -30,16 +33,27 @@ type Session struct {
 	ConsoleRingLimit int
 }
 
+// LastActivityAt returns the last-activity timestamp, synchronized so the
+// manager's cleanup loop can read it safely while websocket goroutines Touch.
+func (s *Session) LastActivityAt() time.Time {
+	s.activityMu.Lock()
+	la := s.LastActivity
+	s.activityMu.Unlock()
+	return la
+}
+
 // IsExpired returns true when the session has been idle for longer than the
 // given timeout. Used by the Manager's cleanup loop to sweep stale sessions.
 func (s *Session) IsExpired(timeout time.Duration) bool {
-	return time.Since(s.LastActivity) > timeout
+	return time.Since(s.LastActivityAt()) > timeout
 }
 
 // Touch updates the LastActivity timestamp to now, marking the session as
 // recently used. Call this whenever the session processes a message.
 func (s *Session) Touch() {
+	s.activityMu.Lock()
 	s.LastActivity = time.Now()
+	s.activityMu.Unlock()
 }
 
 // CreateSession instantiates a brand-new engine of the requested Kind and

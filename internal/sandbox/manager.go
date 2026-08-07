@@ -95,7 +95,7 @@ func (m *Manager) StartCleanupLoop() {
 				if s.IsExpired(m.maxIdleDuration) {
 					slog.Info("sandbox: cleaning up idle session",
 						"session_id", id,
-						"idle", time.Since(s.LastActivity).Round(time.Second),
+						"idle", time.Since(s.LastActivityAt()).Round(time.Second),
 					)
 					delete(m.sessions, id)
 					toClose = append(toClose, s)
