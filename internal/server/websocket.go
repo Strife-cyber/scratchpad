@@ -434,16 +434,19 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 	)
 	metrics.RecordAction(req.Action)
 
+	if ctx.Err() == context.Canceled {
+		// The action's context was cancelled, so it did not run to completion.
+		// Report a clean, non-fatal cancellation (e.g. "cancelled after 12.3s")
+		// so agents can branch on it. This holds whether the engine returned an
+		// error caused by the cancellation or a clean nil.
+		slog.Info("websocket: action cancelled",
+			"session_id", ws.session.ID, "action", req.Action, "action_id", req.ActionID,
+			"duration_ms", dur.Milliseconds())
+		ws.writeJSON(ws.cancelledObservation(req.ActionID, req.Action, dur))
+		return
+	}
+
 	if err != nil {
-		if ctx.Err() == context.Canceled {
-			// The action was cancelled, not failed: return a clean, non-fatal
-			// result (e.g. "cancelled after 12.3s") so agents can branch on it.
-			slog.Info("websocket: action cancelled",
-				"session_id", ws.session.ID, "action", req.Action, "action_id", req.ActionID,
-				"duration_ms", dur.Milliseconds())
-			ws.writeJSON(ws.cancelledObservation(req.ActionID, req.Action, dur))
-			return
-		}
 		slog.Warn("websocket: action failed",
 			"session_id", ws.session.ID, "request_id", ws.reqID, "action", req.Action, "err", err)
 		ws.writeError(captureScreenshot(ws.session, errorResponse(fmt.Errorf("action %q failed: %w", req.Action, err), ws.reqID, protocol.ErrorLevelAction, req.Action, req.Selector)))
@@ -477,11 +480,14 @@ func (ws *wsSession) handleCancel(raw json.RawMessage) {
 		return
 	}
 
-	cancel()
+	// Write the ack before cancelling so the ordering is deterministic: the
+	// executor's follow-up observation (if any) is always the second message a
+	// client reads after a cancel ack.
 	_ = ws.writeJSON(map[string]any{
 		"type": protocol.MsgTypeCancel,
 		"data": map[string]any{"ok": true, "action_id": actionID},
 	})
+	cancel()
 }
 
 func (ws *wsSession) handleListSessions() {
@@ -598,20 +604,26 @@ func (ws *wsSession) sendObservation(actionID string) {
 
 // cancelledObservation returns an ObservationResponse carrying a clean,
 // non-fatal cancellation ActionResult, enriched with the current page state
-// when a follow-up observation still works.
+// when a follow-up observation still works. When the engine already attached
+// its own result (e.g. the browser wait's "cancelled after 12.3s"), that is
+// preserved and only the action_id is stamped; otherwise a synthetic
+// "cancelled" result is used (e.g. the test MemoryEngine).
 func (ws *wsSession) cancelledObservation(actionID, action string, dur time.Duration) protocol.ObservationResponse {
-	ar := &protocol.ActionResult{
-		Action:    action,
-		ActionID:  actionID,
-		Success:   false,
-		Error:     "cancelled",
-		ElapsedMS: dur.Milliseconds(),
-	}
 	obs, err := ws.session.Engine.Observe()
 	if err != nil || obs == nil {
 		obs = &protocol.ObservationResponse{Type: "observation"}
 	}
-	obs.ActionResult = ar
+	if obs.ActionResult == nil {
+		obs.ActionResult = &protocol.ActionResult{
+			Action:    action,
+			ActionID:  actionID,
+			Success:   false,
+			Error:     "cancelled",
+			ElapsedMS: dur.Milliseconds(),
+		}
+	} else {
+		obs.ActionResult.ActionID = actionID
+	}
 	return *obs
 }
 
