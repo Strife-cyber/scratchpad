@@ -30,24 +30,39 @@ type RunOptions struct {
 
 	TimeoutMS int
 
-	Format   string // json|junit|both
+	Format   string // json|junit|html|both
 	OutPath  string
 	JUnitOut string
+	HTMLOut  string
+
+	DryRun bool
+	Tag    string
+
+	// ScreenshotDir is where failure screenshots are written (default "reports").
+	ScreenshotDir string
 }
 
 type Suite struct {
-	Name     string
-	Platform string
-	Steps    []Step
+	Name                   string
+	Platform               string
+	Env                    map[string]string
+	Tags                   []string
+	TimeoutMS              int
+	Retries                int
+	ScreenshotOnFailure    bool
+	ScreenshotOnFailureSet bool
+	Steps                  []Step
 }
 
 type SuiteResult struct {
-	Name        string `json:"name"`
-	Passed      bool   `json:"passed"`
-	Attempts    int    `json:"attempts"`
-	DurationMS  int64  `json:"duration_ms"`
-	FailureStep string `json:"failure_step,omitempty"`
-	Error       string `json:"error,omitempty"`
+	Name           string `json:"name"`
+	Passed         bool   `json:"passed"`
+	Attempts       int    `json:"attempts"`
+	DurationMS     int64  `json:"duration_ms"`
+	FailureStep    string `json:"failure_step,omitempty"`
+	Error          string `json:"error,omitempty"`
+	PageURL        string `json:"page_url,omitempty"`
+	ScreenshotPath string `json:"screenshot_path,omitempty"`
 }
 
 type Report struct {
@@ -59,6 +74,14 @@ type Report struct {
 type Step struct {
 	RawKey   string
 	RawValue any
+
+	// Per-step options (from the extended suite format).
+	TimeoutMS              int
+	Retries                int
+	ScreenshotOnFailure    bool
+	ScreenshotOnFailureSet bool
+	Tag                    string
+	Tags                   []string
 }
 
 func RunSuites(opts RunOptions) error {
@@ -74,6 +97,28 @@ func RunSuites(opts RunOptions) error {
 	if opts.Platform == "" {
 		opts.Platform = "web"
 	}
+	if strings.TrimSpace(opts.InputPath) == "" {
+		return errors.New("missing -i <suite.yml|suite.json>")
+	}
+
+	// Pre-flight: schema-validate the suite before touching a browser. Invalid
+	// suites fail here with line numbers instead of mid-run.
+	errs, err := ValidateSuiteYAMLFile(opts.InputPath)
+	if err != nil {
+		return err
+	}
+	if len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Fprintln(os.Stderr, e.Error())
+		}
+		fmt.Fprintf(os.Stderr, "suite validation failed: %d error(s) in %s\n", len(errs), opts.InputPath)
+		return ErrLintFailed
+	}
+
+	if opts.DryRun {
+		fmt.Fprintf(os.Stdout, "dry-run: %s is valid\n", opts.InputPath)
+		return nil
+	}
 
 	suites, err := loadSuites(opts.InputPath)
 	if err != nil {
@@ -81,6 +126,13 @@ func RunSuites(opts RunOptions) error {
 	}
 	if len(suites) == 0 {
 		return errors.New("no suites found in input")
+	}
+
+	if opts.Tag != "" {
+		suites, err = filterSuitesByTag(suites, opts.Tag)
+		if err != nil {
+			return err
+		}
 	}
 
 	start := time.Now()
@@ -111,7 +163,11 @@ func RunSuites(opts RunOptions) error {
 		Suites:           results,
 	}
 
-	if opts.Format == "json" || opts.Format == "both" {
+	isJSON := opts.Format == "json" || opts.Format == "both"
+	isJUnit := opts.Format == "junit" || opts.Format == "both"
+	isHTML := opts.Format == "html" || opts.Format == "both"
+
+	if isJSON {
 		data, err := json.MarshalIndent(rep, "", "  ")
 		if err != nil {
 			return err
@@ -124,13 +180,27 @@ func RunSuites(opts RunOptions) error {
 		fmt.Fprintln(os.Stdout, string(data))
 	}
 
-	if (opts.Format == "junit" || opts.Format == "both") && opts.JUnitOut != "" {
+	if isJUnit && opts.JUnitOut != "" {
 		junit, err := repToJUnit(rep)
 		if err != nil {
 			return err
 		}
 		if err := os.WriteFile(opts.JUnitOut, junit, 0o644); err != nil {
 			return err
+		}
+	}
+
+	if isHTML {
+		htmlData, err := repToHTML(rep)
+		if err != nil {
+			return err
+		}
+		if opts.HTMLOut != "" {
+			if err := os.WriteFile(opts.HTMLOut, htmlData, 0o644); err != nil {
+				return err
+			}
+		} else {
+			fmt.Fprintln(os.Stdout, string(htmlData))
 		}
 	}
 
@@ -177,19 +247,135 @@ func runAttempt(ctx context.Context, suite Suite, opts RunOptions) SuiteResult {
 	defer func() { _ = deleteSession(context.Background(), opts.ServerURL, sessionID) }()
 
 	for _, step := range suite.Steps {
-		if err := execStep(reqCtx, opts.ServerURL, sessionID, step); err != nil {
-			// If assertion failed, step error should already be descriptive.
+		if err := runStepWithRetries(reqCtx, opts.ServerURL, sessionID, step); err != nil {
+			pageURL, screenshotPath := captureFailure(opts, sessionID, suite.Name, step)
 			return SuiteResult{
-				Name:        suite.Name,
-				Passed:      false,
-				FailureStep: step.RawKey,
-				Error:       err.Error(),
+				Name:           suite.Name,
+				Passed:         false,
+				FailureStep:    step.RawKey,
+				Error:          err.Error(),
+				PageURL:        pageURL,
+				ScreenshotPath: screenshotPath,
 			}
 		}
 	}
 
 	_ = deleteSession(context.Background(), opts.ServerURL, sessionID)
 	return SuiteResult{Name: suite.Name, Passed: true}
+}
+
+// runStepWithRetries runs a single step, honouring the step's per-step retries.
+// A short pause between attempts lets transient conditions settle.
+func runStepWithRetries(ctx context.Context, serverURL, sessionID string, step Step) error {
+	var lastErr error
+	for attempt := 0; attempt <= step.Retries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-time.After(200 * time.Millisecond):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if err := execStep(ctx, serverURL, sessionID, step); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+// captureFailure records the page URL and a screenshot (when requested) for a
+// failed step. It uses a fresh context so a timed-out step still gets captured.
+func captureFailure(opts RunOptions, sessionID, suiteName string, step Step) (string, string) {
+	if !step.ScreenshotOnFailure {
+		return "", ""
+	}
+	cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pageURL := ""
+	obs := &protocol.ObservationResponse{}
+	if err := postTypedObserve(cctx, opts.ServerURL, sessionID, obs); err == nil && obs.PageInfo != nil {
+		pageURL = obs.PageInfo.URL
+	}
+
+	data, err := fetchScreenshot(cctx, opts.ServerURL, sessionID)
+	if err != nil {
+		return pageURL, ""
+	}
+	dir := opts.ScreenshotDir
+	if dir == "" {
+		dir = "reports"
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return pageURL, ""
+	}
+	path := filepath.Join(dir, sanitizeFileName(suiteName)+".png")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return pageURL, ""
+	}
+	return pageURL, path
+}
+
+func fetchScreenshot(ctx context.Context, serverURL, sessionID string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL+"/api/v1/sessions/"+sessionID+"/screenshot?format=png", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("screenshot request failed: %s", resp.Status)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+func sanitizeFileName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "suite"
+	}
+	return b.String()
+}
+
+func filterSuitesByTag(suites []Suite, tag string) ([]Suite, error) {
+	kept := suites[:0]
+	skipped := 0
+	for _, s := range suites {
+		if suiteHasTag(s, tag) {
+			kept = append(kept, s)
+		} else {
+			skipped++
+		}
+	}
+	if skipped > 0 {
+		fmt.Fprintf(os.Stdout, "skipped %d suite(s) not tagged %q\n", skipped, tag)
+	}
+	if len(kept) == 0 {
+		return nil, fmt.Errorf("no suites match tag %q", tag)
+	}
+	return kept, nil
+}
+
+func suiteHasTag(s Suite, tag string) bool {
+	for _, t := range s.Tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
 
 func loadSuites(inputPath string) ([]Suite, error) {
@@ -233,20 +419,11 @@ func parseSuites(decoded any) ([]Suite, error) {
 			var suites []Suite
 			for i, it := range root {
 				m := it.(map[string]any)
-				name := fmt.Sprintf("suite-%d", i)
-				if v, ok := m["name"].(string); ok && v != "" {
-					name = v
-				}
-				platform := ""
-				if v, ok := m["platform"].(string); ok {
-					platform = v
-				}
-				stepsRaw, _ := m["steps"].([]any)
-				steps, err := parseSteps(stepsRaw)
+				s, err := suiteFromMap(m, fmt.Sprintf("suite-%d", i))
 				if err != nil {
 					return nil, err
 				}
-				suites = append(suites, Suite{Name: name, Platform: platform, Steps: steps})
+				suites = append(suites, s)
 			}
 			return suites, nil
 		}
@@ -255,51 +432,185 @@ func parseSuites(decoded any) ([]Suite, error) {
 		if err != nil {
 			return nil, err
 		}
+		steps = interpolateSteps(steps, map[string]string{})
 		return []Suite{{Name: filepath.Base("suite"), Steps: steps}}, nil
 
 	case map[string]any:
-		name := "suite"
-		if v, ok := root["name"].(string); ok && v != "" {
-			name = v
-		}
-		platform := ""
-		if v, ok := root["platform"].(string); ok && v != "" {
-			platform = v
-		}
-		stepsRaw, _ := root["steps"].([]any)
-		steps, err := parseSteps(stepsRaw)
+		s, err := suiteFromMap(root, "suite")
 		if err != nil {
 			return nil, err
 		}
-		return []Suite{{Name: name, Platform: platform, Steps: steps}}, nil
+		return []Suite{s}, nil
 	default:
 		return nil, fmt.Errorf("unsupported root type %T", decoded)
 	}
 }
 
-func parseSteps(stepsRaw []any) ([]Step, error) {
-	steps := make([]Step, 0, len(stepsRaw))
-	for _, it := range stepsRaw {
-		m, ok := it.(map[string]any)
-		if !ok || len(m) == 0 {
-			return nil, fmt.Errorf("each step must be an object with one key; got %T", it)
+func suiteFromMap(m map[string]any, defName string) (Suite, error) {
+	name := defName
+	if v, ok := m["name"].(string); ok && v != "" {
+		name = v
+	}
+	platform := ""
+	if v, ok := m["platform"].(string); ok && v != "" {
+		platform = v
+	}
+	env := resolveSuiteEnv(m["env"])
+	tags := asStringSlice(m["tags"])
+	timeout := asInt(m["timeout"])
+	retries := asInt(m["retries"])
+	screenshot := false
+	screenshotSet := false
+	if v, ok := m["screenshot_on_failure"]; ok {
+		screenshot = asBool(v)
+		screenshotSet = true
+	}
+
+	stepsRaw, _ := m["steps"].([]any)
+	steps, err := parseSteps(stepsRaw)
+	if err != nil {
+		return Suite{}, err
+	}
+	steps = interpolateSteps(steps, env)
+	for i := range steps {
+		if steps[i].TimeoutMS == 0 {
+			steps[i].TimeoutMS = timeout
 		}
-		if len(m) != 1 {
-			return nil, fmt.Errorf("each step must have exactly one key; got keys=%v", reflectKeys(m))
+		if steps[i].Retries == 0 {
+			steps[i].Retries = retries
 		}
-		for k, v := range m {
-			steps = append(steps, Step{RawKey: k, RawValue: v})
+		if !steps[i].ScreenshotOnFailureSet && screenshotSet {
+			steps[i].ScreenshotOnFailure = screenshot
+			steps[i].ScreenshotOnFailureSet = true
 		}
 	}
-	return steps, nil
+	return Suite{
+		Name:                   name,
+		Platform:               platform,
+		Env:                    env,
+		Tags:                   tags,
+		TimeoutMS:              timeout,
+		Retries:                retries,
+		ScreenshotOnFailure:    screenshot,
+		ScreenshotOnFailureSet: screenshotSet,
+		Steps:                  steps,
+	}, nil
 }
 
-func reflectKeys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
+// resolveSuiteEnv maps the suite's env section, resolving ${VAR} references
+// against the process environment. Values are never logged by the runner.
+func resolveSuiteEnv(raw any) map[string]string {
+	env := map[string]string{}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return env
 	}
-	return out
+	for k, v := range m {
+		s := asString(v)
+		if strings.HasPrefix(s, "${") && strings.HasSuffix(s, "}") {
+			name := s[2 : len(s)-1]
+			env[k] = os.Getenv(name)
+		} else {
+			env[k] = s
+		}
+	}
+	return env
+}
+
+func interpolateSteps(steps []Step, env map[string]string) []Step {
+	for i := range steps {
+		steps[i].RawValue = interpolateValue(steps[i].RawValue, env)
+	}
+	return steps
+}
+
+func interpolateValue(v any, env map[string]string) any {
+	switch t := v.(type) {
+	case string:
+		return expandVars(t, env)
+	case map[string]any:
+		for k, val := range t {
+			t[k] = interpolateValue(val, env)
+		}
+		return t
+	case []any:
+		for i, val := range t {
+			t[i] = interpolateValue(val, env)
+		}
+		return t
+	default:
+		return v
+	}
+}
+
+func expandVars(s string, env map[string]string) string {
+	return os.Expand(s, func(name string) string {
+		if v, ok := env[name]; ok {
+			return v
+		}
+		return os.Getenv(name)
+	})
+}
+
+func asStringSlice(v any) []string {
+	switch t := v.(type) {
+	case string:
+		if t == "" {
+			return nil
+		}
+		return []string{t}
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, it := range t {
+			out = append(out, asString(it))
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func parseSteps(stepsRaw []any) ([]Step, error) {
+	steps := make([]Step, 0, len(stepsRaw))
+	for idx, it := range stepsRaw {
+		m, ok := it.(map[string]any)
+		if !ok || len(m) == 0 {
+			return nil, fmt.Errorf("step %d: each step must be an object with an action key; got %T", idx+1, it)
+		}
+		var step Step
+		actionFound := false
+		for k, v := range m {
+			if suiteActions[k] {
+				if actionFound {
+					return nil, fmt.Errorf("step %d: multiple action keys (%q and %q)", idx+1, step.RawKey, k)
+				}
+				step.RawKey = k
+				step.RawValue = v
+				actionFound = true
+				continue
+			}
+			switch k {
+			case "timeout":
+				step.TimeoutMS = asInt(v)
+			case "retries":
+				step.Retries = asInt(v)
+			case "screenshot_on_failure":
+				step.ScreenshotOnFailure = asBool(v)
+				step.ScreenshotOnFailureSet = true
+			case "tag":
+				step.Tag = asString(v)
+			case "tags":
+				step.Tags = asStringSlice(v)
+			default:
+				return nil, fmt.Errorf("step %d: unknown key %q (not a supported action or step option)", idx+1, k)
+			}
+		}
+		if !actionFound {
+			return nil, fmt.Errorf("step %d: missing action key (one of: navigate, wait, type, click, assert, observe)", idx+1)
+		}
+		steps = append(steps, step)
+	}
+	return steps, nil
 }
 
 func execStep(ctx context.Context, serverURL, sessionID string, step Step) error {
@@ -316,11 +627,11 @@ func execStep(ctx context.Context, serverURL, sessionID string, step Step) error
 		obs := &protocol.ObservationResponse{}
 		return postAction(ctx, serverURL, sessionID, initReq, obs)
 	case "wait":
-		return handleWait(ctx, serverURL, sessionID, step.RawValue)
+		return handleWait(ctx, serverURL, sessionID, step)
 	case "type":
-		return handleType(ctx, serverURL, sessionID, step.RawValue)
+		return handleType(ctx, serverURL, sessionID, step)
 	case "click":
-		return handleClick(ctx, serverURL, sessionID, step.RawValue)
+		return handleClick(ctx, serverURL, sessionID, step)
 	case "assert":
 		return handleAssert(ctx, serverURL, sessionID, step.RawValue)
 	case "observe":
@@ -422,12 +733,53 @@ func postTypedObserve(ctx context.Context, serverURL, sessionID string, obs *pro
 	return postAction(ctx, serverURL, sessionID, payload, obs)
 }
 
-func handleWait(ctx context.Context, serverURL, sessionID string, v any) error {
-	m, ok := v.(map[string]any)
+// parseSelector converts a raw YAML selector value (string or structured map)
+// into a protocol.Selector. It returns nil when the value is empty/absent.
+func parseSelector(v any) *protocol.Selector {
+	s := &protocol.Selector{}
+	switch val := v.(type) {
+	case string:
+		if val == "" {
+			return nil
+		}
+		s.CSS = val
+	case map[string]any:
+		if css, ok := val["css"].(string); ok {
+			s.CSS = css
+		}
+		if xpath, ok := val["xpath"].(string); ok {
+			s.XPath = xpath
+		}
+		if text, ok := val["text"].(string); ok {
+			s.Text = text
+		}
+		if role, ok := val["role"].(string); ok {
+			s.Role = role
+		}
+		if testID, ok := val["test_id"].(string); ok {
+			s.TestID = testID
+		}
+		if placeholder, ok := val["placeholder"].(string); ok {
+			s.Placeholder = placeholder
+		}
+		if s.IsEmpty() {
+			return nil
+		}
+	default:
+		return nil
+	}
+	return s
+}
+
+func handleWait(ctx context.Context, serverURL, sessionID string, step Step) error {
+	m, ok := step.RawValue.(map[string]any)
 	if !ok {
 		return fmt.Errorf("wait expects object")
 	}
 	timeout := asInt(m["timeout"])
+	if timeout == 0 {
+		timeout = step.TimeoutMS
+	}
 	sel := parseSelector(m["selector"])
 	condition := asString(m["condition"])
 	if condition == "" {
@@ -454,8 +806,8 @@ func handleWait(ctx context.Context, serverURL, sessionID string, v any) error {
 	return nil
 }
 
-func handleType(ctx context.Context, serverURL, sessionID string, v any) error {
-	m, ok := v.(map[string]any)
+func handleType(ctx context.Context, serverURL, sessionID string, step Step) error {
+	m, ok := step.RawValue.(map[string]any)
 	if !ok {
 		return fmt.Errorf("type expects object")
 	}
@@ -464,6 +816,9 @@ func handleType(ctx context.Context, serverURL, sessionID string, v any) error {
 	timeout := asInt(m["timeout_ms"])
 	if timeout == 0 {
 		timeout = asInt(m["timeout"])
+	}
+	if timeout == 0 {
+		timeout = step.TimeoutMS
 	}
 	if sel == nil {
 		return fmt.Errorf("type requires selector")
@@ -479,17 +834,20 @@ func handleType(ctx context.Context, serverURL, sessionID string, v any) error {
 	return postAction(ctx, serverURL, sessionID, req, obs)
 }
 
-func handleClick(ctx context.Context, serverURL, sessionID string, v any) error {
-	timeout := 0
+func handleClick(ctx context.Context, serverURL, sessionID string, step Step) error {
 	var sel *protocol.Selector
-	switch vv := v.(type) {
+	timeout := 0
+	switch vv := step.RawValue.(type) {
 	case string:
-		sel = &protocol.Selector{CSS: vv}
+		sel = parseSelector(vv)
 	case map[string]any:
 		sel = parseSelector(vv["selector"])
 		timeout = asInt(vv["timeout"])
 	default:
 		return fmt.Errorf("click expects string selector or object")
+	}
+	if timeout == 0 {
+		timeout = step.TimeoutMS
 	}
 	if sel == nil || sel.IsEmpty() {
 		return fmt.Errorf("click requires selector")
@@ -564,46 +922,6 @@ func handleAssert(ctx context.Context, serverURL, sessionID string, v any) error
 		return fmt.Errorf("assertion failed: %s", obs.AssertionResult.Message)
 	}
 	return nil
-}
-
-// parseSelector parses a selector value from YAML into a structured Selector.
-// It accepts either a plain CSS string (legacy) or a map with keys:
-// css, xpath, text, role, test_id, placeholder.
-// Returns nil if the value is absent or empty.
-func parseSelector(v any) *protocol.Selector {
-	s := &protocol.Selector{}
-	switch val := v.(type) {
-	case string:
-		if val == "" {
-			return nil
-		}
-		s.CSS = val
-	case map[string]any:
-		if css, ok := val["css"].(string); ok {
-			s.CSS = css
-		}
-		if xpath, ok := val["xpath"].(string); ok {
-			s.XPath = xpath
-		}
-		if text, ok := val["text"].(string); ok {
-			s.Text = text
-		}
-		if role, ok := val["role"].(string); ok {
-			s.Role = role
-		}
-		if testID, ok := val["test_id"].(string); ok {
-			s.TestID = testID
-		}
-		if placeholder, ok := val["placeholder"].(string); ok {
-			s.Placeholder = placeholder
-		}
-		if s.IsEmpty() {
-			return nil
-		}
-	default:
-		return nil
-	}
-	return s
 }
 
 func asString(v any) string {
@@ -683,6 +1001,48 @@ func repToJUnit(rep Report) ([]byte, error) {
 		buf.WriteString("</testcase>")
 	}
 	buf.WriteString("</testsuite>")
+	return buf.Bytes(), nil
+}
+
+// repToHTML renders the report as a self-contained HTML page. Failure rows
+// include the observed page URL and, when captured, the screenshot.
+func repToHTML(rep Report) ([]byte, error) {
+	var buf bytes.Buffer
+	total := len(rep.Suites)
+	failures := 0
+	for _, s := range rep.Suites {
+		if !s.Passed {
+			failures++
+		}
+	}
+	buf.WriteString("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n")
+	buf.WriteString("<title>Scratchpad Test Report</title>\n")
+	buf.WriteString("<style>body{font-family:system-ui,sans-serif;margin:2rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top}tr.pass td{background:#e6f4ea}tr.fail td{background:#fdecea}code{background:#f4f4f4;padding:2px 4px}img{max-width:240px;border:1px solid #ccc}</style>\n")
+	buf.WriteString("</head>\n<body>\n")
+	fmt.Fprintf(&buf, "<h1>Scratchpad Test Report</h1>\n")
+	fmt.Fprintf(&buf, "<p>Started: <code>%s</code> · Duration: <code>%d ms</code> · Suites: <code>%d</code> · Failures: <code>%d</code></p>\n",
+		xmlEscape(rep.StartedAtRFC3339), rep.DurationMS, total, failures)
+	buf.WriteString("<table>\n<tr><th>Suite</th><th>Status</th><th>Duration (ms)</th><th>Failure step</th><th>Error</th><th>Page URL</th><th>Screenshot</th></tr>\n")
+	for _, s := range rep.Suites {
+		cls, status := "pass", "PASS"
+		if !s.Passed {
+			cls, status = "fail", "FAIL"
+		}
+		fmt.Fprintf(&buf, "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%d</td>", cls, xmlEscape(s.Name), status, s.DurationMS)
+		fmt.Fprintf(&buf, "<td>%s</td><td>%s</td>", xmlEscape(s.FailureStep), xmlEscape(s.Error))
+		if s.PageURL != "" {
+			fmt.Fprintf(&buf, "<td><a href=\"%s\">%s</a></td>", xmlEscape(s.PageURL), xmlEscape(s.PageURL))
+		} else {
+			buf.WriteString("<td></td>")
+		}
+		if s.ScreenshotPath != "" {
+			fmt.Fprintf(&buf, "<td><img src=\"%s\" alt=\"failure screenshot\"></td>", xmlEscape(s.ScreenshotPath))
+		} else {
+			buf.WriteString("<td></td>")
+		}
+		buf.WriteString("</tr>\n")
+	}
+	buf.WriteString("</table>\n</body>\n</html>\n")
 	return buf.Bytes(), nil
 }
 

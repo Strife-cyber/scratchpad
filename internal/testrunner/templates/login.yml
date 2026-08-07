@@ -1,0 +1,32 @@
+# Example login suite.
+#
+# Env values are resolved from the process environment; ${VAR} references are
+# secrets and are never logged by the runner. Set them before running, e.g.:
+#   LOGIN_USER=alice LOGIN_PASSWORD=hunter2 scratchpad-cli run -i login.yml
+name: Login Flow
+platform: web
+tags: [smoke, login]
+env:
+  USER: ${LOGIN_USER}
+  PASSWORD: ${LOGIN_PASSWORD}
+
+steps:
+  - navigate: https://example.com/login
+    timeout: 30000
+    retries: 2
+    screenshot_on_failure: true
+
+  - type:
+      selector: {css: "#username", placeholder: "Username"}
+      text: ${USER}
+
+  - type:
+      selector: {css: "#password", placeholder: "Password"}
+      text: ${PASSWORD}
+
+  - click: {selector: {test_id: "login-button"}, timeout: 10000}
+    tag: smoke
+
+  - wait: {selector: "#welcome", condition: selector_visible, timeout: 5000}
+
+  - assert: {selector: "#welcome", text: "Welcome", contains: true}

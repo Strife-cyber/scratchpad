@@ -1,0 +1,17 @@
+# Example scrape/assert suite.
+#
+# This suite navigates to a page and extracts text/content via assertions.
+name: Content Smoke
+platform: web
+tags: [smoke]
+
+steps:
+  - navigate: https://example.com
+
+  - wait: {selector: "h1", condition: selector_visible, timeout: 5000}
+
+  - assert: {selector: "h1", exists: true}
+
+  - assert: {selector: "h1", text: "Example Domain", equals: true}
+
+  - observe: ~

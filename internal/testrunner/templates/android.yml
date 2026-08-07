@@ -1,0 +1,15 @@
+# Example Android suite.
+#
+# Requires: adb on PATH, a connected device/emulator, and a running server
+# with the android engine. Check first: scratchpad-cli doctor.
+name: Android Smoke
+platform: android
+tags: [smoke, android]
+
+steps:
+  - navigate: https://example.com
+    timeout: 30000
+
+  - wait: {selector: "h1", condition: selector_visible, timeout: 5000}
+
+  - assert: {selector: "h1", exists: true}
