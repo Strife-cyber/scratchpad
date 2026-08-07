@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scratchpad-sdk"
+version = "0.1.0"
+description = "REST client SDK for the Scratchpad engine (from its OpenAPI 3.0 spec)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[tool.setuptools]
+packages = ["scratchpad_sdk"]
