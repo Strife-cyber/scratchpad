@@ -508,7 +508,22 @@ func (e *ChromeEngine) ExecuteAction(req protocol.ActionRequest) error {
 		if strings.TrimSpace(req.JS) == "" {
 			return fmt.Errorf("execute_js requires js")
 		}
-		return chromedp.Run(ctx, chromedp.Evaluate(req.JS, new(interface{})))
+		// Evaluate and capture the JS return value so browser_eval / execute_js
+		// can surface it. chromedp decodes the RemoteObject result.value into
+		// result (nil when the script returns undefined/null).
+		var result any
+		if err := chromedp.Run(ctx, chromedp.Evaluate(req.JS, &result)); err != nil {
+			return err
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		if meta := jsResultMetadata(result); meta != nil {
+			e.lastActionResult.ActionMetadata = meta
+		}
+		return nil
 
 	case protocol.ActionScrollIntoView:
 		if req.Selector == nil || req.Selector.CSS == "" {
@@ -860,6 +875,16 @@ func urlMatches(ctx context.Context, pattern string) (bool, error) {
 	// Phase 1: treat pattern as substring unless it contains regex metacharacters.
 	// If you want true regex semantics, use a dedicated later phase.
 	return strings.Contains(href, pattern), nil
+}
+
+// jsResultMetadata wraps a JavaScript evaluation result into the
+// ActionResult.ActionMetadata map under the "result" key. It returns nil when
+// the script produced no value (undefined/null) so the metadata stays empty.
+func jsResultMetadata(result any) map[string]any {
+	if result == nil {
+		return nil
+	}
+	return map[string]any{"result": result}
 }
 
 func decodeDataOrBase64(s string) ([]byte, error) {
