@@ -71,6 +71,8 @@
 
 ## 1. Request IDs + One Typed Error Envelope Everywhere
 
+- [x] DONE (wave W1, 5cd1e46 — sentinel catalog 53d6432, unified api writer 83adc3d, ws envelope b1d19ea, mcp pass-through a754928; middleware 11fdeee)
+
 ### What & Why
 
 Today there are **three different error styles**: the WebSocket path returns `protocol.ErrorResponse` (good — it has `Action`, `Selector`, `Screenshot`, `Hint`), the HTTP API returns bare `http.Error()` strings (`internal/api/sessions.go`, `internal/api/actions.go`), and the MCP bridge formats errors by hand (`internal/mcp/server.go` `readResponse`). A dumb AI gets different shapes depending on which transport it used, and nothing carries a correlation ID, so debugging a session is impossible across logs, WS, and HTTP.
@@ -174,6 +176,8 @@ The fix: a proper observation request/options pipeline, delta reconstruction on 
 
 ## 4. Web-First Auto-Retrying Assertions
 
+- [x] DONE (wave W1, 791cb0c — feat 80cb27a, tests 8488e84)
+
 ### What & Why
 
 Playwright's defining reliability feature is **web-first assertions**: `expect(locator).toBeVisible()` polls until the timeout instead of failing on the first snapshot. Scratchpad's assertions (`internal/browser/actions.go`, `ActionAssert`) call `findElementsOnce` — a single snapshot — and fail immediately if the element hasn't rendered yet. This is the #1 source of flaky agent runs: navigate → assert immediately → "element not found" → agent blames itself and wastes turns.
@@ -265,6 +269,8 @@ Today the MCP bridge connects once (`mcp.NewMcpServer` → one WS → one sandbo
 
 ## 7. CLI `doctor`
 
+- [x] DONE (wave W1, 73681f1 — 10 checks, `--fix`/`--json`, checklist output)
+
 ### What & Why
 
 Today, if the server won't start or Chrome isn't found, the user gets one `log.Fatal` line. Debugging environment problems (wrong `CHROME_PATH`, ADB missing, no device connected, port 8080 occupied, old binary vs. docs mismatch) is a multi-command slog. Playwright's killer developer-experience feature is `npx playwright install` + clear error messages.
@@ -293,6 +299,8 @@ Today, if the server won't start or Chrome isn't found, the user gets one `log.F
 ---
 
 ## 8. Suite Lint, Scaffold, and Schema-Validated YAML
+
+- [x] DONE (wave W1, 234b5e3 — schema validation 0ab0ffa, lint/scaffold 5b6c652)
 
 ### What & Why
 
@@ -353,6 +361,8 @@ The YAML test runner (`internal/testrunner/runner.go`) parses suites via `reflec
 ---
 
 ## 10. Structured Logging, Trace IDs, and a Metrics Endpoint
+
+- [x] DONE (wave W1, 5cd1e46 — slog, `/metrics`, `/version`, JSON `/healthz`, `--log-format`; caveat: REST-path metrics not yet instrumented)
 
 ### What & Why
 
