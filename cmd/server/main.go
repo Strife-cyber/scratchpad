@@ -73,10 +73,10 @@ func main() {
 	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", apiHandler))
 
 	// /ws  — Chrome CDP driver (default for web agents)
-	mux.HandleFunc("/ws", server.HandleWS(mgr, engine.KindChrome))
+	mux.HandleFunc("/ws", server.HandleWS(mgr, engine.KindChrome, server.Options{}))
 
 	// /ws/android — Android UIAutomator2 driver (stub, ready for the next phase)
-	mux.HandleFunc("/ws/android", server.HandleWS(mgr, engine.KindAndroid))
+	mux.HandleFunc("/ws/android", server.HandleWS(mgr, engine.KindAndroid, server.Options{}))
 
 	// Request-ID middleware stamps every request (HTTP + WS upgrade) with a
 	// correlation id echoed in X-Request-ID and threaded onto error envelopes.
