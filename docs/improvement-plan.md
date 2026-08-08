@@ -935,6 +935,8 @@ Every Android action spawns **multiple `adb` subprocesses** (each `runADB` call 
 
 ## 28. Android Gesture & Key Suite
 
+- [x] DONE (wave W6, E2 — 625487d android gesture/app/recording/clipboard action types+fields, 0f62282 gesture suite: long-press / swipe direction+distance presets / pinch / ActionKey / open_notifications / go_home, fe28c78 MCP gesture tools `android_long_press`/`android_swipe`/`android_pinch`/`android_key`/`android_open_notifications`/`android_go_home`; caveat: pinch is a single-pointer `input motionevent` approximation, not true multi-touch — `sendevent` on a concrete /dev/input/eventX device is emulator-specific and out of scope)
+
 ### What & Why
 
 The Android action set is tap, type, scroll (swipe), wait, assert, and a raw `keyevent` (`internal/android/actions.go`). Missing: **long-press, swipe-by-direction with duration, pinch/zoom, multi-touch, and named keys** (home, back, recents, volume). Real mobile apps (maps, galleries, games) are unusable without them.
@@ -964,6 +966,8 @@ The Android action set is tap, type, scroll (swipe), wait, assert, and a raw `ke
 
 ## 29. Android App Management & Deep Links
 
+- [x] DONE (wave W6, E2 — 625487d action types+fields, 874f063 app install/uninstall/clear-data/force-stop/list via `pm` + `NavigateWithIntent` (engine.Intenter: `am start -a VIEW -d <url> -e k v ... -W`) + `ActionWaitApp` polling dumpsys via getCurrentActivity, fe28c78 MCP tools `android_navigate`/`android_app_launch`/`android_app_install`/`android_app_uninstall`/`android_app_clear`/`android_app_force_stop`/`android_app_list`/`android_wait_app`)
+
 ### What & Why
 
 `Navigate` launches apps via `monkey` and URLs via `am start` (`android/engine.go:70-90`) — but there's no install/uninstall, no clear-data (needed for fresh-login tests), no force-stop, and no way to pass **intent extras** (deep links with query params — essential for testing push-notification flows and share sheets).
@@ -992,6 +996,8 @@ The Android action set is tap, type, scroll (swipe), wait, assert, and a raw `ke
 ---
 
 ## 30. Android Screen Recording & Logcat Capture
+
+- [x] DONE (wave W6, E2 — 625487d action types+fields, 03529a4 screenrecord `--time-limit/--size` + pull to SCRATCHPAD_VIDEO_DIR and logcat `-c`/`--pid`/filter capture to traces/<session>/logcat.txt, both stopped on Close, logcat tail + video path attached to PageInfo.Extra, fe28c78 MCP tools `android_screenrecord_start`/`android_screenrecord_stop`/`android_logcat`/`android_logcat_stop`)
 
 ### What & Why
 
@@ -1051,6 +1057,8 @@ Real workflows cross platforms: "log in on the web, verify the push notification
 ---
 
 ## 32. Android Clipboard, Text-Input Fixes & IME Handling
+
+- [x] DONE (wave W6, E2 — 625487d action types+fields (PressEnter on ActionType), 0e2e172 unicode-safe type (clipboard+paste fallback for non-ASCII/whitespace/shell metachars, else `input text`) + `press_enter` flag (default false) + `ActionClearText` (focus, MOVE_END, CTRL+A select-all with hold-DEL fallback, DEL), fe28c78 MCP tools `android_type`/`android_clear_text`/`android_clipboard_get`/`android_clipboard_set`; get/set clipboard reuse the item-16 Android path; caveat: paste relies on the IME honouring KEYCODE_PASTE, custom IMEs may ignore it)
 
 ### What & Why
 
