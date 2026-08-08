@@ -1,0 +1,1 @@
+{"action":"type","x":10,"y":20,"text":"hello","timeout_ms":5000,"action_id":"act-1","selector":{"css":"#email","placeholder":"Enter email"},"handle_id":"42","key_chord":{"key":"a","ctrl":true},"modifiers":{"ctrl":true},"clear_first":true,"focus_mode":"select_all"}
