@@ -411,6 +411,27 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 				actionResult += fmt.Sprintf("\nClipboard image (%s): %d base64 chars", mime, len(b64))
 			}
 		}
+		// Surface the final download info for wait_download (item 17).
+		if obs.ActionResult.Action == protocol.ActionWaitDownload {
+			if path, ok := obs.ActionResult.ActionMetadata["path"].(string); ok && path != "" {
+				actionResult += "\nDownloaded: " + path
+				if size, ok := obs.ActionResult.ActionMetadata["size"].(int64); ok && size > 0 {
+					actionResult += fmt.Sprintf(" (%d bytes)", size)
+				}
+			}
+			if state, ok := obs.ActionResult.ActionMetadata["state"].(string); ok && state == string(protocol.DownloadCancelled) {
+				actionResult += "\nDownload was cancelled"
+			}
+		}
+		// Surface the artifact path + size for capture_pdf (item 18).
+		if obs.ActionResult.Action == protocol.ActionCapturePDF {
+			if path, ok := obs.ActionResult.ActionMetadata["path"].(string); ok && path != "" {
+				actionResult += "\nPDF: " + path
+				if size, ok := obs.ActionResult.ActionMetadata["size"].(int64); ok && size > 0 {
+					actionResult += fmt.Sprintf(" (%d bytes)", size)
+				}
+			}
+		}
 	}
 
 	truncated := ""
@@ -429,12 +450,27 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 	}
 
 	if b64Images != "" {
-		contents = append(contents, mcp.NewImageContent(b64Images, "image/jpeg"))
+		// Label the observe screenshot with the mime the engine recorded (jpeg by
+		// default; png/webp when a non-default screenshot_format was requested).
+		mime := obs.ScreenshotMime
+		if mime == "" {
+			mime = "image/jpeg"
+		}
+		contents = append(contents, mcp.NewImageContent(b64Images, mime))
 	}
 
 	// Also attach the element highlight screenshot if present.
 	if obs.ActionResult != nil && obs.ActionResult.ElementHighlight != "" {
 		contents = append(contents, mcp.NewImageContent(obs.ActionResult.ElementHighlight, "image/png"))
+	}
+
+	// Attach the screenshot action's image with its recorded mime (item 18).
+	if obs.ActionResult != nil && obs.ActionResult.Screenshot != "" {
+		mime := obs.ActionResult.ScreenshotMime
+		if mime == "" {
+			mime = "image/jpeg"
+		}
+		contents = append(contents, mcp.NewImageContent(obs.ActionResult.Screenshot, mime))
 	}
 
 	return mcp.NewToolResponse(contents...), nil
