@@ -839,6 +839,8 @@ Tracing already exists (`StartTracing`/`StopTracing` in `engine.go:1182-1312`) b
 
 **Human debuggability at scale.** This converts "the agent did something weird" into a scrubbable visual record — the exact feature that made Playwright's trace viewer loved.
 
+- [x] DONE (wave W7, E3 — 6d92d7e `.spz` bundle on `StopTracing` (trace + timeline + screenshots + summary) + `SetSession` wiring for all engines, d1e219d `GET /api/v1/sessions/{id}/trace` + recorder flush before stop, 2cc0a6c self-contained `trace_viewer.html` at `/trace_viewer` (drag-drop `.spz`, screenshots/network/errors timeline) + OpenAPI, 0e41f57 `scratchpad-cli trace <id>` textual summary)
+
 ---
 
 ## 25. Codegen: Record Agent Actions Into YAML Suites
@@ -867,6 +869,8 @@ Playwright's codegen lets you click through an app and *generate a test*. Scratc
 ### Impact
 
 **AI-generated tests.** Users who can't write Playwright tests get them from watching an agent; the suite format becomes a first-class deliverable of agent runs. A genuinely differentiating feature.
+
+- [x] DONE (wave W7, E3 — b7fcbe7 `scratchpad-cli record --from-session <id> --out PATH [--sanitize]` + `TimelineEvent.Text` for faithful type replay + per-step timeouts/`screenshot_on_failure` + built-in secret-pattern list, 278a3dc `browser_begin_record`/`browser_end_record` MCP markers; selector-based actions only — coordinates are dropped)
 
 ---
 
