@@ -685,6 +685,8 @@ Screenshots are the core observation primitive, but three common asks are missin
 
 **Modern-app coverage.** Without shadow piercing, Scratchpad silently fails on a growing slice of the web; with it, agents can drive the same apps Playwright can.
 
+- [x] DONE (wave D4 — d2439a3 injected `pierceQueryAll`/`pierceChain`/`pierceXPath`/`pierceAllElements`/`queryFor` helpers used by **all** selector kinds in `querySelectorMatchesJSON`, 09cf2fe Playwright-style `>>` chain syntax in `Selector.CSS` + swagger/schema docs, b70485e `node_ref`/`handle_id` protocol plumbing; pierce helpers validated by a node-executed mock-DOM unit test (`TestPierceHelpersShadowDOMNode`, skipped when `node` is absent); `boundsFromBackendNode`/rect math is unchanged and works for shadow-hosted nodes because coordinates are viewport-global)
+
 ---
 
 ## 20. Stale-Element Auto-Retry & Persistent Node Handles
@@ -713,6 +715,8 @@ Most actions re-query by selector each time (good), but the **JS-based actions**
 ### Impact
 
 **Kills the flakiest failure class.** Stale elements are the #2 cause of agent failures after timing. Retry-on-stale plus handles makes action sequences deterministic even on the most reactive SPAs.
+
+- [x] DONE (wave D4 — b70485e `handle_id` on `ActionRequest` + `node_ref` on `SpatialNode`/`ElementHandle` protocol fields + goldens, f4b5a40 stale-element auto-retry for all JS-based actions `check`/`uncheck`/`select_option`/`scroll_into_view`/`submit_form` via `runRetryJSAction` re-querying each attempt through the pierce helpers, 0830866 persistent node handles: registry resolved fresh via `DOM.resolveNode` + `Runtime.callFunctionOn`, `findElementsOnce` resolves `node_ref` via `DOM.getNodeForLocation` (capped at 20), handles invalidated on every `navigation_id` bump, MCP per-action tools expose `handle_id`; engine-logic covered by unit tests in `handles_test.go`/`retry_test.go`)
 
 ---
 
