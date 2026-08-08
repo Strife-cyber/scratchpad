@@ -116,6 +116,21 @@ func (h *handler) Actions(w http.ResponseWriter, r *http.Request, id string) {
 // max_action_duration, item 36.4) and executes the action. It writes the error
 // envelope and returns false when a guardrail or the action itself fails.
 func (h *handler) runAction(w http.ResponseWriter, r *http.Request, sess *sandbox.Session, req protocol.ActionRequest) bool {
+	// The switch_context action flips the active context of a hybrid session
+	// (improvement-plan item 31) without reaching any engine. It is a control
+	// operation, so it neither consumes the step budget nor touches the engine.
+	if req.Action == protocol.ActionSwitchContext {
+		if req.Context == "" {
+			writeError(w, r, fmt.Errorf("switch_context: context is required"))
+			return false
+		}
+		if err := sess.SetContext(req.Context); err != nil {
+			writeError(w, r, err)
+			return false
+		}
+		return true
+	}
+
 	if err := sess.GuardStep(); err != nil {
 		writeError(w, r, fmt.Errorf("action %q: %w (max_total_steps=%d)", req.Action, err, sess.Limits.MaxTotalSteps))
 		return false

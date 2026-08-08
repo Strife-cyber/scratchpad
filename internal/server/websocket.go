@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,6 +137,16 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind, opts Options) http.Handler
 		}
 		if q := r.URL.Query().Get("serial"); q != "" {
 			createOpts.AndroidSerial = q
+		}
+		// Hybrid sessions (improvement-plan item 31): the platforms query param is
+		// a comma-separated list of contexts ("web,android"); the sandbox
+		// instantiates one engine per platform.
+		if q := r.URL.Query().Get("platforms"); q != "" {
+			for _, p := range strings.Split(q, ",") {
+				if p = strings.TrimSpace(p); p != "" {
+					createOpts.Platforms = append(createOpts.Platforms, p)
+				}
+			}
 		}
 
 		// Each WebSocket connection gets its own engine session. Sessions now
@@ -378,6 +389,9 @@ func (ws *wsSession) handle(env protocol.Envelope) {
 	case protocol.MsgTypeNetworkList:
 		ws.handleNetworkList()
 
+	case protocol.MsgTypeSetContext:
+		ws.handleSetContext(env.Data)
+
 	default:
 		// Also handle legacy messages with no type field (empty object {}).
 		// This keeps older clients' bare observe working.
@@ -438,6 +452,28 @@ func (ws *wsSession) handleNavigate(raw json.RawMessage) {
 	ws.sendObservation("", nil)
 }
 
+// handleSetContext switches the active context of a hybrid session
+// (improvement-plan item 31). Single-platform sessions reject the switch with a
+// clean error; a successful switch echoes a fresh observation of the new
+// context. Runs on the executor goroutine, so it is serialized with actions.
+func (ws *wsSession) handleSetContext(raw json.RawMessage) {
+	var req protocol.SetContextRequest
+	if raw != nil {
+		_ = json.Unmarshal(raw, &req)
+	}
+	if req.Context == "" {
+		ws.writeError(errorResponse(fmt.Errorf("set_context: context is required"), ws.reqID, protocol.ErrorLevelWarning, "", nil))
+		return
+	}
+	if err := ws.session.SetContext(req.Context); err != nil {
+		ws.writeError(errorResponse(err, ws.reqID, protocol.ErrorLevelWarning, protocol.ActionSwitchContext, nil))
+		return
+	}
+	slog.Info("websocket: context switched",
+		"session_id", ws.session.ID, "request_id", ws.reqID, "context", req.Context)
+	ws.sendObservation("", nil)
+}
+
 // handleAction runs one action with a cancellable context. The action is
 // registered as the session's active action so a MsgTypeCancel can abort it.
 func (ws *wsSession) handleAction(raw json.RawMessage) {
@@ -449,6 +485,24 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 		slog.Warn("websocket: action with empty action field",
 			"session_id", ws.session.ID, "request_id", ws.reqID)
 		ws.writeError(errorResponse(fmt.Errorf("action: action field is required"), ws.reqID, protocol.ErrorLevelWarning, "", nil))
+		return
+	}
+
+	// The switch_context action is handled by the dispatch layer without reaching
+	// any engine (improvement-plan item 31): it flips the session's active
+	// context and echoes a fresh observation of the new context. It is a control
+	// operation, so it neither consumes the step budget nor marks the session
+	// in-flight.
+	if req.Action == protocol.ActionSwitchContext {
+		if req.Context == "" {
+			ws.writeError(errorResponse(fmt.Errorf("switch_context: context is required"), ws.reqID, protocol.ErrorLevelWarning, req.Action, nil))
+			return
+		}
+		if err := ws.session.SetContext(req.Context); err != nil {
+			ws.writeError(errorResponse(err, ws.reqID, protocol.ErrorLevelWarning, req.Action, nil))
+			return
+		}
+		ws.sendObservation(req.ActionID, nil)
 		return
 	}
 

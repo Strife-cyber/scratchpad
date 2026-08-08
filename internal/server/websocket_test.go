@@ -542,3 +542,80 @@ func verifyActionLandsOn(t *testing.T, conn *websocket.Conn, targetSession strin
 	}
 	return false
 }
+
+// ---------------------------------------------------------------------------
+// Hybrid context switching (item 31)
+// ---------------------------------------------------------------------------
+
+// TestWS_SetContext_SinglePlatformRejects verifies that a single-platform WS
+// session (the default creation path) rejects a set_context switch with a clean
+// warning error, so clients cannot silently drive a session that has no second
+// context.
+func TestWS_SetContext_SinglePlatformRejects(t *testing.T) {
+	_, srv := newTestServer(t, server.Options{})
+	conn := dialWS(t, wsURL(t, srv))
+	readHandshake(t, conn)
+
+	writeEnvelope(t, conn, protocol.Envelope{
+		Type: protocol.MsgTypeSetContext,
+		Data: mustRawJSON(protocol.SetContextRequest{Context: "android"}),
+	})
+	errMsg := readMsg(t, conn)
+	var errResp protocol.ErrorResponse
+	if err := json.Unmarshal(errMsg, &errResp); err != nil {
+		t.Fatalf("expected ErrorResponse, got %s", errMsg)
+	}
+	if errResp.Type != protocol.ErrorLevelWarning {
+		t.Errorf("level: want %q, got %q", protocol.ErrorLevelWarning, errResp.Type)
+	}
+	if !strings.Contains(errResp.Message, "single platform") {
+		t.Errorf("message: want single-platform hint, got %q", errResp.Message)
+	}
+}
+
+// TestWS_SetContext_MissingContext_IsError verifies that a set_context message
+// without a context name is rejected cleanly before any engine work.
+func TestWS_SetContext_MissingContext_IsError(t *testing.T) {
+	_, srv := newTestServer(t, server.Options{})
+	conn := dialWS(t, wsURL(t, srv))
+	readHandshake(t, conn)
+
+	writeEnvelope(t, conn, protocol.Envelope{Type: protocol.MsgTypeSetContext})
+	errMsg := readMsg(t, conn)
+	var errResp protocol.ErrorResponse
+	if err := json.Unmarshal(errMsg, &errResp); err != nil {
+		t.Fatalf("expected ErrorResponse, got %s", errMsg)
+	}
+	if !strings.Contains(errResp.Message, "context is required") {
+		t.Errorf("message: want 'context is required', got %q", errResp.Message)
+	}
+}
+
+// TestWS_SwitchContextAction_SinglePlatformRejects verifies the action-form
+// switch_context is routed by the dispatch layer and, on a single-platform
+// session, fails with a clean warning instead of reaching any engine.
+func TestWS_SwitchContextAction_SinglePlatformRejects(t *testing.T) {
+	_, srv := newTestServer(t, server.Options{})
+	conn := dialWS(t, wsURL(t, srv))
+	readHandshake(t, conn)
+
+	writeEnvelope(t, conn, protocol.Envelope{
+		Type: protocol.MsgTypeAction,
+		Data: mustRawJSON(protocol.ActionRequest{
+			Action:   protocol.ActionSwitchContext,
+			Context:  "android",
+			ActionID: "sw-1",
+		}),
+	})
+	errMsg := readMsg(t, conn)
+	var errResp protocol.ErrorResponse
+	if err := json.Unmarshal(errMsg, &errResp); err != nil {
+		t.Fatalf("expected ErrorResponse, got %s", errMsg)
+	}
+	if errResp.Type != protocol.ErrorLevelWarning {
+		t.Errorf("level: want %q, got %q", protocol.ErrorLevelWarning, errResp.Type)
+	}
+	if !strings.Contains(errResp.Message, "single platform") {
+		t.Errorf("message: want single-platform hint, got %q", errResp.Message)
+	}
+}

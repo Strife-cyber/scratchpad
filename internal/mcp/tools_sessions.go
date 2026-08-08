@@ -49,6 +49,11 @@ type SessionCreateArgs struct {
 	// android_list_devices) when platform is "android"; empty means adb picks
 	// its default (ANDROID_SERIAL env var or the single connected device).
 	Serial string `json:"serial,omitempty"`
+	// Platforms creates a hybrid session owning one engine per context
+	// (improvement-plan item 31), e.g. ["web","android"]. Subsequent
+	// browser_* tools act on the session's active context until
+	// session_switch_context flips it. Mutually exclusive with platform.
+	Platforms []string `json:"platforms,omitempty"`
 }
 
 type SessionListArgs struct{}
@@ -59,6 +64,12 @@ type SessionAttachArgs struct {
 
 type SessionCloseArgs struct {
 	SessionID string `json:"session_id"`
+}
+
+// SwitchContextArgs flips the active context of a hybrid session (item 31).
+// Context names one of the contexts the session owns, e.g. "web" or "android".
+type SwitchContextArgs struct {
+	Context string `json:"context"`
 }
 
 // SessionSnapshotArgs observes a session (optionally the active one) and
@@ -130,6 +141,7 @@ func (s *Server) sessionToolDefs() []toolDef {
 						ColorScheme: args.ColorScheme,
 						ProxyAuth:   args.ProxyAuth,
 						Serial:      args.Serial,
+						Platforms:   args.Platforms,
 					})
 					if err != nil {
 						return nil, err
@@ -217,6 +229,30 @@ func (s *Server) sessionToolDefs() []toolDef {
 					meta, _ := json.Marshal(sc.sessionInfo())
 					contents := append([]*mcp.Content{mcp.NewTextContent("Session snapshot: " + string(meta))}, base.Content...)
 					return mcp.NewToolResponse(contents...), nil
+				})
+			},
+		},
+		{
+			name:        "session_switch_context",
+			description: "Switch the active context of a hybrid session (created with platforms [\"web\",\"android\"]) to the named context, so subsequent browser_* tools act on that engine until the next switch. Use when a task alternates between the browser and the Android app.\n\nExample: session_switch_context with {\"context\":\"android\"} makes the Android engine the active context and returns an observation of it.",
+			register: func(srv *mcp.Server) error {
+				return srv.RegisterTool("session_switch_context", "Switch the active context of a hybrid session.", func(_ context.Context, args SwitchContextArgs) (*mcp.ToolResponse, error) {
+					if args.Context == "" {
+						return nil, fmt.Errorf("mcp: session_switch_context requires context")
+					}
+					env := protocol.Envelope{
+						Type: protocol.MsgTypeSetContext,
+						Data: mustJSON(protocol.SetContextRequest{Context: args.Context}),
+					}
+					sc, err := s.getConn(s.activeSessionID)
+					if err != nil {
+						return nil, err
+					}
+					msg, err := sc.roundTrip(env)
+					if err != nil {
+						return nil, err
+					}
+					return s.parseResponse(sc, msg, nil)
 				})
 			},
 		},

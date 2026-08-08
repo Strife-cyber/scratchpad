@@ -19,6 +19,7 @@ func TestCreateSessionReqToOptions(t *testing.T) {
 		ProxyURL:    "http://proxy:3128",
 		ProxyAuth:   "u:p",
 		Serial:      "emulator-5554",
+		Platforms:   []string{"web", "android"},
 	}
 
 	opts := req.toOptions()
@@ -52,5 +53,8 @@ func TestCreateSessionReqToOptions(t *testing.T) {
 	}
 	if opts.ProxyAuth != "u:p" {
 		t.Errorf("ProxyAuth = %q, want %q", opts.ProxyAuth, "u:p")
+	}
+	if len(opts.Platforms) != 2 || opts.Platforms[0] != "web" || opts.Platforms[1] != "android" {
+		t.Errorf("Platforms = %v, want [web android]", opts.Platforms)
 	}
 }

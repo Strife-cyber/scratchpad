@@ -33,6 +33,10 @@ type createSessionReq struct {
 	ColorScheme string `json:"color_scheme,omitempty"`
 	ProxyURL    string `json:"proxy_url,omitempty"`
 	ProxyAuth   string `json:"proxy_auth,omitempty"`
+	// Platforms lists the contexts of a hybrid session (improvement-plan item
+	// 31), e.g. ["web","android"]; the sandbox instantiates one engine per
+	// platform. Mutually exclusive with the single platform/kind knobs.
+	Platforms []string `json:"platforms,omitempty"`
 }
 
 func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +71,17 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	case "chrome":
 		kind = engine.KindChrome
 	}
+	// Hybrid sessions: the first platform names the session's kind so the
+	// sandbox's per-platform engine construction (which maps each context to its
+	// own kind internally) yields a consistent session label.
+	if len(reqBody.Platforms) > 0 {
+		switch reqBody.Platforms[0] {
+		case "android":
+			kind = engine.KindAndroid
+		default:
+			kind = engine.KindChrome
+		}
+	}
 
 	sess, err := h.mgr.CreateSession(kind, opts)
 	if err != nil {
@@ -97,6 +112,7 @@ func (r createSessionReq) toOptions() engine.Options {
 		ColorScheme:   r.ColorScheme,
 		ProxyURL:      r.ProxyURL,
 		ProxyAuth:     r.ProxyAuth,
+		Platforms:     r.Platforms,
 	}
 }
 

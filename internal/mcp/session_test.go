@@ -41,6 +41,12 @@ func TestSessionRouteURL(t *testing.T) {
 			"ws://h:8080/ws/android?device=Pixel+7&headless=true"},
 		{"android serial", sessionOptions{Platform: "android", Serial: "emulator-5554"},
 			"ws://h:8080/ws/android?serial=emulator-5554"},
+		{"hybrid platforms", sessionOptions{Platforms: []string{"web", "android"}},
+			"ws://h:8080/ws?platforms=web%2Candroid"},
+		{"hybrid platforms beats android route", sessionOptions{Platform: "android", Platforms: []string{"web", "android"}},
+			"ws://h:8080/ws?platforms=web%2Candroid"},
+		{"hybrid platforms plus headless", sessionOptions{Platforms: []string{"android", "web"}, Headless: boolPtr(true)},
+			"ws://h:8080/ws?headless=true&platforms=android%2Cweb"},
 	}
 
 	for _, tc := range cases {

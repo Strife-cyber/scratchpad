@@ -524,9 +524,10 @@ type sessionOptions struct {
 	Locale      string
 	Timezone    string
 	ColorScheme string
-	ProxyURL    string // --proxy-server (fixed at session creation)
-	ProxyAuth   string // "user:pass" for authenticated proxies
-	Serial      string // Android device/emulator serial (item 26)
+	ProxyURL    string   // --proxy-server (fixed at session creation)
+	ProxyAuth   string   // "user:pass" for authenticated proxies
+	Serial      string   // Android device/emulator serial (item 26)
+	Platforms   []string // hybrid contexts, e.g. ["web","android"] (item 31)
 }
 
 // sessionRouteURL builds the WS route for a platform. base is the bridge's
@@ -537,7 +538,10 @@ type sessionOptions struct {
 // engines).
 func sessionRouteURL(base string, o sessionOptions) string {
 	u := base
-	if o.Platform == "android" {
+	// A hybrid session (Platforms set) always dials the default /ws route; the
+	// server decides the per-context engines. Only a plain android platform dials
+	// the dedicated /ws/android route.
+	if o.Platform == "android" && len(o.Platforms) == 0 {
 		u = strings.TrimSuffix(u, "/ws") + "/ws/android"
 	}
 	q := url.Values{}
@@ -579,6 +583,9 @@ func sessionRouteURL(base string, o sessionOptions) string {
 	}
 	if o.Serial != "" {
 		q.Set("serial", o.Serial)
+	}
+	if len(o.Platforms) > 0 {
+		q.Set("platforms", strings.Join(o.Platforms, ","))
 	}
 	if len(q) > 0 {
 		sep := "?"
