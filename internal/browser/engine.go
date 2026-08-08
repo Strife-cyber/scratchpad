@@ -36,11 +36,10 @@ var _ engine.Engine = (*ChromeEngine)(nil)
 
 func init() {
 	engine.Register(engine.KindChrome, func(opts engine.Options) (engine.Engine, error) {
-		headless := true
-		if opts.Headless != nil {
-			headless = *opts.Headless
+		e, err := NewChromeEngine(opts)
+		if err != nil {
+			return nil, err
 		}
-		e := NewChromeEngine(headless)
 		if opts.Device != "" {
 			if err := e.ApplyDeviceByName(opts.Device); err != nil {
 				e.Close()
@@ -58,8 +57,14 @@ type ChromeEngine struct {
 	cancel        context.CancelFunc // cancels allocCtx (shuts down Chrome)
 	tabCancel     context.CancelFunc // cancels the current tab context
 	inFlightCount int32
-	listeners     []engine.EventHandler
-	mu            sync.RWMutex
+
+	// attached is true when the engine connected to an already-running Chrome
+	// (attach_port) rather than spawning its own. Attached browsers are adopted,
+	// not owned: Close() detaches without killing the user's Chrome or closing
+	// its tabs (improvement-plan item 22).
+	attached  bool
+	listeners []engine.EventHandler
+	mu        sync.RWMutex
 
 	// Phase 1 action result (populated by ExecuteAction and emitted via Observe).
 	lastAssertionResult *protocol.AssertionResult
@@ -201,22 +206,13 @@ type responseBodyRecord struct {
 	Body string
 }
 
-// NewChromeEngine initialises a new headless Chrome instance.
-func NewChromeEngine(headless bool) *ChromeEngine {
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", headless),
-		chromedp.WindowSize(1280, 720),
-		chromedp.Flag("hide-scrollbars", false),
-	)
-
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, tabCancel := chromedp.NewContext(allocCtx)
-
+// NewChromeEngine builds a Chrome engine from the given creation options
+// (improvement-plan items 22/23). With Options.AttachPort it connects to an
+// already-running Chrome's remote-debugging endpoint and adopts its active tab
+// (the browser is NOT closed on Close); otherwise it spawns a fresh Chrome
+// process, reusing Options.ProfileDir as a persistent user-data-dir when set.
+func NewChromeEngine(opts engine.Options) (*ChromeEngine, error) {
 	e := &ChromeEngine{
-		allocCtx:            allocCtx,
-		ctx:                 ctx,
-		cancel:              cancel,
-		tabCancel:           tabCancel,
 		networkReqStarts:    make(map[network.RequestID]time.Time),
 		networkReqMeta:      make(map[network.RequestID]networkRequestMeta),
 		networkFetchHandled: make(map[network.RequestID]bool),
@@ -231,6 +227,14 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 		handles:             make(map[string]nodeHandle),
 	}
 
+	if opts.AttachPort > 0 {
+		if err := e.attach(opts.AttachPort); err != nil {
+			return nil, err
+		}
+	} else {
+		e.spawn(opts)
+	}
+
 	// Wire up internal listeners before any external code can add its own.
 	e.setupEventDispatcher()
 	e.setupNetworkListener()
@@ -240,7 +244,7 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 	e.setupDownloadListener()
 	e.setupObserveCaching()
 
-	return e
+	return e, nil
 }
 
 // consoleCapFromEnv resolves the console buffer cap from
@@ -280,6 +284,14 @@ func (e *ChromeEngine) Close() {
 		e.tracingActive = false
 	}
 	e.tracingMu.Unlock()
+
+	// Attached browsers are adopted, not owned: sever the tab binding so
+	// chromedp's cancel handler detaches instead of issuing target.CloseTarget
+	// (which would close a tab in the USER's Chrome), then cancel the contexts to
+	// drop our websocket. The user's Chrome process and its tabs survive.
+	if e.attached {
+		e.detachTarget()
+	}
 
 	// Cancel tab context first, then alloc context to shut down Chrome.
 	if e.tabCancel != nil {
@@ -541,8 +553,13 @@ func (e *ChromeEngine) SwitchTab(tabID string) error {
 		return fmt.Errorf("tab %q not found", tabID)
 	}
 
-	// Cancel the old tab context to release goroutines and event listeners.
+	// Cancel the old tab context to release goroutines and event listeners. For
+	// an attached browser the old context may be bound to a user's tab, so sever
+	// the binding first: otherwise the cancel handler would close that tab.
 	if e.tabCancel != nil {
+		if e.attached {
+			e.detachTarget()
+		}
 		e.tabCancel()
 	}
 
