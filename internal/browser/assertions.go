@@ -389,6 +389,71 @@ func (e *ChromeEngine) evaluateAssertOnce(ctx context.Context, a *protocol.Asser
 		}
 		return fail(fmt.Sprintf("network errors detected: %s", strings.Join(bad, ", ")))
 
+	case "network_request_count":
+		want := a.ExpectedCount
+		if strings.TrimSpace(a.Value) != "" {
+			n, err := strconv.Atoi(strings.TrimSpace(a.Value))
+			if err != nil {
+				return perm(fmt.Sprintf("network_request_count: invalid assertion.value=%q (expected int): %v", a.Value, err))
+			}
+			want = n
+		}
+		urlPattern := strings.TrimSpace(a.Pattern)
+		if urlPattern == "" {
+			urlPattern = strings.TrimSpace(a.Text)
+		}
+		e.networkMu.Lock()
+		got := 0
+		for _, r := range e.networkRequests {
+			if urlPattern == "" || strings.Contains(r.URL, urlPattern) {
+				got++
+			}
+		}
+		e.networkMu.Unlock()
+		if got == want {
+			return ok(fmt.Sprintf("network request count matches: %d", got))
+		}
+		return fail(fmt.Sprintf("network request count mismatch: got %d want %d", got, want))
+
+	case "network_response_body":
+		urlPattern := strings.TrimSpace(a.Pattern)
+		if urlPattern == "" {
+			urlPattern = strings.TrimSpace(a.Text)
+		}
+		want := strings.TrimSpace(a.Value)
+		if want == "" {
+			return perm("network_response_body requires assertion.value (expected body content)")
+		}
+		e.networkMu.Lock()
+		bodyByURL := make(map[string]string, len(e.networkResponseBodies))
+		for _, b := range e.networkResponseBodies {
+			bodyByURL[b.URL] = b.Body
+		}
+		matched := false
+		captured := false
+		var body string
+		for _, r := range e.networkRequests {
+			if urlPattern == "" || strings.Contains(r.URL, urlPattern) {
+				matched = true
+				if b, ok := bodyByURL[r.URL]; ok {
+					body = b
+					captured = true
+				}
+				break
+			}
+		}
+		e.networkMu.Unlock()
+		if !matched {
+			return fail(fmt.Sprintf("no network request matched pattern %q", urlPattern))
+		}
+		if !captured {
+			return fail(fmt.Sprintf("no response body captured for matched request (enable network interception to capture bodies)"))
+		}
+		if strings.Contains(body, want) {
+			return ok("response body contains expected content")
+		}
+		return fail(fmt.Sprintf("response body does not contain %q (got %q)", want, truncate(body, 120)))
+
 	case "screenshot_matches":
 		if a.ScreenshotBase64 == "" {
 			return perm("screenshot_matches requires screenshot_base64")

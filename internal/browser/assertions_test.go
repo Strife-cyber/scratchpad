@@ -171,3 +171,126 @@ func TestAssertionResult_AttemptsFieldsRoundtrip(t *testing.T) {
 		t.Errorf("roundtrip mismatch: %+v", decoded)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Network assertions (item 14)
+// ---------------------------------------------------------------------------
+
+func netEngine(records ...networkRequestRecord) *ChromeEngine {
+	return &ChromeEngine{networkRequests: records}
+}
+
+func TestNetworkRequestCount_Matches(t *testing.T) {
+	e := netEngine(
+		networkRequestRecord{URL: "https://x.com/api/users", Method: "GET", Status: 200},
+		networkRequestRecord{URL: "https://x.com/api/users", Method: "GET", Status: 200},
+		networkRequestRecord{URL: "https://x.com/ads.js", Method: "GET", Status: -1},
+	)
+	// Unfiltered count.
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:          "network_request_count",
+		ExpectedCount: 3,
+	})
+	if !at.success {
+		t.Errorf("count 3: %+v", at)
+	}
+	// Filtered count by URL substring.
+	at = e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:          "network_request_count",
+		Pattern:       "/api/users",
+		ExpectedCount: 2,
+	})
+	if !at.success {
+		t.Errorf("filtered count: %+v", at)
+	}
+	// Value string form is honored too.
+	at = e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:    "network_request_count",
+		Pattern: "/ads",
+		Value:   "1",
+	})
+	if !at.success {
+		t.Errorf("value-string count: %+v", at)
+	}
+}
+
+func TestNetworkRequestCount_Mismatch(t *testing.T) {
+	e := netEngine(networkRequestRecord{URL: "https://x.com/api", Method: "GET", Status: 200})
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:          "network_request_count",
+		ExpectedCount: 5,
+	})
+	if at.success {
+		t.Fatal("expected failure for count mismatch")
+	}
+	if !strings.Contains(at.msg, "got 1 want 5") {
+		t.Errorf("msg = %q, want a got/want mismatch", at.msg)
+	}
+}
+
+func TestNetworkRequestCount_InvalidValue_IsPermanent(t *testing.T) {
+	e := netEngine(networkRequestRecord{URL: "https://x.com/api", Method: "GET", Status: 200})
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:  "network_request_count",
+		Value: "not-a-number",
+	})
+	if at.success || !at.permanent {
+		t.Errorf("invalid value should be a permanent failure: %+v", at)
+	}
+}
+
+func TestNetworkResponseBody_Contains(t *testing.T) {
+	e := netEngine(networkRequestRecord{URL: "https://x.com/api/users", Method: "GET", Status: 200})
+	e.networkResponseBodies = []responseBodyRecord{
+		{URL: "https://x.com/api/users", Body: `{"ok":true,"count":3}`},
+	}
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:    "network_response_body",
+		Pattern: "/api/users",
+		Value:   `"count":3`,
+	})
+	if !at.success {
+		t.Errorf("expected body match: %+v", at)
+	}
+}
+
+func TestNetworkResponseBody_NotCaptured(t *testing.T) {
+	e := netEngine(networkRequestRecord{URL: "https://x.com/api/users", Method: "GET", Status: 200})
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:    "network_response_body",
+		Pattern: "/api/users",
+		Value:   "anything",
+	})
+	if at.success {
+		t.Fatal("expected failure when no body was captured")
+	}
+	if !strings.Contains(at.msg, "no response body captured") {
+		t.Errorf("msg = %q, want a not-captured notice", at.msg)
+	}
+}
+
+func TestNetworkResponseBody_NoRequestMatched(t *testing.T) {
+	e := netEngine(networkRequestRecord{URL: "https://x.com/api", Method: "GET", Status: 200})
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:    "network_response_body",
+		Pattern: "/nonexistent",
+		Value:   "anything",
+	})
+	if at.success {
+		t.Fatal("expected failure when no request matched")
+	}
+	if !strings.Contains(at.msg, "no network request matched") {
+		t.Errorf("msg = %q, want a no-match notice", at.msg)
+	}
+}
+
+func TestNetworkResponseBody_RequiresValue_IsPermanent(t *testing.T) {
+	e := netEngine(networkRequestRecord{URL: "https://x.com/api", Method: "GET", Status: 200})
+	e.networkResponseBodies = []responseBodyRecord{{URL: "https://x.com/api", Body: "{}"}}
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type: "network_response_body",
+	})
+	if at.success || !at.permanent {
+		t.Errorf("missing value should be a permanent failure: %+v", at)
+	}
+}

@@ -1016,7 +1016,7 @@
         "properties": {
           "type": {
             "type": "string",
-            "description": "element_exists, element_visible, element_checked, element_count, text_equals, text_contains, text_matches, attr_equals, attr_contains, attr_matches, value_equals, page_title, page_url, url_matches, console_error_count, network_request_status, network_no_errors, screenshot_matches."
+            "description": "element_exists, element_visible, element_checked, element_count, text_equals, text_contains, text_matches, attr_equals, attr_contains, attr_matches, value_equals, page_title, page_url, url_matches, console_error_count, network_request_status, network_request_count, network_no_errors, network_response_body, screenshot_matches."
           },
           "selector": { "$ref": "#/components/schemas/Selector" },
           "text": { "type": "string" },
