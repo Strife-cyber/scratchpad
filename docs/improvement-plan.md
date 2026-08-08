@@ -141,6 +141,8 @@ The fix mirrors the industry's best practice (and Playwright's ergonomics): **on
 
 ## 3. Sub-Selectable Observations & Token-Efficient Responses
 
+- [x] DONE (wave W4, C3 — 4667440 Observe(req), 8d7cd1e incremental AX, f1ae04a sendObservation budget, 20aeb85 MCP delta reconstruction + compact responses)
+
 ### What & Why
 
 `protocol.ObserveRequest` already has `WantScreenshot / WantTree / WantTabs / WantConsole / WantPageInfo` flags (`internal/protocol/types.go`), but **the engine's `Observe()` takes no arguments and ignores them** — every observation always returns a full screenshot, a full AX tree, page info, and console logs. Three concrete costs:
@@ -432,6 +434,8 @@ Agents fail, and today the only record of what happened is a pile of stdout line
 ---
 
 ## 12. Fix the Known Misbehaving Tools
+
+- [~] PARTIAL (wave W4, C2 — c3c4a3a/87f2d51 real `list_tabs` + `switch_to_main_frame`, b8169ab/72346e6 honest `unsupported` stubs; real `resize`/`mock` land with items 13/14 in W5, iframe scoping still pending)
 
 ### What & Why
 
@@ -780,7 +784,7 @@ Geo-dependent testing and scraping need **proxies** (HTTP/SOCKS5, with auth); A/
 
 ### Time Estimate
 
-**2 days.**
+**2 days.** 
 
 ### Impact
 
@@ -1148,6 +1152,8 @@ The server binds `0.0.0.0:8080` with **zero authentication** (`cmd/server/main.g
 
 ## 36. Resource Limits & Backpressure
 
+- [x] DONE (wave W4, C3 — 22e0b55 MaxSessions/429, 259b7ce guardrails + limit config, screenshot budget, console cap)
+
 ### What & Why
 
 Nothing bounds resource use: a pathological page yields a 10k-node AX tree in every response; console logs accumulate; a session can be created endlessly (session-leak DoS); a screenshot of a 4K page is megabytes of base64. A "perfectly built" engine needs explicit budgets and graceful degradation.
@@ -1177,6 +1183,8 @@ Nothing bounds resource use: a pathological page yields a 10k-node AX tree in ev
 ---
 
 ## 37. Observe() Performance Budget
+
+- [x] DONE (wave W4, C3 — 8d7cd1e incremental AX cache + nav invalidation, 2beef19 observe benchmark with budget constants; tree ~72µs, screenshot ~79ms on reference data)
 
 ### What & Why
 
