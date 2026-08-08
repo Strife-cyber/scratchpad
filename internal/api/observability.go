@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"scratchpad/internal/protocol"
 	"scratchpad/internal/sandbox"
@@ -71,34 +74,100 @@ func (h *handler) GetScreenshot(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 
+	// Prefer the options-aware interface (item 18: full_page, element crop,
+	// format, quality); fall back to the legacy (format, fullPage) method.
+	type optionsScreenshotGetter interface {
+		CaptureScreenshotOptions(opts protocol.ScreenshotOptions) (mime string, data []byte, err error)
+	}
 	type screenshotGetter interface {
 		CaptureScreenshot(format string, fullPage bool) (mime string, data []byte, err error)
 	}
-	sg, ok := sess.Engine.(screenshotGetter)
-	if !ok {
-		writeError(w, r, fmt.Errorf("screenshot not supported for this engine"))
-		return
-	}
 
-	format := r.URL.Query().Get("format")
-	if format == "" {
-		format = "jpeg"
+	q := r.URL.Query()
+	opts := protocol.ScreenshotOptions{}
+	if format := q.Get("format"); format != "" {
+		opts.Format = format
 	}
-	fullPage := false
-	if v := r.URL.Query().Get("fullPage"); v != "" {
+	if v := q.Get("fullPage"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
-			fullPage = b
+			opts.FullPage = b
+		}
+	}
+	if sel := q.Get("element"); sel != "" {
+		opts.ElementSelector = &protocol.Selector{CSS: sel}
+	}
+	if v := q.Get("quality"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			opts.Quality = &n
 		}
 	}
 
-	mime, data, err := sg.CaptureScreenshot(format, fullPage)
+	var (
+		mime string
+		data []byte
+		err  error
+	)
+	if osg, ok := sess.Engine.(optionsScreenshotGetter); ok {
+		mime, data, err = osg.CaptureScreenshotOptions(opts)
+	} else if sg, ok := sess.Engine.(screenshotGetter); ok {
+		mime, data, err = sg.CaptureScreenshot(opts.FormatOr("jpeg"), opts.FullPage)
+	} else {
+		writeError(w, r, fmt.Errorf("screenshot not supported for this engine"))
+		return
+	}
 	if err != nil {
 		writeError(w, r, fmt.Errorf("failed to capture screenshot: %w", err))
 		return
 	}
 
 	w.Header().Set("Content-Type", mime)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", id+".screenshot."+format))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", id+".screenshot."+opts.FormatOr("jpeg")))
+	_, _ = w.Write(data)
+}
+
+// GetArtifact serves a binary artifact (e.g. a capture_pdf PDF) by its base
+// name via GET /sessions/{id}/artifacts/{name} (improvement-plan item 18). The
+// path comes from the engine's artifact table, so only files the engine itself
+// produced are reachable.
+func (h *handler) GetArtifact(w http.ResponseWriter, r *http.Request, id, name string) {
+	sess, ok := h.mgr.GetSession(id)
+	if !ok {
+		writeError(w, r, protocol.ErrSessionNotFound)
+		return
+	}
+
+	type artifactGetter interface {
+		ArtifactPath(name string) (string, bool)
+	}
+	ag, ok := sess.Engine.(artifactGetter)
+	if !ok {
+		writeError(w, r, fmt.Errorf("artifacts not supported for this engine"))
+		return
+	}
+
+	path, ok := ag.ArtifactPath(name)
+	if !ok {
+		writeErrorStatus(w, r, http.StatusNotFound, fmt.Errorf("artifact %q not found", name))
+		return
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		writeError(w, r, fmt.Errorf("failed to read artifact: %w", err))
+		return
+	}
+
+	ctype := "application/pdf"
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png":
+		ctype = "image/png"
+	case ".jpg", ".jpeg":
+		ctype = "image/jpeg"
+	case ".webp":
+		ctype = "image/webp"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(name)))
 	_, _ = w.Write(data)
 }
 

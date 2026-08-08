@@ -172,6 +172,19 @@ func (e *ChromeEngine) ArtifactPath(name string) (string, bool) {
 	return p, ok
 }
 
+// CaptureScreenshotOptions captures a screenshot honoring the item-18 options
+// (full_page, element_selector, format, quality) and returns the raw bytes plus
+// their media type. It is the options-aware counterpart of CaptureScreenshot
+// used by the HTTP API; the legacy (format, fullPage) method is preserved for
+// existing callers like the websocket error path.
+func (e *ChromeEngine) CaptureScreenshotOptions(opts protocol.ScreenshotOptions) (mime string, data []byte, err error) {
+	buf, err := captureScreenshot(e.ctx, opts)
+	if err != nil {
+		return "", nil, err
+	}
+	return screenshotMime(opts.Format), buf, nil
+}
+
 // artifactMetadata flattens a captured artifact into an ActionResult metadata
 // map so capture_pdf can surface name/path/size to the agent.
 func artifactMetadata(name, path string, size int64) map[string]any {

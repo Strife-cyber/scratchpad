@@ -536,6 +536,20 @@
             "required": false,
             "description": "Capture the full scrollable page instead of the viewport.",
             "schema": { "type": "boolean" }
+          },
+          {
+            "name": "element",
+            "in": "query",
+            "required": false,
+            "description": "CSS selector of an element to crop the capture to.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "quality",
+            "in": "query",
+            "required": false,
+            "description": "JPEG/WebP encode quality in [0,100]. Default 80.",
+            "schema": { "type": "integer" }
           }
         ],
         "responses": {
@@ -557,6 +571,51 @@
           },
           "404": {
             "description": "Session not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/artifacts/{name}": {
+      "get": {
+        "tags": ["Session Data"],
+        "summary": "Fetch a captured artifact (e.g. a PDF)",
+        "description": "Serves a binary artifact produced by the session (such as a `capture_pdf` output) by its base name. Only files the engine itself produced are reachable.",
+        "operationId": "getArtifact",
+        "parameters": [
+          { "$ref": "#/components/parameters/SessionID" },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Base name of the artifact, e.g. `receipt.pdf`.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact bytes as an attachment",
+            "content": {
+              "application/pdf": { "schema": { "type": "string", "format": "binary" } },
+              "image/png": { "schema": { "type": "string", "format": "binary" } },
+              "image/jpeg": { "schema": { "type": "string", "format": "binary" } },
+              "image/webp": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "400": {
+            "description": "Artifacts not supported for this engine",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Artifact not found",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ErrorResponse" }

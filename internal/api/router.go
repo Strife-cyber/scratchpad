@@ -51,6 +51,9 @@ func NewRouter(mgr *sandbox.Manager) http.Handler {
 			case len(parts) == 4 && r.Method == http.MethodGet && parts[2] == "screenshot":
 				h.GetScreenshot(w, r, parts[1])
 				return
+			case len(parts) == 4 && r.Method == http.MethodGet && parts[2] == "artifacts":
+				h.GetArtifact(w, r, parts[1], parts[3])
+				return
 			case len(parts) == 5 && r.Method == http.MethodPost && parts[2] == "screenshot" && parts[3] == "diff":
 				h.PostScreenshotDiff(w, r, parts[1])
 				return

@@ -33,6 +33,7 @@ var requiredPaths = []string{
 	"/api/v1/sessions/{id}/console",
 	"/api/v1/sessions/{id}/screenshot",
 	"/api/v1/sessions/{id}/screenshot/diff",
+	"/api/v1/sessions/{id}/artifacts/{name}",
 	"/api/v1/sessions/{id}/recording/start",
 	"/api/v1/sessions/{id}/recording/stop",
 	"/api/v1/sessions/{id}/tracing/start",
