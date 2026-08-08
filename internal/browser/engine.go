@@ -612,9 +612,22 @@ func (e *ChromeEngine) parseAXTree(ctx context.Context, nodes []*accessibility.N
 			Interactive: isInteractive(role),
 			Value:       axValueToString(node.Value),
 			Description: axValueToString(node.Description),
+			// Stable node handle (improvement-plan item 20): agents pass it back
+			// as ActionRequest.HandleID to reuse this element across actions.
+			NodeRef: backendNodeRef(node.BackendDOMNodeID),
 		})
 	}
 	return result
+}
+
+// backendNodeRef formats a CDP backend node id as the stable node_ref string
+// agents use as ActionRequest.HandleID (improvement-plan item 20). It returns
+// "" for a zero (missing) backend id.
+func backendNodeRef(id cdp.BackendNodeID) string {
+	if id == 0 {
+		return ""
+	}
+	return strconv.FormatInt(int64(id), 10)
 }
 
 // boundsFromBackendNode resolves the bounding box of a DOM node using

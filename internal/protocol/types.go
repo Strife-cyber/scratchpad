@@ -374,6 +374,14 @@ type ActionRequest struct {
 	// (e.g. drag & drop).
 	TargetSelector *Selector `json:"target_selector,omitempty"`
 
+	// HandleID is an optional persistent node handle (the decimal
+	// backendNodeId surfaced as node_ref on an observed element). When set, the
+	// action targets that element directly instead of re-resolving by selector.
+	// The handle is resolved fresh on each use and is invalidated when the page
+	// navigates (navigation_id changes), so it never outlives the document that
+	// produced it (improvement-plan item 20).
+	HandleID string `json:"handle_id,omitempty"`
+
 	// Pattern is used for waits/assertions (e.g. regex match, url match).
 	Pattern string `json:"pattern,omitempty"`
 
@@ -874,6 +882,13 @@ type SpatialNode struct {
 
 	// Description is the aria-description or title attribute.
 	Description string `json:"description,omitempty"`
+
+	// NodeRef is a stable node handle for this element: the decimal
+	// backendNodeId as resolved by the accessibility tree. Agents can pass it
+	// back as ActionRequest.HandleID to target the element without re-resolving
+	// by selector. Empty when the backend id is unavailable (improvement-plan
+	// item 20). Handles are invalidated when the page navigates.
+	NodeRef string `json:"node_ref,omitempty"`
 }
 
 type Bounds struct {

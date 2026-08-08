@@ -1046,6 +1046,7 @@
           "timeout_ms": { "type": "integer", "description": "Auto-wait/assert timeout in milliseconds (default 10000)." },
           "selector": { "$ref": "#/components/schemas/Selector" },
           "target_selector": { "$ref": "#/components/schemas/Selector", "description": "drag_drop: destination selector." },
+          "handle_id": { "type": "string", "description": "Optional persistent node handle (a backendNodeId from an observation's node_ref) that targets an element without re-resolving by selector; resolved fresh per use, invalidated on navigation." },
           "pattern": { "type": "string", "description": "Regex/text pattern for waits and assertions." },
           "attribute": { "type": "string", "description": "Attribute name for attribute assertions." },
           "value": { "type": "string", "description": "Expected value for value/attribute assertions." },
@@ -1171,7 +1172,8 @@
           "children": { "type": "array", "items": { "$ref": "#/components/schemas/SpatialNode" } },
           "interactive": { "type": "boolean", "description": "True for actionable elements (buttons, links, inputs)." },
           "value": { "type": "string", "description": "Current value of a form control." },
-          "description": { "type": "string", "description": "aria-description or title attribute." }
+          "description": { "type": "string", "description": "aria-description or title attribute." },
+          "node_ref": { "type": "string", "description": "Stable backendNodeId handle for this element; pass back as handle_id to reuse it across actions. Empty when unavailable; invalidated on navigation." }
         }
       },
       "Bounds": {
