@@ -51,6 +51,30 @@ type Options struct {
 	// ANDROID_SERIAL when that env var is set. The session is rejected at
 	// creation when the device is absent or not in a usable state.
 	AndroidSerial string `json:"serial,omitempty"`
+
+	// Engines holds pre-built engines for a hybrid session, keyed by context
+	// name ("web", "android"), bypassing engine.New entirely (improvement-plan
+	// item 31). Only the sandbox consumes it via WithEngines; it is never
+	// serialized (live engine handles cannot round-trip over the wire).
+	Engines map[string]Engine `json:"-"`
+
+	// Platforms lists the contexts a new hybrid session should own
+	// (improvement-plan item 31), e.g. ["web", "android"]. Transports set this
+	// from the WebSocket platforms query parameter or the HTTP body; the sandbox
+	// instantiates one engine per platform and wires them into a multi-context
+	// session. Mutually exclusive with Engines.
+	Platforms []string `json:"platforms,omitempty"`
+}
+
+// WithEngines is a constructor option that supplies pre-built engines for a
+// hybrid session, keyed by context name ("web", "android"). When present, the
+// sandbox registers each engine directly instead of calling engine.New
+// (improvement-plan item 31). This is how tests and the MCP/CLI transports hand
+// live engines to a session without going through the platform registry.
+func WithEngines(engines map[string]Engine) func(*Options) {
+	return func(o *Options) {
+		o.Engines = engines
+	}
 }
 
 // Emulation returns a protocol.EmulationOptions populated from the emulation
