@@ -135,6 +135,11 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	if req.WantScreenshot() && len(buf) == 0 {
 		return nil, fmt.Errorf("chrome: screenshot buffer is empty")
 	}
+	// Enforce the max_screenshot_bytes budget by downscaling the JPEG when it
+	// exceeds the cap (item 36.2).
+	if req.WantScreenshot() && req.ScreenshotBudget() > 0 {
+		buf = downscaleJPEG(buf, req.ScreenshotBudget())
+	}
 
 	if req.WantTree() {
 		tree, depthByID, cachedPI := cache.snapshot()
@@ -178,6 +183,9 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 			if req.WantTabs() {
 				cp.TabCount = len(obs.Tabs)
 			}
+			// Expose current buffer usage so agents/operators can see how close
+			// to the console/network caps the page is (item 36.3).
+			cp.Extra = e.usageCounts(len(spatialTree))
 			pageInfo = &cp
 		}
 		obs.PageInfo = pageInfo
@@ -261,4 +269,22 @@ func (e *ChromeEngine) capturePageInfo(ctx context.Context) (*protocol.PageInfo,
 		NavigationID: navID,
 		DialogState:  dlgState,
 	}, nil
+}
+
+// usageCounts reports current resource-buffer usage for PageInfo.Extra: the
+// console log count, network request count, and the spatial tree node count.
+func (e *ChromeEngine) usageCounts(treeNodes int) map[string]string {
+	e.consoleMu.Lock()
+	consoleCount := len(e.consoleLogs)
+	e.consoleMu.Unlock()
+
+	e.networkMu.Lock()
+	networkCount := len(e.networkRequests)
+	e.networkMu.Unlock()
+
+	return map[string]string{
+		"console_count": fmt.Sprintf("%d", consoleCount),
+		"network_count": fmt.Sprintf("%d", networkCount),
+		"tree_nodes":    fmt.Sprintf("%d", treeNodes),
+	}
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -76,8 +77,7 @@ func (h *handler) Actions(w http.ResponseWriter, r *http.Request, id string) {
 	// {"action":"click","x":...,"y":...}
 	var actionReq protocol.ActionRequest
 	if err := json.Unmarshal(body, &actionReq); err == nil && strings.TrimSpace(actionReq.Action) != "" {
-		if err := sess.Engine.ExecuteAction(r.Context(), actionReq); err != nil {
-			writeError(w, r, err)
+		if !h.runAction(w, r, sess, actionReq) {
 			return
 		}
 		h.writeObservation(w, r, sess)
@@ -85,6 +85,28 @@ func (h *handler) Actions(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	writeError(w, r, fmt.Errorf("bad request: unrecognized action payload"))
+}
+
+// runAction applies the per-session guardrails (max_total_steps and
+// max_action_duration, item 36.4) and executes the action. It writes the error
+// envelope and returns false when a guardrail or the action itself fails.
+func (h *handler) runAction(w http.ResponseWriter, r *http.Request, sess *sandbox.Session, req protocol.ActionRequest) bool {
+	if err := sess.GuardStep(); err != nil {
+		writeError(w, r, fmt.Errorf("action %q: %w (max_total_steps=%d)", req.Action, err, sess.Limits.MaxTotalSteps))
+		return false
+	}
+	ctx, cancel := sess.ActionTimeout(r.Context())
+	defer cancel()
+	err := sess.Engine.ExecuteAction(ctx, req)
+	if ctx.Err() == context.DeadlineExceeded {
+		writeError(w, r, fmt.Errorf("action %q: %w (max_action_duration=%s)", req.Action, protocol.ErrGuardrailHit, sess.Limits.MaxActionDuration))
+		return false
+	}
+	if err != nil {
+		writeError(w, r, err)
+		return false
+	}
+	return true
 }
 
 func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess *sandbox.Session, p ActionPayload) {
@@ -102,27 +124,25 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess
 	case "observe":
 		h.writeObservation(w, r, sess)
 	case "click":
-		if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
+		if !h.runAction(w, r, sess, protocol.ActionRequest{
 			Action:    protocol.ActionClick,
 			X:         p.X,
 			Y:         p.Y,
 			TimeoutMS: p.TimeoutMS,
-		}); err != nil {
-			writeError(w, r, err)
+		}) {
 			return
 		}
 		h.writeObservation(w, r, sess)
 	case "type":
-		if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
+		if !h.runAction(w, r, sess, protocol.ActionRequest{
 			Action: protocol.ActionType,
 			Text:   p.Text,
-		}); err != nil {
-			writeError(w, r, err)
+		}) {
 			return
 		}
 		h.writeObservation(w, r, sess)
 	case "scroll":
-		if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
+		if !h.runAction(w, r, sess, protocol.ActionRequest{
 			Action: protocol.ActionScroll,
 			X:      p.X,
 			Y:      p.Y,
@@ -130,17 +150,15 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess
 			DeltaY: p.DeltaY,
 			// scroll uses TimeoutMS only as a generic timeout knob (engine-side may ignore)
 			TimeoutMS: p.TimeoutMS,
-		}); err != nil {
-			writeError(w, r, err)
+		}) {
 			return
 		}
 		h.writeObservation(w, r, sess)
 	case "wait":
-		if err := sess.Engine.ExecuteAction(r.Context(), protocol.ActionRequest{
+		if !h.runAction(w, r, sess, protocol.ActionRequest{
 			Action:    protocol.ActionWait,
 			TimeoutMS: p.TimeoutMS,
-		}); err != nil {
-			writeError(w, r, err)
+		}) {
 			return
 		}
 		h.writeObservation(w, r, sess)

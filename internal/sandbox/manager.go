@@ -21,6 +21,11 @@ type Manager struct {
 	// protocol.ErrSessionLimitReached (classified 429 / session_limit_reached).
 	maxSessions int
 
+	// limits holds the per-session resource budgets and guardrails (item 36)
+	// applied to every session created by this manager. Resolved from the
+	// SCRATCHPAD_* environment by default; SetLimits overrides it.
+	limits Limits
+
 	// sessionCreated / sessionDestroyed are optional lifecycle hooks invoked
 	// (outside the lock) after a session is created or removed, including idle
 	// eviction. They let callers such as the server's metrics registry observe
@@ -29,13 +34,31 @@ type Manager struct {
 	sessionDestroyed func(sessionID string)
 }
 
-// NewManager returns an empty Manager ready to create sessions.
+// NewManager returns an empty Manager ready to create sessions. Per-session
+// limits default to the SCRATCHPAD_* environment (see Limits.DefaultLimits).
 func NewManager() *Manager {
 	return &Manager{
 		sessions:        make(map[string]*Session),
 		maxIdleDuration: 5 * time.Minute,
 		cleanupInterval: 30 * time.Second,
+		limits:          DefaultLimits(),
 	}
+}
+
+// SetLimits replaces the per-session resource budgets/guardrails applied to
+// sessions created from now on. Existing sessions keep the limits they were
+// created with.
+func (m *Manager) SetLimits(l Limits) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.limits = l
+}
+
+// Limits returns the per-session limits currently applied to new sessions.
+func (m *Manager) Limits() Limits {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.limits
 }
 
 // SetMaxIdleDuration sets the idle timeout after which a session is eligible for

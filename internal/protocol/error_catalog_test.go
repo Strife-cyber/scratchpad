@@ -35,6 +35,8 @@ func TestClassifySentinel(t *testing.T) {
 		{"connection failed", ErrConnectionFailed, CodeConnectionFailed, ErrorLevelFatal, http.StatusBadGateway},
 		{"session limit reached", ErrSessionLimitReached, CodeSessionLimit, ErrorLevelAction, http.StatusTooManyRequests},
 		{"wrapped session limit reached", fmt.Errorf("create session: %w", ErrSessionLimitReached), CodeSessionLimit, ErrorLevelAction, http.StatusTooManyRequests},
+		{"guardrail hit", ErrGuardrailHit, CodeGuardrailHit, ErrorLevelAction, http.StatusTooManyRequests},
+		{"wrapped guardrail hit", fmt.Errorf("action click: %w", ErrGuardrailHit), CodeGuardrailHit, ErrorLevelAction, http.StatusTooManyRequests},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,6 +75,7 @@ func TestClassifyLegacyMessages(t *testing.T) {
 		{"bad request body", CodeInvalidRequest},
 		{"action: action field is required", CodeInvalidRequest},
 		{"session limit reached: too many sessions", CodeSessionLimit},
+		{"action click: session guardrail hit (max_total_steps=10)", CodeGuardrailHit},
 		{"unexpected EOF", CodeInternalError},
 	}
 	for _, tc := range cases {

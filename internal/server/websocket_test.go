@@ -123,6 +123,70 @@ func TestWS_SessionLimitRejected(t *testing.T) {
 	}
 }
 
+// TestWS_GuardrailMaxTotalSteps verifies the max_total_steps guardrail (item
+// 36.4): once the session's step cap is reached, further actions are rejected
+// with a typed guardrail_hit error instead of executing.
+func TestWS_GuardrailMaxTotalSteps(t *testing.T) {
+	mgr, srv := newTestServer(t, server.Options{})
+	mgr.SetLimits(sandbox.Limits{MaxTotalSteps: 1})
+	conn := dialWS(t, wsURL(t, srv))
+	readHandshake(t, conn)
+
+	// First action executes and yields an observation.
+	writeEnvelope(t, conn, actionEnv("a1", protocol.ActionWait, 50))
+	obsMsg := readMsg(t, conn)
+	var obs protocol.ObservationResponse
+	if err := json.Unmarshal(obsMsg, &obs); err != nil {
+		t.Fatalf("parse first observation %s: %v", string(obsMsg), err)
+	}
+
+	// Second action is blocked by the step guardrail.
+	writeEnvelope(t, conn, actionEnv("a2", protocol.ActionWait, 50))
+	errMsg := readMsg(t, conn)
+	var errResp protocol.ErrorResponse
+	if err := json.Unmarshal(errMsg, &errResp); err != nil {
+		t.Fatalf("expected ErrorResponse, got %s", errMsg)
+	}
+	if errResp.Code != protocol.CodeGuardrailHit {
+		t.Errorf("code: want %q, got %q (%s)", protocol.CodeGuardrailHit, errResp.Code, errMsg)
+	}
+	if !strings.Contains(errResp.Message, "max_total_steps") {
+		t.Errorf("message should mention max_total_steps: %s", errResp.Message)
+	}
+}
+
+// TestWS_GuardrailMaxActionDuration verifies the max_action_duration guardrail:
+// a blocked action past the duration cap is aborted and reported as a typed
+// guardrail_hit (not a generic timeout).
+func TestWS_GuardrailMaxActionDuration(t *testing.T) {
+	mgr, srv := newTestServer(t, server.Options{})
+	mgr.SetLimits(sandbox.Limits{MaxActionDuration: 50 * time.Millisecond})
+	conn := dialWS(t, wsURL(t, srv))
+	sessionID := readHandshake(t, conn)
+	_, started := blockedEngine(t, mgr, sessionID)
+
+	writeEnvelope(t, conn, actionEnv("dur-1", protocol.ActionWait, 60000))
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("action did not start")
+	}
+
+	// The 50ms duration guardrail fires, aborting the action with a guardrail
+	// error even though the engine itself would hold forever.
+	errMsg := readMsg(t, conn)
+	var errResp protocol.ErrorResponse
+	if err := json.Unmarshal(errMsg, &errResp); err != nil {
+		t.Fatalf("expected ErrorResponse, got %s", errMsg)
+	}
+	if errResp.Code != protocol.CodeGuardrailHit {
+		t.Errorf("code: want %q, got %q (%s)", protocol.CodeGuardrailHit, errResp.Code, errMsg)
+	}
+	if !strings.Contains(errResp.Message, "max_action_duration") {
+		t.Errorf("message should mention max_action_duration: %s", errResp.Message)
+	}
+}
+
 func readMsg(t *testing.T, c *websocket.Conn) []byte {
 	t.Helper()
 	c.SetReadDeadline(time.Now().Add(5 * time.Second))

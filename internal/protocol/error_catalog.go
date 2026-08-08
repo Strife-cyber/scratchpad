@@ -18,6 +18,7 @@ const (
 	CodeUnsupported      = "unsupported"
 	CodeConnectionFailed = "connection_failed"
 	CodeSessionLimit     = "session_limit_reached"
+	CodeGuardrailHit     = "guardrail_hit"
 	CodeInternalError    = "internal_error"
 )
 
@@ -94,6 +95,12 @@ var (
 		Status: http.StatusTooManyRequests,
 		Hint:   "The server's session cap is full. Close or wait for an idle session to be evicted, then retry.",
 	}
+	classGuardrailHit = Classification{
+		Code:   CodeGuardrailHit,
+		Level:  ErrorLevelAction,
+		Status: http.StatusTooManyRequests,
+		Hint:   "A per-session guardrail blocked this action: the action exceeded max_action_duration or the session exceeded max_total_steps. Change strategy (smaller steps, shorter actions) or start a fresh session.",
+	}
 	classInternalError = Classification{
 		Code:   CodeInternalError,
 		Level:  ErrorLevelFatal,
@@ -119,6 +126,7 @@ var catalog = []struct {
 	{ErrUnsupported, classUnsupported},
 	{ErrConnectionFailed, classConnectionFailed},
 	{ErrSessionLimitReached, classSessionLimit},
+	{ErrGuardrailHit, classGuardrailHit},
 }
 
 // messageRule matches a legacy inline error message (most of the engine still
@@ -135,6 +143,10 @@ var messageRules = []messageRule{
 	{
 		pattern: regexp.MustCompile(`(?i)session limit|too many sessions|max sessions|at capacity`),
 		class:   classSessionLimit,
+	},
+	{
+		pattern: regexp.MustCompile(`(?i)guardrail|max_total_steps|max_action_duration|step limit reached|exceeded max`),
+		class:   classGuardrailHit,
 	},
 	{
 		pattern: regexp.MustCompile(`(?i)session not found|no session found|unknown session`),

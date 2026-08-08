@@ -391,6 +391,15 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 		return
 	}
 
+	// Enforce the max_total_steps guardrail before the action is admitted.
+	if err := ws.session.GuardStep(); err != nil {
+		slog.Warn("websocket: action blocked by step guardrail",
+			"session_id", ws.session.ID, "request_id", ws.reqID, "action", req.Action)
+		ws.writeError(errorResponse(fmt.Errorf("action %q: %w (max_total_steps=%d)",
+			req.Action, err, ws.session.Limits.MaxTotalSteps), ws.reqID, protocol.ErrorLevelAction, req.Action, req.Selector))
+		return
+	}
+
 	// Mark the session in-flight so the idle cleanup loop skips it.
 	if !ws.session.BeginAction() {
 		ws.writeError(errorResponse(fmt.Errorf("action: another action is already running on this session"),
@@ -401,8 +410,9 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 
 	start := time.Now()
 
-	// Register the action as active so cancel can find it before it runs.
-	ctx, cancel := context.WithCancel(ws.connCtx)
+	// Register the action as active so cancel can find it before it runs. The
+	// context also carries the max_action_duration guardrail when configured.
+	ctx, cancel := ws.session.ActionTimeout(ws.connCtx)
 	ws.activeMu.Lock()
 	ws.activeActionID = req.ActionID
 	ws.activeCancel = cancel
@@ -441,6 +451,18 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 		"duration_ms", dur.Milliseconds(),
 	)
 	metrics.RecordAction(req.Action)
+
+	// The max_action_duration guardrail fired: report a typed guardrail_hit
+	// (429) instead of a generic timeout so the agent knows to change strategy.
+	if ctx.Err() == context.DeadlineExceeded {
+		slog.Warn("websocket: action exceeded max_action_duration",
+			"session_id", ws.session.ID, "request_id", ws.reqID, "action", req.Action,
+			"max_ms", ws.session.Limits.MaxActionDuration.Milliseconds())
+		ws.writeError(errorResponse(fmt.Errorf("action %q: %w (max_action_duration=%s)",
+			req.Action, protocol.ErrGuardrailHit, ws.session.Limits.MaxActionDuration),
+			ws.reqID, protocol.ErrorLevelAction, req.Action, req.Selector))
+		return
+	}
 
 	if ctx.Err() == context.Canceled {
 		// The action's context was cancelled, so it did not run to completion.
@@ -581,6 +603,8 @@ func (ws *wsSession) parseObserveRequest(raw json.RawMessage) *protocol.ObserveR
 // WebSocket. It sends a delta when the estimated serialized size of the diff is
 // smaller than the full tree, saving bandwidth for both Chrome and Android.
 func (ws *wsSession) sendObservation(actionID string, req *protocol.ObserveRequest) {
+	// Enforce the observe_throttle_ms pacing before capturing.
+	ws.session.ThrottleObserve()
 	start := time.Now()
 	obs, err := ws.session.Engine.Observe(req)
 	dur := time.Since(start)

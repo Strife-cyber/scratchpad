@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,8 +60,11 @@ type ChromeEngine struct {
 
 	// Phase 1 assertions can inspect console errors. We capture them from CDP
 	// at the engine layer (in addition to the session-level collector).
-	consoleMu   sync.Mutex
-	consoleLogs []protocol.ConsoleLog
+	// maxConsoleEntries caps the buffer (drop-oldest ring); 0 means unlimited.
+	// Defaults from SCRATCHPAD_MAX_CONSOLE_ENTRIES.
+	consoleMu         sync.Mutex
+	consoleLogs       []protocol.ConsoleLog
+	maxConsoleEntries int
 
 	// Phase 1 network assertions.
 	// Entries are created on EventRequestWillBeSent and cleaned up on
@@ -157,7 +161,8 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 			URL    string
 			Method string
 		}),
-		targets: make(map[string]*targetInfo),
+		targets:           make(map[string]*targetInfo),
+		maxConsoleEntries: consoleCapFromEnv(),
 	}
 
 	// Wire up internal listeners before any external code can add its own.
@@ -167,6 +172,17 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 	e.setupObserveCaching()
 
 	return e
+}
+
+// consoleCapFromEnv resolves the console buffer cap from
+// SCRATCHPAD_MAX_CONSOLE_ENTRIES (0 or unset means unlimited).
+func consoleCapFromEnv() int {
+	if v := os.Getenv("SCRATCHPAD_MAX_CONSOLE_ENTRIES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 // Close gracefully shuts down the Chrome process and all associated resources.
@@ -222,6 +238,10 @@ func (e *ChromeEngine) setupEventDispatcher() {
 				msg = fmt.Sprintf("%v", c.Args[0].Value)
 			}
 			e.consoleMu.Lock()
+			// Drop-oldest ring: keep the buffer bounded under console spam.
+			if e.maxConsoleEntries > 0 && len(e.consoleLogs) >= e.maxConsoleEntries {
+				e.consoleLogs = e.consoleLogs[len(e.consoleLogs)-e.maxConsoleEntries+1:]
+			}
 			e.consoleLogs = append(e.consoleLogs, protocol.ConsoleLog{
 				Level:     string(c.Type),
 				Message:   msg,

@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -40,6 +41,18 @@ type Session struct {
 	// action so a mid-action session is never reaped from underneath the action.
 	actionMu sync.Mutex
 	inFlight bool
+
+	// Limits carries this session's resource budgets and guardrails (item 36).
+	// It is applied by the Manager at creation; zero values mean "no limit".
+	Limits Limits
+
+	// steps counts executed actions toward MaxTotalSteps. Guarded by stepsMu.
+	stepsMu sync.Mutex
+	steps   int
+
+	// lastObserve records the last observation time for ObserveThrottle pacing.
+	observeMu   sync.Mutex
+	lastObserve time.Time
 
 	// ConsoleRing stores recent console logs for observability endpoints.
 	// It is appended during WebSocket observation cycles.
@@ -106,6 +119,49 @@ func (s *Session) HasActiveAction() bool {
 	return s.inFlight
 }
 
+// GuardStep enforces the max_total_steps guardrail: it increments the session's
+// step counter and returns protocol.ErrGuardrailHit when the session is at or
+// over its step cap. A nil/zero cap never blocks.
+func (s *Session) GuardStep() error {
+	if s.Limits.MaxTotalSteps <= 0 {
+		return nil
+	}
+	s.stepsMu.Lock()
+	defer s.stepsMu.Unlock()
+	if s.steps >= s.Limits.MaxTotalSteps {
+		return protocol.ErrGuardrailHit
+	}
+	s.steps++
+	return nil
+}
+
+// ActionTimeout wraps parent with the session's max_action_duration timeout.
+// Without a configured duration it returns a cancellable context with the same
+// semantics as context.WithCancel. The returned cancel must be called when the
+// action completes.
+func (s *Session) ActionTimeout(parent context.Context) (context.Context, context.CancelFunc) {
+	if s.Limits.MaxActionDuration > 0 {
+		return context.WithTimeout(parent, s.Limits.MaxActionDuration)
+	}
+	return context.WithCancel(parent)
+}
+
+// ThrottleObserve paces observations against the session's ObserveThrottle
+// minimum spacing. It blocks until the next observation is allowed, then
+// records the new observation time. A nil/zero throttle never blocks.
+func (s *Session) ThrottleObserve() {
+	if s.Limits.ObserveThrottle <= 0 {
+		return
+	}
+	s.observeMu.Lock()
+	defer s.observeMu.Unlock()
+	elapsed := time.Since(s.lastObserve)
+	if wait := s.Limits.ObserveThrottle - elapsed; wait > 0 {
+		time.Sleep(wait)
+	}
+	s.lastObserve = time.Now()
+}
+
 // CreateSession instantiates a brand-new engine of the requested Kind and
 // registers the session in the manager's map.
 // The caller is responsible for calling DeleteSession when the agent disconnects.
@@ -133,6 +189,7 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 		CreatedAt:        now,
 		ConsoleRingLimit: 500,
 		LastActivity:     now,
+		Limits:           m.limits,
 	}
 
 	// Browser sessions get an action timeline recorder so every step is

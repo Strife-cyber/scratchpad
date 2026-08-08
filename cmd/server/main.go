@@ -32,6 +32,14 @@ func main() {
 		"cap on actions executing concurrently across all sessions (0 = unlimited)")
 	maxSessions := flag.Int("max-sessions", 0,
 		"cap on concurrent live sessions (0 = unlimited); new sessions past the cap get a 429 session_limit_reached")
+	maxActionDurationMS := flag.Int("max-action-duration-ms", 0,
+		"per-session cap on how long a single action may run (ms; 0 = unlimited)")
+	maxTotalSteps := flag.Int("max-total-steps", 0,
+		"per-session cap on actions over the session's lifetime (0 = unlimited)")
+	maxScreenshotBytes := flag.Int("max-screenshot-bytes", 0,
+		"downscale observations' screenshots to this many encoded bytes (0 = unlimited)")
+	observeThrottleMS := flag.Int("observe-throttle-ms", 0,
+		"minimum spacing between observations on a session (ms; 0 = unlimited)")
 	flag.Parse()
 
 	// Configure the process-wide structured logger.
@@ -54,6 +62,30 @@ func main() {
 		mgr.SetMaxSessions(*maxSessions)
 		logger.Info("Max sessions",
 			"max", *maxSessions,
+		)
+	}
+	// Per-session guardrails: env defaults (SCRATCHPAD_*) overridden by any
+	// explicit --max-* / --observe-throttle-ms flags.
+	limits := mgr.Limits()
+	if *maxActionDurationMS > 0 {
+		limits.MaxActionDuration = time.Duration(*maxActionDurationMS) * time.Millisecond
+	}
+	if *maxTotalSteps > 0 {
+		limits.MaxTotalSteps = *maxTotalSteps
+	}
+	if *maxScreenshotBytes > 0 {
+		limits.MaxScreenshotBytes = *maxScreenshotBytes
+	}
+	if *observeThrottleMS > 0 {
+		limits.ObserveThrottle = time.Duration(*observeThrottleMS) * time.Millisecond
+	}
+	mgr.SetLimits(limits)
+	if limits.MaxActionDuration > 0 || limits.MaxTotalSteps > 0 || limits.MaxScreenshotBytes > 0 || limits.ObserveThrottle > 0 {
+		logger.Info("Per-session limits",
+			"max_action_duration_ms", limits.MaxActionDuration.Milliseconds(),
+			"max_total_steps", limits.MaxTotalSteps,
+			"max_screenshot_bytes", limits.MaxScreenshotBytes,
+			"observe_throttle_ms", limits.ObserveThrottle.Milliseconds(),
 		)
 	}
 	apiHandler := api.NewRouter(mgr)

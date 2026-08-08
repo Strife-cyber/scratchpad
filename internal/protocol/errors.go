@@ -43,4 +43,9 @@ var (
 	// and no new session could be created. Retryable after an idle session is
 	// closed or evicted.
 	ErrSessionLimitReached = errors.New("session limit reached")
+
+	// ErrGuardrailHit reports that a per-session guardrail (max_action_duration
+	// or max_total_steps) blocked an action. Retryable after the agent changes
+	// strategy; the guardrail protects the server from runaway agents.
+	ErrGuardrailHit = errors.New("session guardrail hit")
 )
