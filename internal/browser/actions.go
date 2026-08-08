@@ -474,36 +474,24 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		if req.OptionValue == "" && req.OptionText == "" {
 			return fmt.Errorf("select_option requires option_value or option_text")
 		}
-		js := fmt.Sprintf(`(() => {
-			const select = document.querySelector(%s);
-			if (!select) return false;
-			%s
-			return true;
-		})()`,
-			jsStringLiteral(req.Selector.CSS),
-			func() string {
-				if req.OptionValue != "" {
-					return fmt.Sprintf(`select.value = %s;
-						select.dispatchEvent(new Event('input', {bubbles:true}));
-						select.dispatchEvent(new Event('change', {bubbles:true}));`, jsStringLiteral(req.OptionValue))
-				}
-				return fmt.Sprintf(`const text = %s;
-					const opts = Array.from(select.options || []);
-					const match = opts.find(o => (o.text || '').trim() === (text || '').trim());
-					if (!match) return false;
-					select.value = match.value;
-					select.dispatchEvent(new Event('input', {bubbles:true}));
-					select.dispatchEvent(new Event('change', {bubbles:true}));`, jsStringLiteral(req.OptionText))
-			}(),
-		)
-		var ok bool
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
-			return err
+		var body string
+		if req.OptionValue != "" {
+			body = fmt.Sprintf(`select.value = %s;
+				select.dispatchEvent(new Event('input', {bubbles:true}));
+				select.dispatchEvent(new Event('change', {bubbles:true}));
+				return true;`, jsStringLiteral(req.OptionValue))
+		} else {
+			body = fmt.Sprintf(`const text = %s;
+				const opts = Array.from(select.options || []);
+				const match = opts.find(o => (o.text || '').trim() === (text || '').trim());
+				if (!match) return false;
+				select.value = match.value;
+				select.dispatchEvent(new Event('input', {bubbles:true}));
+				select.dispatchEvent(new Event('change', {bubbles:true}));
+				return true;`, jsStringLiteral(req.OptionText))
 		}
-		if !ok {
-			return fmt.Errorf("select_option: option not found")
-		}
-		return nil
+		actionBody := "if (el.tagName !== 'SELECT') return false;\nlet select = el;\n" + body
+		return runRetryJSAction(ctx, "select_option", timeout, buildPierceActionJS(req.Selector.CSS, actionBody))
 
 	case protocol.ActionPressKeyCombo:
 		// Real keyboard events via CDP Input.dispatchKeyEvent (item 15): keyDown,
@@ -734,20 +722,8 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		if req.Selector == nil || req.Selector.CSS == "" {
 			return fmt.Errorf("scroll_into_view requires selector.css")
 		}
-		js := fmt.Sprintf(`(() => {
-			const el = document.querySelector(%s);
-			if (!el) return false;
-			el.scrollIntoView({block:'center', inline:'center'});
-			return true;
-		})()`, jsStringLiteral(req.Selector.CSS))
-		var ok bool
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("scroll_into_view: element not found")
-		}
-		return nil
+		body := "el.scrollIntoView({block:'center', inline:'center'}); return true;"
+		return runRetryJSAction(ctx, "scroll_into_view", timeout, buildPierceActionJS(req.Selector.CSS, body))
 
 	case protocol.ActionSwitchToIframe:
 		// Phase 1: stub. We record the selector for future iframe-scoped lookups.
@@ -861,64 +837,33 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		if req.Selector == nil || req.Selector.CSS == "" {
 			return fmt.Errorf("check requires selector.css")
 		}
-		var ok bool
-		js := fmt.Sprintf(`(() => {
-			const el = document.querySelector(%s);
-			if (!el || el.type !== 'checkbox' && el.type !== 'radio') return false;
+		body := `if (el.type !== 'checkbox' && el.type !== 'radio') return false;
 			el.checked = true;
 			el.dispatchEvent(new Event('change', {bubbles:true}));
 			el.dispatchEvent(new Event('input', {bubbles:true}));
-			return true;
-		})()`, jsStringLiteral(req.Selector.CSS))
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("check: element not found or not a checkbox/radio")
-		}
-		return nil
+			return true;`
+		return runRetryJSAction(ctx, "check", timeout, buildPierceActionJS(req.Selector.CSS, body))
 
 	case protocol.ActionUncheck:
 		if req.Selector == nil || req.Selector.CSS == "" {
 			return fmt.Errorf("uncheck requires selector.css")
 		}
-		var ok bool
-		js := fmt.Sprintf(`(() => {
-			const el = document.querySelector(%s);
-			if (!el || el.type !== 'checkbox' && el.type !== 'radio') return false;
+		body := `if (el.type !== 'checkbox' && el.type !== 'radio') return false;
 			el.checked = false;
 			el.dispatchEvent(new Event('change', {bubbles:true}));
 			el.dispatchEvent(new Event('input', {bubbles:true}));
-			return true;
-		})()`, jsStringLiteral(req.Selector.CSS))
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("uncheck: element not found or not a checkbox/radio")
-		}
-		return nil
+			return true;`
+		return runRetryJSAction(ctx, "uncheck", timeout, buildPierceActionJS(req.Selector.CSS, body))
 
 	case protocol.ActionSubmitForm:
 		if req.Selector == nil || req.Selector.CSS == "" {
 			return fmt.Errorf("submit_form requires selector.css (form or child element)")
 		}
-		var ok bool
-		js := fmt.Sprintf(`(() => {
-			let el = document.querySelector(%s);
-			if (!el) return false;
-			if (el.tagName !== 'FORM') el = el.closest('form');
+		body := `if (el.tagName !== 'FORM') el = el.closest('form');
 			if (!el) return false;
 			el.requestSubmit ? el.requestSubmit() : el.submit();
-			return true;
-		})()`, jsStringLiteral(req.Selector.CSS))
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("submit_form: no form found for selector")
-		}
-		return nil
+			return true;`
+		return runRetryJSAction(ctx, "submit_form", timeout, buildPierceActionJS(req.Selector.CSS, body))
 
 	case protocol.ActionFillForm:
 		if len(req.FormFields) == 0 {
