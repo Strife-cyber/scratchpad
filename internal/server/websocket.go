@@ -107,6 +107,11 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind, opts Options) http.Handler
 		session, err := mgr.CreateSession(kind, createOpts)
 		if err != nil {
 			slog.Error("websocket: failed to create session", "request_id", requestID, "err", err)
+			// Surface the failure as a typed envelope (e.g. 429 session_limit_reached
+			// when MaxSessions is full) so the client sees why the connection was
+			// refused instead of an unexplained close. No wsSession exists yet, so
+			// write directly on the upgraded connection.
+			_ = conn.WriteJSON(errorResponse(err, requestID, protocol.ErrorLevelAction, "", nil))
 			return
 		}
 

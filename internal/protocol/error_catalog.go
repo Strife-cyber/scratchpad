@@ -17,6 +17,7 @@ const (
 	CodeAssertionFailed  = "assertion_failed"
 	CodeUnsupported      = "unsupported"
 	CodeConnectionFailed = "connection_failed"
+	CodeSessionLimit     = "session_limit_reached"
 	CodeInternalError    = "internal_error"
 )
 
@@ -87,6 +88,12 @@ var (
 		Status: http.StatusBadGateway,
 		Hint:   "Failed to connect to the browser or engine. Check that it is running and reachable.",
 	}
+	classSessionLimit = Classification{
+		Code:   CodeSessionLimit,
+		Level:  ErrorLevelAction,
+		Status: http.StatusTooManyRequests,
+		Hint:   "The server's session cap is full. Close or wait for an idle session to be evicted, then retry.",
+	}
 	classInternalError = Classification{
 		Code:   CodeInternalError,
 		Level:  ErrorLevelFatal,
@@ -111,6 +118,7 @@ var catalog = []struct {
 	{ErrAssertionFailed, classAssertionFailed},
 	{ErrUnsupported, classUnsupported},
 	{ErrConnectionFailed, classConnectionFailed},
+	{ErrSessionLimitReached, classSessionLimit},
 }
 
 // messageRule matches a legacy inline error message (most of the engine still
@@ -124,6 +132,10 @@ type messageRule struct {
 // engine's current error strings so the envelope stays typed even before every
 // layer returns sentinel errors.
 var messageRules = []messageRule{
+	{
+		pattern: regexp.MustCompile(`(?i)session limit|too many sessions|max sessions|at capacity`),
+		class:   classSessionLimit,
+	},
 	{
 		pattern: regexp.MustCompile(`(?i)session not found|no session found|unknown session`),
 		class:   classSessionNotFound,

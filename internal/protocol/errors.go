@@ -38,4 +38,9 @@ var (
 	// ErrConnectionFailed reports that a transport connection (WS/CDP/adb)
 	// could not be established or was dropped.
 	ErrConnectionFailed = errors.New("connection failed")
+
+	// ErrSessionLimitReached reports that the server's MaxSessions cap is full
+	// and no new session could be created. Retryable after an idle session is
+	// closed or evicted.
+	ErrSessionLimitReached = errors.New("session limit reached")
 )

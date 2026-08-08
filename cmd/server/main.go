@@ -30,6 +30,8 @@ func main() {
 	logFormat := flag.String("log-format", "text", "log output format: json or text")
 	maxConcurrent := flag.Int("max-concurrent-actions", 0,
 		"cap on actions executing concurrently across all sessions (0 = unlimited)")
+	maxSessions := flag.Int("max-sessions", 0,
+		"cap on concurrent live sessions (0 = unlimited); new sessions past the cap get a 429 session_limit_reached")
 	flag.Parse()
 
 	// Configure the process-wide structured logger.
@@ -48,6 +50,12 @@ func main() {
 	)
 
 	mgr := sandbox.NewManager()
+	if *maxSessions > 0 {
+		mgr.SetMaxSessions(*maxSessions)
+		logger.Info("Max sessions",
+			"max", *maxSessions,
+		)
+	}
 	apiHandler := api.NewRouter(mgr)
 
 	// Wire session-lifecycle hooks so GET /metrics tracks session churn,

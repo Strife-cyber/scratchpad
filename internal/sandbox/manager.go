@@ -16,6 +16,11 @@ type Manager struct {
 	maxIdleDuration time.Duration
 	cleanupInterval time.Duration
 
+	// maxSessions caps how many live sessions the manager allows. 0 means
+	// unlimited. When the cap is hit, CreateSession fails with
+	// protocol.ErrSessionLimitReached (classified 429 / session_limit_reached).
+	maxSessions int
+
 	// sessionCreated / sessionDestroyed are optional lifecycle hooks invoked
 	// (outside the lock) after a session is created or removed, including idle
 	// eviction. They let callers such as the server's metrics registry observe
@@ -39,6 +44,15 @@ func (m *Manager) SetMaxIdleDuration(d time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.maxIdleDuration = d
+}
+
+// SetMaxSessions sets the cap on concurrent live sessions (0 = unlimited).
+// Once the cap is reached, further CreateSession calls fail with
+// protocol.ErrSessionLimitReached until a session is deleted or evicted.
+func (m *Manager) SetMaxSessions(n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maxSessions = n
 }
 
 // SetCleanupInterval sets how often the cleanup loop sweeps for expired sessions.

@@ -83,6 +83,46 @@ func readHandshake(t *testing.T, c *websocket.Conn) string {
 	return hs.SessionID
 }
 
+// TestWS_SessionLimitRejected verifies that when MaxSessions is full, a new
+// WS connection receives a typed 429 error envelope instead of a handshake
+// (item 36 resource limits).
+func TestWS_SessionLimitRejected(t *testing.T) {
+	mgr := sandbox.NewManager()
+	mgr.SetMaxSessions(1)
+	srv := httptest.NewServer(server.HandleWS(mgr, wsTestKind, server.Options{}))
+	t.Cleanup(func() {
+		srv.Close()
+		for _, s := range mgr.ListSessions() {
+			_ = mgr.DeleteSession(s.ID)
+		}
+	})
+
+	// First connection succeeds: handshake carries a session id.
+	conn1 := dialWS(t, wsURL(t, srv))
+	if id := readHandshake(t, conn1); id == "" {
+		t.Fatal("expected a session id from the first handshake")
+	}
+
+	// Second connection at the cap: the server sends a typed envelope carrying
+	// the session_limit_reached code instead of a handshake.
+	conn2 := dialWS(t, wsURL(t, srv))
+	conn2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, msg, err := conn2.ReadMessage()
+	if err != nil {
+		t.Fatalf("read error envelope: %v", err)
+	}
+	var env protocol.ErrorResponse
+	if err := json.Unmarshal(msg, &env); err != nil {
+		t.Fatalf("unmarshal error envelope %s: %v", string(msg), err)
+	}
+	if env.Code != protocol.CodeSessionLimit {
+		t.Errorf("code: want %q, got %q", protocol.CodeSessionLimit, env.Code)
+	}
+	if env.Type != protocol.ErrorLevelAction {
+		t.Errorf("level: want %q, got %q", protocol.ErrorLevelAction, env.Type)
+	}
+}
+
 func readMsg(t *testing.T, c *websocket.Conn) []byte {
 	t.Helper()
 	c.SetReadDeadline(time.Now().Add(5 * time.Second))

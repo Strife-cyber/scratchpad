@@ -110,6 +110,15 @@ func (s *Session) HasActiveAction() bool {
 // registers the session in the manager's map.
 // The caller is responsible for calling DeleteSession when the agent disconnects.
 func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session, error) {
+	// Enforce the MaxSessions cap before doing any (expensive) engine work so a
+	// full manager rejects creation cheaply with a typed 429 error.
+	m.mu.RLock()
+	atLimit := m.maxSessions > 0 && len(m.sessions) >= m.maxSessions
+	m.mu.RUnlock()
+	if atLimit {
+		return nil, protocol.ErrSessionLimitReached
+	}
+
 	eng, err := engine.New(kind, opts)
 	if err != nil {
 		return nil, err

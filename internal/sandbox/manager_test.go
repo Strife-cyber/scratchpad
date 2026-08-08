@@ -1,12 +1,15 @@
 package sandbox_test
 
 import (
+	"errors"
+	"net/http"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"scratchpad/internal/engine"
+	"scratchpad/internal/protocol"
 	"scratchpad/internal/sandbox"
 )
 
@@ -72,6 +75,44 @@ func TestCreateSession(t *testing.T) {
 	}
 	if s.ID == "" {
 		t.Error("expected non-empty session ID")
+	}
+}
+
+// TestCreateSession_MaxSessions verifies the resource-limit cap (item 36):
+// once the cap is hit, creation fails with the typed ErrSessionLimitReached
+// (classified 429 / session_limit_reached), and deleting a session frees a slot.
+func TestCreateSession_MaxSessions(t *testing.T) {
+	m := sandbox.NewManager()
+	m.SetMaxSessions(2)
+
+	for i := 0; i < 2; i++ {
+		s, err := m.CreateSession(testEngineKind, engine.Options{})
+		if err != nil {
+			t.Fatalf("create #%d below cap: %v", i, err)
+		}
+		if s == nil {
+			t.Fatal("expected non-nil session")
+		}
+	}
+
+	// At the cap: creation must fail with the sentinel, not a generic error.
+	if _, err := m.CreateSession(testEngineKind, engine.Options{}); !errors.Is(err, protocol.ErrSessionLimitReached) {
+		t.Fatalf("at cap: want ErrSessionLimitReached, got %v", err)
+	}
+	class := protocol.Classify(protocol.ErrSessionLimitReached)
+	if class.Status != http.StatusTooManyRequests {
+		t.Errorf("status: want 429, got %d", class.Status)
+	}
+	if class.Code != protocol.CodeSessionLimit {
+		t.Errorf("code: want %q, got %q", protocol.CodeSessionLimit, class.Code)
+	}
+
+	// Freeing a slot allows creation again.
+	if err := m.DeleteSession(m.ListSessions()[0].ID); err != nil {
+		t.Fatalf("delete to free slot: %v", err)
+	}
+	if _, err := m.CreateSession(testEngineKind, engine.Options{}); err != nil {
+		t.Errorf("create after freeing a slot: %v", err)
 	}
 }
 

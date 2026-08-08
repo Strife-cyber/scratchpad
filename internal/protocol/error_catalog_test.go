@@ -33,6 +33,8 @@ func TestClassifySentinel(t *testing.T) {
 		{"assertion failed", ErrAssertionFailed, CodeAssertionFailed, ErrorLevelAction, http.StatusUnprocessableEntity},
 		{"unsupported", ErrUnsupported, CodeUnsupported, ErrorLevelWarning, http.StatusNotImplemented},
 		{"connection failed", ErrConnectionFailed, CodeConnectionFailed, ErrorLevelFatal, http.StatusBadGateway},
+		{"session limit reached", ErrSessionLimitReached, CodeSessionLimit, ErrorLevelAction, http.StatusTooManyRequests},
+		{"wrapped session limit reached", fmt.Errorf("create session: %w", ErrSessionLimitReached), CodeSessionLimit, ErrorLevelAction, http.StatusTooManyRequests},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,6 +72,7 @@ func TestClassifyLegacyMessages(t *testing.T) {
 		{"chrome: unsupported action \"hover\"", CodeUnsupported},
 		{"bad request body", CodeInvalidRequest},
 		{"action: action field is required", CodeInvalidRequest},
+		{"session limit reached: too many sessions", CodeSessionLimit},
 		{"unexpected EOF", CodeInternalError},
 	}
 	for _, tc := range cases {
