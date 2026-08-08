@@ -182,6 +182,9 @@ type SwitchToIframeArgs struct {
 	IframeSelector *protocol.Selector `json:"iframe_selector"`
 }
 
+// MainFrameArgs is empty — switch_to_main_frame takes no arguments.
+type MainFrameArgs struct{}
+
 // WaitArgs waits for a condition: network_idle, selector_visible,
 // selector_hidden, selector_enabled, text_appear, or url_match.
 type WaitArgs struct {
@@ -238,10 +241,24 @@ func actionTool[T any](s *Server, name, description string, build func(args T) p
 	return def
 }
 
+// listTabsTool is the browser_list_tabs tool. It is a plain tool (not an
+// action) so it sends the lightweight MsgTypeListTabs message instead of a full
+// observation. Its action field is still set to ActionListTabs so the coverage
+// test treats it as the dedicated tool for the list_tabs action.
+func listTabsTool(s *Server) toolDef {
+	def := tool(s, "browser_list_tabs",
+		"List all open browser tabs (id, url, title, active). Lightweight: returns only the tabs, not a full observation.\n\nExample: browser_list_tabs with {} returns the current tabs.",
+		func(a ObserveArgs) protocol.Envelope {
+			return protocol.Envelope{Type: protocol.MsgTypeListTabs}
+		})
+	def.action = protocol.ActionListTabs
+	return def
+}
+
 // supportedActions lists every protocol action the browser engine actually
 // implements (internal/browser/actions.go). mock_network_response is excluded
-// because it returns "not implemented". A test enforces that each action has
-// at least one dedicated MCP tool.
+// because it returns a typed unsupported error until item 14 lands. A test
+// enforces that each action has at least one dedicated MCP tool.
 var supportedActions = []string{
 	protocol.ActionWait,
 	protocol.ActionClick,
@@ -249,6 +266,7 @@ var supportedActions = []string{
 	protocol.ActionScroll,
 	protocol.ActionSwitchTab,
 	protocol.ActionCloseTab,
+	protocol.ActionListTabs,
 	protocol.ActionCheck,
 	protocol.ActionUncheck,
 	protocol.ActionSubmitForm,
@@ -263,6 +281,7 @@ var supportedActions = []string{
 	protocol.ActionExecuteJS,
 	protocol.ActionScrollIntoView,
 	protocol.ActionSwitchToIframe,
+	protocol.ActionSwitchToMainFrame,
 	protocol.ActionAcceptDialog,
 	protocol.ActionDismissDialog,
 	protocol.ActionUploadFile,
@@ -285,9 +304,7 @@ func (s *Server) toolDefs() []toolDef {
 		tool(s, "browser_observe", "Capture the current page state (screenshot + spatial tree + page info).\n\nExample: browser_observe with {} returns the full page snapshot.", func(a ObserveArgs) protocol.Envelope {
 			return protocol.Envelope{Type: protocol.MsgTypeObserve}
 		}),
-		tool(s, "browser_list_tabs", "List all open browser tabs.\n\nExample: browser_list_tabs with {} returns the current tabs.", func(a ObserveArgs) protocol.Envelope {
-			return protocol.Envelope{Type: protocol.MsgTypeObserve}
-		}),
+		listTabsTool(s),
 
 		// ---- Power-user fallback ---------------------------------------------
 		// Mega-tool that accepts the raw ~30-field protocol.ActionRequest. Keep
@@ -353,7 +370,7 @@ func (s *Server) toolDefs() []toolDef {
 		actionTool(s, "browser_select_option", "Select an option from a <select> by option_value or option_text.\n\nExample: browser_select_option with {\"selector\":{\"css\":\"#country\"},\"option_value\":\"US\"} selects the US option.", func(a SelectOptionArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionSelectOption, Selector: a.Selector, OptionValue: a.OptionValue, OptionText: a.OptionText, TimeoutMS: a.TimeoutMS}
 		}),
-		actionTool(s, "browser_press_key_combo", "Dispatch a keyboard shortcut (synthetic JS KeyboardEvent).\n\nExample: browser_press_key_combo with {\"key\":\"s\",\"ctrl\":true} presses Ctrl+S.", func(a PressKeyComboArgs) protocol.ActionRequest {
+		actionTool(s, "browser_press_key_combo", "Dispatch a keyboard shortcut. STUB: returns a typed unsupported error — the previous synthetic JS KeyboardEvents were unreliable (many SPAs ignore them); real CDP Input key dispatch lands with improvement-plan item 15.\n\nExample: browser_press_key_combo with {\"key\":\"s\",\"ctrl\":true} would press Ctrl+S once item 15 lands.", func(a PressKeyComboArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{
 				Action:   protocol.ActionPressKeyCombo,
 				KeyChord: protocol.KeyChord{Key: a.Key, Ctrl: a.Ctrl, Alt: a.Alt, Shift: a.Shift, Meta: a.Meta},
@@ -383,8 +400,11 @@ func (s *Server) toolDefs() []toolDef {
 		actionTool(s, "browser_dismiss_dialog", "Dismiss the next JavaScript dialog (alert/confirm/prompt).\n\nExample: browser_dismiss_dialog with {} cancels the pending dialog.", func(a DialogArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionDismissDialog}
 		}),
-		actionTool(s, "browser_switch_to_iframe", "Scope subsequent lookups to an iframe (currently a stub that records the selector).\n\nExample: browser_switch_to_iframe with {\"iframe_selector\":{\"css\":\"#frame\"}} targets the iframe.", func(a SwitchToIframeArgs) protocol.ActionRequest {
+		actionTool(s, "browser_switch_to_iframe", "Scope subsequent lookups to an iframe. STUB: currently only records the selector — lookups are not yet iframe-scoped; real iframe-scoped querying lands with a later wave of improvement-plan item 12.\n\nExample: browser_switch_to_iframe with {\"iframe_selector\":{\"css\":\"#frame\"}} targets the iframe.", func(a SwitchToIframeArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionSwitchToIframe, IframeSelector: a.IframeSelector}
+		}),
+		actionTool(s, "browser_switch_to_main_frame", "Return to the top-level document, clearing any iframe scope set by browser_switch_to_iframe.\n\nExample: browser_switch_to_main_frame with {} targets the main document again.", func(a MainFrameArgs) protocol.ActionRequest {
+			return protocol.ActionRequest{Action: protocol.ActionSwitchToMainFrame}
 		}),
 		actionTool(s, "browser_wait", "Wait for a condition before continuing (network_idle, selector_visible, text_appear, url_match, ...).\n\nExample: browser_wait with {\"condition\":\"network_idle\"} waits until the network is idle.", func(a WaitArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionWait, Condition: a.Condition, Selector: a.Selector, Text: a.Text, Pattern: a.Pattern, TimeoutMS: a.TimeoutMS}
