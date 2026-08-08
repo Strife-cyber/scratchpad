@@ -26,6 +26,11 @@ const (
 	MsgTypeNetworkEnable  = "network_enable"
 	MsgTypeNetworkDisable = "network_disable"
 	MsgTypeNetworkList    = "network_list"
+
+	// MsgTypeSetContext switches the active context of a hybrid session
+	// (improvement-plan item 31). The data payload is a SetContextRequest; after
+	// the switch the session's subsequent actions target that context's engine.
+	MsgTypeSetContext = "set_context"
 )
 
 // Envelope wraps every message with an explicit type discriminator.
@@ -45,6 +50,15 @@ type CancelRequest struct {
 // When SessionID is empty the session bound to the current connection is closed.
 type CloseSessionRequest struct {
 	SessionID string `json:"session_id,omitempty"`
+}
+
+// SetContextRequest switches the active context of a hybrid session
+// (improvement-plan item 31). Context names the target engine ("web" or
+// "android"); the session's subsequent actions target that engine until the
+// next switch. Sessions created with a single platform have no other context
+// and reject switches with a clean error.
+type SetContextRequest struct {
+	Context string `json:"context,omitempty"`
 }
 
 // SessionInfo describes one live session for session_list / session_snapshot.
@@ -388,6 +402,12 @@ const (
 	// the action recorder persists them as timeline events.
 	ActionRecordBegin = "record_begin"
 	ActionRecordEnd   = "record_end"
+
+	// ActionSwitchContext switches the active context of a hybrid session
+	// (improvement-plan item 31) when sent as an action. The target context name
+	// rides in ActionRequest.Context. Equivalent to the MsgTypeSetContext message;
+	// the dispatch layer handles it without reaching any engine.
+	ActionSwitchContext = "switch_context"
 )
 
 // ActionRequest represents a command from the AI agent.
@@ -402,6 +422,12 @@ type ActionRequest struct {
 	DeltaY    int    `json:"delta_y,omitempty"`
 	Condition string `json:"condition,omitempty"`
 	TimeoutMS int    `json:"timeout_ms,omitempty"`
+
+	// Context targets a specific context of a hybrid session
+	// (improvement-plan item 31). Only meaningful for the "switch_context"
+	// action, where it names the engine to switch to ("web" or "android").
+	// Ignored by every other action.
+	Context string `json:"context,omitempty"`
 
 	// ActionID lets the agent correlate an action with a later cancel and with
 	// the ActionResult echoed back in the observation. Unique per request.
@@ -964,6 +990,13 @@ type InitializeRequest struct {
 	// becomes `am start -a android.intent.action.VIEW -d <url> -e key value ... -W`
 	// instead of a plain VIEW. Ignored by web engines.
 	Intent map[string]string `json:"intent,omitempty"`
+
+	// Platforms lists the contexts a new hybrid session should own
+	// (improvement-plan item 31), e.g. ["web", "android"]. Transports create
+	// hybrid sessions via the platforms query parameter (WebSocket) or the HTTP
+	// body; the field is echoed here so clients that only speak the
+	// first-navigate message can still express the intent.
+	Platforms []string `json:"platforms,omitempty"`
 }
 
 type Viewport struct {

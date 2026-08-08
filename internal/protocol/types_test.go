@@ -1203,3 +1203,73 @@ func TestPageInfo_DeviceContextRoundtrip(t *testing.T) {
 		t.Errorf("Viewport: want %+v, got %+v", original.Viewport, decoded.Viewport)
 	}
 }
+
+// =============================================================================
+// Item 31: hybrid web + android sessions (set_context / switch_context / platforms)
+// =============================================================================
+
+func TestSetContextConstants(t *testing.T) {
+	if protocol.MsgTypeSetContext != "set_context" {
+		t.Errorf("MsgTypeSetContext = %q, want %q", protocol.MsgTypeSetContext, "set_context")
+	}
+	if protocol.ActionSwitchContext != "switch_context" {
+		t.Errorf("ActionSwitchContext = %q, want %q", protocol.ActionSwitchContext, "switch_context")
+	}
+}
+
+// TestSetContextRequestRoundtrip verifies the MsgTypeSetContext payload survives
+// a JSON round-trip so agents can switch a hybrid session's active context.
+func TestSetContextRequestRoundtrip(t *testing.T) {
+	original := protocol.SetContextRequest{Context: "android"}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var decoded protocol.SetContextRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if decoded.Context != "android" {
+		t.Errorf("Context: want %q, got %q", "android", decoded.Context)
+	}
+}
+
+// TestInitializeRequestPlatformsRoundtrip verifies the item-31 platforms field
+// on InitializeRequest survives a JSON round-trip.
+func TestInitializeRequestPlatformsRoundtrip(t *testing.T) {
+	original := protocol.InitializeRequest{
+		URL:       "https://example.com",
+		Platforms: []string{"web", "android"},
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var decoded protocol.InitializeRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(decoded.Platforms) != 2 || decoded.Platforms[0] != "web" || decoded.Platforms[1] != "android" {
+		t.Errorf("Platforms: want [web android], got %v", decoded.Platforms)
+	}
+}
+
+// TestActionRequestContextFieldRoundtrip verifies the item-31 Context field on
+// ActionRequest (the switch_context target) survives a JSON round-trip.
+func TestActionRequestContextFieldRoundtrip(t *testing.T) {
+	original := protocol.ActionRequest{Action: protocol.ActionSwitchContext, Context: "android"}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var decoded protocol.ActionRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if decoded.Action != protocol.ActionSwitchContext {
+		t.Errorf("Action: want %q, got %q", protocol.ActionSwitchContext, decoded.Action)
+	}
+	if decoded.Context != "android" {
+		t.Errorf("Context: want %q, got %q", "android", decoded.Context)
+	}
+}
