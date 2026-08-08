@@ -401,6 +401,16 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 				}
 			}
 		}
+		// Surface the clipboard contents for get_clipboard / browser_clipboard_get.
+		if obs.ActionResult.Action == protocol.ActionGetClipboard {
+			if text, ok := obs.ActionResult.ActionMetadata["text"].(string); ok && text != "" {
+				actionResult += "\nClipboard: " + text
+			}
+			if b64, ok := obs.ActionResult.ActionMetadata["base64"].(string); ok && b64 != "" {
+				mime, _ := obs.ActionResult.ActionMetadata["mime_type"].(string)
+				actionResult += fmt.Sprintf("\nClipboard image (%s): %d base64 chars", mime, len(b64))
+			}
+		}
 	}
 
 	truncated := ""
