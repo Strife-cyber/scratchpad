@@ -210,6 +210,8 @@ Playwright's defining reliability feature is **web-first assertions**: `expect(l
 
 ## 5. Action Cancellation & MCP Deadline Fixes
 
+- [x] DONE (wave W3, C1 — 8ca397a protocol, 592e016 cancellable ExecuteAction, bc0624d reader-goroutine cancel priority, 4353364 reconnect+backoff, b7470fe cancel-aware results)
+
 ### What & Why
 
 The MCP bridge sets a **hard 60s read deadline** (`mcp/server.go:302`), yet `wait` can legitimately run longer — so a slow page kills the MCP connection with no way to recover. Worse, there is **no cancellation path at all**: if an agent starts a `wait network_idle` or an infinite-scroll loop, nothing can stop it except killing the session. The WS server also blocks on `ReadMessage` while an action runs, so a second message (including a cancel) is queued behind the long action.
@@ -238,9 +240,11 @@ The fix: per-action `context` cancellation exposed as a first-class protocol mes
 
 **Prevents dead sessions.** Cancellation is the difference between "the agent is stuck, restart the whole server" and "the agent noticed and moved on". Also a prerequisite for the concurrency work in item 33.
 
----
+--- 
 
 ## 6. MCP Session Lifecycle
+
+- [x] DONE (wave W3, C1 — 4353364 session tools + per-session conns, cf0b699 close-by-id across restarts; caveat: `session_create` viewport/proxy args not yet applied server-side)
 
 ### What & Why
 
@@ -1048,6 +1052,8 @@ Real workflows cross platforms: "log in on the web, verify the push notification
 ---
 
 ## 33. Concurrency: Per-Session Action Queues, No Global Mutex
+
+- [x] DONE (wave W3, C1 — bc0624d reader-goroutine + per-session queue, 4353364 per-session MCP serialization, 87fef0d in-flight cleanup guards, ecb33d9 --max-concurrent-actions)
 
 ### What & Why
 
