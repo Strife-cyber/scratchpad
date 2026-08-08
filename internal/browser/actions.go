@@ -329,6 +329,19 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 			}
 		}
 
+		// Item 15: when modifiers or clear_first are set, type through the real
+		// CDP key pipeline (holding the modifiers, optionally clearing the field
+		// first with select-all + delete) instead of the plain text-level
+		// KeyEvent, so React-style controlled inputs see genuine key events.
+		if req.Modifiers != nil || req.ClearFirst {
+			mods := input.Modifier(0)
+			if req.Modifiers != nil {
+				mods = modifierBits(req.Modifiers.Alt, req.Modifiers.Ctrl, req.Modifiers.Meta, req.Modifiers.Shift)
+			}
+			return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+				return typeText(ctx, req.Text, mods, req.ClearFirst)
+			}))
+		}
 		return chromedp.Run(ctx, chromedp.KeyEvent(req.Text))
 
 	case protocol.ActionHover:
@@ -497,6 +510,42 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		// char (printable), keyUp with proper VK codes and modifier bits, so React
 		// apps and browser-native shortcuts actually respond.
 		return pressKeyCombo(ctx, req.KeyChord)
+
+	case protocol.ActionPressKey:
+		// Single-key presses (Tab, Enter, Escape, arrows, PageDown, Home, End,
+		// Backspace, ...) via real CDP input (item 15) — the primitive for
+		// pagination, form navigation and keyboard-driven flows.
+		var mods protocol.KeyboardModifiers
+		if req.Modifiers != nil {
+			mods = *req.Modifiers
+		}
+		return pressSingleKey(ctx, req.Key, mods)
+
+	case protocol.ActionFocus:
+		// Focus an element deterministically (item 15): click to place the caret
+		// ("caret"), click + select-all ("select_all"), or click + select-all +
+		// delete ("clear") so subsequent typing lands in a known state.
+		if req.Selector == nil {
+			return fmt.Errorf("focus requires selector")
+		}
+		mode := req.FocusMode
+		if mode == "" {
+			mode = "caret"
+		}
+		switch mode {
+		case "caret", "select_all", "clear":
+		default:
+			return fmt.Errorf("focus: unknown focus_mode %q (want caret, select_all or clear)", mode)
+		}
+		if _, err := e.focusElement(ctx, *req.Selector, mode, timeout); err != nil {
+			return err
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
 
 	case protocol.ActionExecuteJS:
 		if strings.TrimSpace(req.JS) == "" {
