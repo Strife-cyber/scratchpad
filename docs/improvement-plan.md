@@ -776,6 +776,8 @@ Every session launches a fresh, ephemeral Chrome. For real-world agent tasks —
 
 **The "log in once" workflow** — the #1 practical complaint with ephemeral automation. Persistent profiles make long-lived personal agents (auto-shopping, account maintenance) viable.
 
+- [x] DONE (wave W5, D5 — 842b84c protocol fields (`profile_dir`/`attach_port`/`session_persist` on session creation, `SessionInfo.Persistent`), 0083cc8 `engine.Options` profile/attach/persistent, 6886fa1 `chromedp.UserDataDir` + `RemoteAllocator` allocators + owned/attached lifecycle (`detachTarget` severs the chromedp target binding so an attached close never issues `target.CloseTarget`), c31e9bc persistent sessions exempt from idle reaping + `SessionInfo.Persistent` surfacing, 9a19694 `scratchpad-cli resume --profile <dir>`, be1b45d threading through HTTP body / WS query / MCP `session_create`; security implication: an attached browser exposes its profile to the session — item 35 covers auth)
+
 ---
 
 ## 23. Proxy, User-Agent, Locale & Color-Scheme Emulation
@@ -805,6 +807,8 @@ Geo-dependent testing and scraping need **proxies** (HTTP/SOCKS5, with auth); A/
 ### Impact
 
 **Geo/i18n testing parity.** Proxies alone unlock scraping markets and testing geo-gated features — high practical value for both agents and humans.
+
+- [x] DONE (wave W5, D5 — 842b84c `EmulationOptions` protocol + `session_update_emulation` action, 0083cc8 `engine.Options` UA/locale/timezone/color-scheme/proxy fields + `Options.Emulation()`, c8f92d0 `ApplyEmulation` via CDP `Emulation.setUserAgentOverride`/`setLocaleOverride`/`setTimezoneOverride`/`setEmulatedMedia` + Fetch-domain proxy-auth challenge handling + `session_update_emulation` action case + active overrides surfaced in `PageInfo.Extra` (`proxy_auth` masked), be1b45d MCP `browser_set_user_agent`/`browser_set_emulation` + threading through HTTP body / WS query / MCP `session_create`; caveats: `proxy_url` is allocator-level (`--proxy-server`) so it only takes effect at session creation, and a later `enable_network` replaces the Fetch config — re-send the emulation patch to re-assert proxy auth)
 
 ---
 
