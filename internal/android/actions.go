@@ -278,9 +278,69 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 		return nil
 
 	default:
-		if req.Action == "keyevent" {
-			_, err := runADB("shell", "input", "keyevent", req.Text)
+		switch req.Action {
+		case "keyevent":
+			// Raw keyevent passthrough; named keys ("home", "back", "enter", ...)
+			// are resolved to their Android keycodes for readability.
+			code := req.Text
+			if named, ok := androidKeyCode(req.Text); ok {
+				code = named
+			}
+			_, err := runADB("shell", "input", "keyevent", code)
 			return err
+
+		case protocol.ActionPressKey:
+			// press_key: named key → Android keyevent (item 15).
+			key := req.Key
+			code, ok := androidKeyCode(key)
+			if !ok {
+				return fmt.Errorf("android press_key: unknown key %q", key)
+			}
+			if _, err := runADB("shell", "input", "keyevent", code); err != nil {
+				return fmt.Errorf("android press_key %q: %w", key, err)
+			}
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   true,
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+			return nil
+
+		case protocol.ActionGetClipboard:
+			// get_clipboard: read device clipboard text (item 16).
+			text, err := getAndroidClipboard()
+			if err != nil {
+				return err
+			}
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   true,
+				ElapsedMS: time.Since(start).Milliseconds(),
+				ActionMetadata: map[string]any{
+					"text":      text,
+					"mime_type": "text/plain",
+				},
+			}
+			return nil
+
+		case protocol.ActionSetClipboard, protocol.ActionPaste:
+			// set_clipboard writes text to the device clipboard then pastes it
+			// into the focused/selected element; paste alone just pastes the
+			// current clipboard value (item 16).
+			if req.Action == protocol.ActionSetClipboard {
+				if err := setAndroidClipboard(req.Text); err != nil {
+					return err
+				}
+			}
+			if err := e.focusAndPaste(req.Selector); err != nil {
+				return fmt.Errorf("android %s: %w", req.Action, err)
+			}
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   true,
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+			return nil
 		}
 		return fmt.Errorf("android: unsupported action %q", req.Action)
 	}
