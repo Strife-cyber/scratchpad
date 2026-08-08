@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"scratchpad/internal/protocol"
@@ -676,6 +677,55 @@ func TestActionRequestRoundtrip(t *testing.T) {
 	}
 	if decoded.X != original.X || decoded.Y != original.Y {
 		t.Errorf("Coords: want (%d,%d), got (%d,%d)", original.X, original.Y, decoded.X, decoded.Y)
+	}
+}
+
+// TestActionRequestKeyboardClipboardRoundtrip verifies the item-15/16 fields
+// (key, modifiers, clear_first, focus_mode, mime_type) survive a JSON round-trip
+// so agents can drive press_key/focus/clipboard actions over WS and MCP.
+func TestActionRequestKeyboardClipboardRoundtrip(t *testing.T) {
+	original := protocol.ActionRequest{
+		Action:     protocol.ActionPressKey,
+		Key:        "PageDown",
+		Modifiers:  &protocol.KeyboardModifiers{Ctrl: true, Shift: true},
+		ClearFirst: true,
+		FocusMode:  "select_all",
+		MimeType:   "image/png",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	// Omitted fields stay out of the wire for the additive constants.
+	for _, absent := range []string{"target_id", "x", "text"} {
+		if strings.Contains(string(data), "\""+absent+"\"") {
+			t.Errorf("unexpected field %q in serialized request: %s", absent, data)
+		}
+	}
+
+	var decoded protocol.ActionRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if decoded.Action != original.Action {
+		t.Errorf("Action: want %q, got %q", original.Action, decoded.Action)
+	}
+	if decoded.Key != original.Key {
+		t.Errorf("Key: want %q, got %q", original.Key, decoded.Key)
+	}
+	if decoded.ClearFirst != original.ClearFirst {
+		t.Errorf("ClearFirst: want %v, got %v", original.ClearFirst, decoded.ClearFirst)
+	}
+	if decoded.FocusMode != original.FocusMode {
+		t.Errorf("FocusMode: want %q, got %q", original.FocusMode, decoded.FocusMode)
+	}
+	if decoded.MimeType != original.MimeType {
+		t.Errorf("MimeType: want %q, got %q", original.MimeType, decoded.MimeType)
+	}
+	if decoded.Modifiers == nil || !decoded.Modifiers.Ctrl || !decoded.Modifiers.Shift || decoded.Modifiers.Alt || decoded.Modifiers.Meta {
+		t.Errorf("Modifiers: want {Ctrl,Shift}, got %+v", decoded.Modifiers)
 	}
 }
 

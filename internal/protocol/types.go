@@ -290,6 +290,13 @@ const (
 	ActionMockNetworkResp   = "mock_network_response"
 	ActionBlockRequest      = "block_request"
 	ActionAssert            = "assert"
+
+	// Keyboard & clipboard actions (improvement-plan items 15/16).
+	ActionPressKey     = "press_key"
+	ActionFocus        = "focus"
+	ActionGetClipboard = "get_clipboard"
+	ActionSetClipboard = "set_clipboard"
+	ActionPaste        = "paste"
 )
 
 // ActionRequest represents a command from the AI agent.
@@ -339,6 +346,31 @@ type ActionRequest struct {
 
 	// KeyChord is used by "press_key_combo".
 	KeyChord KeyChord `json:"key_chord,omitempty"`
+
+	// Key is used by "press_key" to name a single key to press (Tab, Enter,
+	// Escape, ArrowDown, PageDown, Home, Backspace, ...). Single characters are
+	// also accepted ("s", "a").
+	Key string `json:"key,omitempty"`
+
+	// Modifiers holds the modifier keys pressed during an action. Used by "type"
+	// (type while holding the modifiers, e.g. typing after a Cmd+A select-all)
+	// and by "press_key"/"press_key_combo" to add modifiers to a single key.
+	Modifiers *KeyboardModifiers `json:"modifiers,omitempty"`
+
+	// ClearFirst, when true, clears the target's current value before "type"
+	// (select-all + delete via real key events) so the new text replaces the old
+	// instead of appending. Ignored by other actions.
+	ClearFirst bool `json:"clear_first,omitempty"`
+
+	// FocusMode is used by "focus": "caret" (default) clicks to place the caret
+	// at the click point, "select_all" clicks then selects all text in the
+	// field, "clear" clicks then clears the field's value.
+	FocusMode string `json:"focus_mode,omitempty"`
+
+	// MimeType is used by "get_clipboard"/"set_clipboard". "text/plain" (the
+	// default) reads/writes plain text; an image MIME (e.g. "image/png") reads
+	// the clipboard image as base64 and writes an image from base64 content.
+	MimeType string `json:"mime_type,omitempty"`
 
 	// Geolocation is used by "set_geolocation".
 	Geolocation *Geolocation `json:"geolocation,omitempty"`
@@ -440,6 +472,19 @@ type KeyChord struct {
 	Alt   bool   `json:"alt,omitempty"`
 	Shift bool   `json:"shift,omitempty"`
 	Meta  bool   `json:"meta,omitempty"`
+}
+
+// KeyboardModifiers describes which modifier keys are held while an action
+// runs (improvement-plan item 15). Unlike KeyChord it carries no primary key —
+// it is a modifier-only set used by the "type" and "press_key" actions so
+// agents can express shortcuts like Cmd+A, Ctrl+Shift+End or "type after
+// select-all" without synthetic JS KeyboardEvents. The engine maps these onto
+// CDP Input.dispatchKeyEvent modifier bits (Alt=1, Ctrl=2, Meta=4, Shift=8).
+type KeyboardModifiers struct {
+	Alt   bool `json:"alt,omitempty"`
+	Ctrl  bool `json:"ctrl,omitempty"`
+	Meta  bool `json:"meta,omitempty"`
+	Shift bool `json:"shift,omitempty"`
 }
 
 type Geolocation struct {
