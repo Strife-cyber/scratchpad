@@ -100,6 +100,20 @@ func (c *adbConn) runBytes(args ...string) ([]byte, error) {
 	return c.runner.runBytes(c.serial, args...)
 }
 
+// dumpHierarchyXML captures the UIAutomator2 view hierarchy in a SINGLE adb
+// invocation via exec-out (improvement-plan item 27): dump to the device file
+// then cat it in one shell script, halving the round-trips the old
+// dump-then-cat pair cost. The outer sh -c argument is wrapped in literal single
+// quotes so adb's argument joining hands the device shell one coherent script
+// ("sh -c '... && ...'"). On failure (uiautomator dump error) the && short-
+// circuits, cat never runs, and the body is empty — callers treat an empty body
+// as a failed dump. --compressed is deliberately NOT used: it omits the
+// bounds/state attributes the spatial-tree parser needs.
+func (c *adbConn) dumpHierarchyXML() ([]byte, error) {
+	return c.runner.runBytes(c.serial, "exec-out", "sh", "-c",
+		"'uiautomator dump /data/local/tmp/window_dump.xml >/dev/null 2>&1 && cat /data/local/tmp/window_dump.xml'")
+}
+
 // deviceInfo returns the device model, Android version, and screen size, each
 // fetched once and cached for the session. Used to enrich PageInfo.Extra in
 // detectScreenInfo (improvement-plan item 26). Best-effort: a failed probe

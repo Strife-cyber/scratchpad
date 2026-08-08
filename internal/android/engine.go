@@ -3,6 +3,7 @@
 package android
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
@@ -198,29 +199,25 @@ func (e *AndroidEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obs
 }
 
 func (e *AndroidEngine) dumpSpatialTree() ([]protocol.SpatialNode, error) {
-	// dumpMu serialises dump+cat to the shared device path: the background
-	// refresher and a synchronous Observe must not interleave their two commands
+	// dumpMu serialises dumps to the shared device path: the background
+	// refresher and a synchronous Observe must not interleave their commands
 	// (item 27).
 	e.dumpMu.Lock()
 	defer e.dumpMu.Unlock()
 
-	// Ask UIAutomator2 to dump the current view hierarchy to the device.
-	dumpOut, err := e.adb.run("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml")
+	// Single exec-out pipeline replaces the old dump-then-cat pair (item 27).
+	xmlData, err := e.adb.dumpHierarchyXML()
 	if err != nil {
 		return nil, fmt.Errorf("android: UI dump command failed: %w", err)
 	}
-	// uiautomator prints "UI hierchary dumped to: <path>" on success
-	if !strings.Contains(dumpOut, "dumped") {
-		return nil, fmt.Errorf("android: UI dump failed: %s", dumpOut)
-	}
-
-	xmlData, err := e.adb.run("shell", "cat", "/data/local/tmp/window_dump.xml")
-	if err != nil {
-		return nil, fmt.Errorf("android: read UI dump failed: %w", err)
+	// The sh -c script only cats the file when uiautomator dump succeeded; an
+	// empty body means the dump failed.
+	if len(bytes.TrimSpace(xmlData)) == 0 {
+		return nil, fmt.Errorf("android: UI dump failed: empty hierarchy")
 	}
 
 	var hierarchy protocol.Hierarchy
-	if err := xml.Unmarshal([]byte(xmlData), &hierarchy); err != nil {
+	if err := xml.Unmarshal(xmlData, &hierarchy); err != nil {
 		return nil, fmt.Errorf("android: XML parse failed: %w", err)
 	}
 

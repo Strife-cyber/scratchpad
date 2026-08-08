@@ -160,3 +160,29 @@ func TestDeviceInfo_BestEffortOnProbeFailure(t *testing.T) {
 		t.Errorf("expected empty device info on probe failure, got %q/%q/%q", model, version, screen)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// dumpHierarchyXML — single exec-out pipeline (improvement-plan item 27)
+// ---------------------------------------------------------------------------
+
+func TestDumpHierarchyXML_UsesSingleExecOutPipeline(t *testing.T) {
+	f := &fakeADB{out: map[string]string{
+		"emulator-5554 exec-out sh -c 'uiautomator dump /data/local/tmp/window_dump.xml >/dev/null 2>&1 && cat /data/local/tmp/window_dump.xml'": hierarchyXML,
+	}}
+	conn := newADBConn("emulator-5554", f)
+
+	out, err := conn.dumpHierarchyXML()
+	if err != nil {
+		t.Fatalf("dumpHierarchyXML: %v", err)
+	}
+	if string(out) != hierarchyXML {
+		t.Errorf("dumpHierarchyXML body mismatch (len %d, want %d)", len(out), len(hierarchyXML))
+	}
+
+	// Exactly ONE adb invocation replaces the old dump-then-cat pair.
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) != 1 {
+		t.Errorf("adb invoked %d times, want 1 (single pipeline)", len(f.calls))
+	}
+}

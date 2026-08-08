@@ -307,11 +307,12 @@ const hierarchyXML = `<?xml version="1.0" encoding="UTF-8"?>
 </hierarchy>`
 
 // fakeObserveADB returns canned output for every command an Observe triggers:
-// the dump+cat hierarchy pipeline, viewport, activity, and a PNG screenshot.
+// the single exec-out hierarchy pipeline, viewport, activity, and a PNG
+// screenshot.
 func fakeObserveADB() *fakeADB {
 	return &fakeADB{out: map[string]string{
-		"shell uiautomator dump /data/local/tmp/window_dump.xml": "UI hierchary dumped to: /data/local/tmp/window_dump.xml",
-		"shell cat /data/local/tmp/window_dump.xml":              hierarchyXML,
+		// Matches adbConn.dumpHierarchyXML's exec-out pipeline.
+		"exec-out sh -c 'uiautomator dump /data/local/tmp/window_dump.xml >/dev/null 2>&1 && cat /data/local/tmp/window_dump.xml'": hierarchyXML,
 		"shell wm size":                 "Physical size: 1080x2400\n",
 		"shell dumpsys window displays": "mCurrentFocus=Window{abc u0 com.example/.MainActivity}",
 	}}
