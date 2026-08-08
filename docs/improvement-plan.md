@@ -561,6 +561,8 @@ While reading the code I found several shipped-but-broken surfaces that actively
 
 **Fixes silent breakage.** Keyboard-driven flows (forms with autocomplete, shortcuts, virtual keyboards) are everywhere in SaaS apps; synthetic events currently make Scratchpad *appear* to work while the app ignores it.
 
+- [x] DONE (wave D2 — a041d5c `ActionPressKey`/`ActionFocus` + `KeyboardModifiers` + `clear_first`/`focus_mode` fields, 1bca7eb `press_key_combo` rewritten to real CDP `Input.dispatchKeyEvent` keyDown/char/keyUp with VK codes + modifier bits, 5a66d3e `press_key` + `focus` actions with `pressSingleKey`/`focusElement`/`clickAt`, type `modifiers`/`clear_first` support, 5a13195 Android named-key mapping (home/back/recents/enter/arrows/pageup/... → KEYCODE_*), c8ab668 MCP `browser_press_key`/`browser_focus`)
+
 ---
 
 ## 16. Clipboard Read/Write
@@ -588,6 +590,8 @@ Agents frequently need to copy a value (an OTP, a token, a generated string) or 
 ### Impact
 
 **Unlocks the OTP flow** — the single most common real-world auth pattern agents struggle with. Small feature, outsized agent success rate.
+
+- [x] DONE (wave D2 — a041d5c `ActionGetClipboard`/`ActionSetClipboard`/`ActionPaste` + `MimeType` field, cf98dfe browser get/set/paste via `navigator.clipboard` read/write (images as base64 via `Clipboard.read`) with `document.execCommand('copy'/'paste')` fallbacks + real Cmd+V/Ctrl+V key-event paste, 5a13195 Android `cmd clipboard get-text`/`set-text` + KEYCODE_PASTE (Android 10+), c8ab668 MCP `browser_clipboard_get`/`browser_clipboard_set`/`browser_paste` with clipboard contents surfaced in responses)
 
 ---
 
