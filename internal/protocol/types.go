@@ -31,6 +31,21 @@ const (
 	// (improvement-plan item 31). The data payload is a SetContextRequest; after
 	// the switch the session's subsequent actions target that context's engine.
 	MsgTypeSetContext = "set_context"
+
+	// MsgTypeSubscribeEvents opts a WS connection into (or out of) unsolicited
+	// event pushes (improvement-plan item 34). Data is a SubscribeEventsRequest.
+	// Off by default so request/response clients (the MCP bridge) never see
+	// unsolicited frames.
+	MsgTypeSubscribeEvents = "subscribe_events"
+
+	// MsgTypeEvent is pushed by the server on a connection whose client
+	// subscribed via MsgTypeSubscribeEvents. Its Data is a serialized Event.
+	MsgTypeEvent = "event"
+
+	// MsgTypeWaitEvent waits (up to a timeout) for an event matching a type and
+	// optional predicate, then returns it (improvement-plan item 34). Data is a
+	// WaitEventRequest; the reply is a WaitEventResponse.
+	MsgTypeWaitEvent = "wait_event"
 )
 
 // Envelope wraps every message with an explicit type discriminator.
@@ -59,6 +74,76 @@ type CloseSessionRequest struct {
 // and reject switches with a clean error.
 type SetContextRequest struct {
 	Context string `json:"context,omitempty"`
+}
+
+// =============================================================================
+// Event bus + push (improvement-plan item 34)
+// =============================================================================
+
+// Event type constants for the per-session EventBus and its push transports
+// (SSE / WS). Each maps to a typed payload in the Event.Data field.
+const (
+	// EventNavigation fires when the top page (or an iframe) navigates: a full
+	// frame navigation or an SPA pushState/hashchange within the document.
+	EventNavigation = "navigation"
+	// EventConsole fires for every console API call (log/warn/error/...).
+	EventConsole = "console"
+	// EventDialog fires when a JavaScript dialog opens or closes.
+	EventDialog = "dialog"
+	// EventTargetCreated / EventTargetDestroyed fire when a page target
+	// (tab/window) is created or destroyed.
+	EventTargetCreated   = "target_created"
+	EventTargetDestroyed = "target_destroyed"
+	// EventNetworkRequest fires when the browser is about to send a request;
+	// EventNetworkResponse fires when a response is received.
+	EventNetworkRequest  = "network_request"
+	EventNetworkResponse = "network_response"
+	// EventDownload fires on download lifecycle progress (willBegin / progress /
+	// completed / cancelled).
+	EventDownload = "download"
+	// EventCrash fires when a renderer/target crashes.
+	EventCrash = "crash"
+	// EventObserveComplete fires after every successful observation, giving
+	// subscribers a "the page changed, re-check" tick.
+	EventObserveComplete = "observe_complete"
+)
+
+// Event is one typed event published on a session's EventBus. The bus stamps
+// ID (monotonic per bus) and Timestamp; Type names the event kind and Data
+// holds the per-type payload as raw JSON (a map or a small struct).
+type Event struct {
+	ID        int64           `json:"id"`
+	Type      string          `json:"type"`
+	Timestamp time.Time       `json:"timestamp"`
+	SessionID string          `json:"session_id,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+}
+
+// SubscribeEventsRequest opts a WS connection into/out of unsolicited event
+// pushes. Subscribe=false (the default) is the request/response mode used by
+// the MCP bridge; enabling it makes the server push every session event as a
+// MsgTypeEvent envelope.
+type SubscribeEventsRequest struct {
+	Subscribe bool `json:"subscribe,omitempty"`
+}
+
+// WaitEventRequest asks the server to wait for an event matching a type and an
+// optional predicate. Event is one of the Event* constants; empty matches any
+// type. Predicate, when non-empty, must be a JSON object whose fields must all
+// be present with equal values in the event's Data payload. TimeoutMS bounds
+// the wait (0 = default 30s).
+type WaitEventRequest struct {
+	Event     string `json:"event,omitempty"`
+	Predicate string `json:"predicate,omitempty"`
+	TimeoutMS int    `json:"timeout_ms,omitempty"`
+}
+
+// WaitEventResponse is the reply to MsgTypeWaitEvent. On success Event carries
+// the first matching event; on timeout TimedOut is true and Event is zero.
+type WaitEventResponse struct {
+	Type     string `json:"type"`
+	Event    Event  `json:"event,omitempty"`
+	TimedOut bool   `json:"timed_out,omitempty"`
 }
 
 // SessionInfo describes one live session for session_list / session_snapshot.
