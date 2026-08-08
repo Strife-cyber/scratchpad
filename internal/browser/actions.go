@@ -493,11 +493,10 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		return nil
 
 	case protocol.ActionPressKeyCombo:
-		// press_key_combo currently dispatches synthetic JS KeyboardEvents, which
-		// many SPAs ignore for shortcuts and native key handling never fires.
-		// Rather than report fake success, return a typed unsupported error that
-		// points at the real fix (item 15: CDP Input.dispatchKeyEvent).
-		return fmt.Errorf("%w: press_key_combo dispatches only synthetic JS KeyboardEvents; real key dispatch lands with improvement-plan item 15", protocol.ErrUnsupported)
+		// Real keyboard events via CDP Input.dispatchKeyEvent (item 15): keyDown,
+		// char (printable), keyUp with proper VK codes and modifier bits, so React
+		// apps and browser-native shortcuts actually respond.
+		return pressKeyCombo(ctx, req.KeyChord)
 
 	case protocol.ActionExecuteJS:
 		if strings.TrimSpace(req.JS) == "" {

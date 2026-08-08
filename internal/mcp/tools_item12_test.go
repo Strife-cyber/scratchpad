@@ -44,11 +44,11 @@ func TestItem12ToolTable(t *testing.T) {
 		t.Errorf("browser_switch_to_main_frame action = %q, want %q", mainFrame.action, protocol.ActionSwitchToMainFrame)
 	}
 
-	// Stub descriptions must be honest: point at the item that lands the real fix
-	// rather than implying the tool works today.
+	// press_key_combo landed as real CDP Input key dispatch (item 15): the
+	// description must no longer mark it a stub.
 	press := findToolDef(t, defs, "browser_press_key_combo")
-	if press == nil || !strings.Contains(press.description, "item 15") {
-		t.Errorf("browser_press_key_combo description should mark the stub and reference item 15: %q", press.description)
+	if press == nil || strings.Contains(strings.ToUpper(press.description), "STUB") {
+		t.Errorf("browser_press_key_combo description should no longer mark the tool a stub: %q", press.description)
 	}
 	iframe := findToolDef(t, defs, "browser_switch_to_iframe")
 	if iframe == nil || !strings.Contains(strings.ToLower(iframe.description), "stub") {

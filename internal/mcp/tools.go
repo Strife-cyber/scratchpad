@@ -181,9 +181,9 @@ type SelectOptionArgs struct {
 	TimeoutMS   int                `json:"timeout_ms,omitempty"`
 }
 
-// PressKeyComboArgs dispatches a keyboard shortcut (e.g. ctrl+s, shift+tab).
-// Note: these are synthetic JS KeyboardEvents — see improvement-plan item 15
-// for real CDP input work.
+// PressKeyComboArgs dispatches a keyboard shortcut (e.g. ctrl+s, shift+tab)
+// via real CDP Input.dispatchKeyEvent (item 15), which React and other SPAs
+// that ignore synthetic JS KeyboardEvents respond to.
 type PressKeyComboArgs struct {
 	Key   string `json:"key"`
 	Ctrl  bool   `json:"ctrl,omitempty"`
@@ -431,7 +431,7 @@ func (s *Server) toolDefs() []toolDef {
 		actionTool(s, "browser_select_option", "Select an option from a <select> by option_value or option_text.\n\nExample: browser_select_option with {\"selector\":{\"css\":\"#country\"},\"option_value\":\"US\"} selects the US option.", func(a SelectOptionArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionSelectOption, Selector: a.Selector, OptionValue: a.OptionValue, OptionText: a.OptionText, TimeoutMS: a.TimeoutMS}
 		}),
-		actionTool(s, "browser_press_key_combo", "Dispatch a keyboard shortcut. STUB: returns a typed unsupported error — the previous synthetic JS KeyboardEvents were unreliable (many SPAs ignore them); real CDP Input key dispatch lands with improvement-plan item 15.\n\nExample: browser_press_key_combo with {\"key\":\"s\",\"ctrl\":true} would press Ctrl+S once item 15 lands.", func(a PressKeyComboArgs) protocol.ActionRequest {
+		actionTool(s, "browser_press_key_combo", "Dispatch a keyboard shortcut via real CDP Input key events (keyDown/char/keyUp with proper key codes and modifier bits). Works with React and other SPAs that ignore synthetic JS KeyboardEvents, and triggers browser-native shortcuts (Ctrl+L, paste, tab navigation). key accepts a named key (\"Enter\", \"Tab\", \"Escape\", \"ArrowDown\", \"PageDown\", ...) or a single character.\n\nExample: browser_press_key_combo with {\"key\":\"s\",\"ctrl\":true} presses Ctrl+S (save).", func(a PressKeyComboArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{
 				Action:   protocol.ActionPressKeyCombo,
 				KeyChord: protocol.KeyChord{Key: a.Key, Ctrl: a.Ctrl, Alt: a.Alt, Shift: a.Shift, Meta: a.Meta},
