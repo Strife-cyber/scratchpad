@@ -198,6 +198,14 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 		Limits:           m.limits,
 	}
 
+	// Android sessions learn their session id so screen recording / logcat
+	// artifacts default to <trace>/sessions/<session>/ (improvement-plan item 30).
+	if kind == engine.KindAndroid {
+		if s, ok := eng.(interface{ SetSession(string) }); ok {
+			s.SetSession(id)
+		}
+	}
+
 	// Browser sessions get an action timeline recorder so every step is
 	// captured to an append-only JSONL stream. A recorder failure (e.g. an
 	// unwritable trace dir) must not prevent the session from being created.

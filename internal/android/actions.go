@@ -220,6 +220,70 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 		}
 		return nil
 
+	case protocol.ActionStartRecording:
+		local, err := e.startScreenRecording(req.Record)
+		if err != nil {
+			return err
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+			ActionMetadata: map[string]any{
+				"path": local,
+			},
+		}
+		return nil
+
+	case protocol.ActionStopRecording:
+		data, local, err := e.stopScreenRecording()
+		if err != nil {
+			return err
+		}
+		e.treeCache.invalidate() // stop_recording itself doesn't change the screen
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+			ActionMetadata: map[string]any{
+				"path": local,
+				"size": len(data),
+			},
+		}
+		return nil
+
+	case protocol.ActionStartLogcat:
+		local, err := e.startLogcat(req.Record)
+		if err != nil {
+			return err
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+			ActionMetadata: map[string]any{
+				"path": local,
+			},
+		}
+		return nil
+
+	case protocol.ActionStopLogcat:
+		local, tail, err := e.stopLogcat()
+		if err != nil {
+			return err
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+			ActionMetadata: map[string]any{
+				"path":      local,
+				"tail":      tail,
+				"log_lines": len(strings.Split(strings.TrimSpace(tail), "\n")),
+			},
+		}
+		return nil
+
 	case protocol.ActionAppInstall:
 		if req.Path == "" {
 			return fmt.Errorf("android app_install: path or URL is required")

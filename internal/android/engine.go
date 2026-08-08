@@ -56,6 +56,24 @@ type AndroidEngine struct {
 	navMu            sync.Mutex
 	navigationID     int64
 	lastSeenActivity string
+
+	// Recording / logcat state (improvement-plan item 30). recMu guards the
+	// flags and artifact paths; the screenrecord/logcat processes run on the
+	// device and are stopped on Close via stopBackgroundCapture.
+	recMu             sync.Mutex
+	recordingActive   bool
+	recordingDevPath  string
+	recordingLocal    string
+	logcatActive      bool
+	logcatDevPath     string
+	logcatLocal       string
+	lastRecordingPath string
+	lastLogcatPath    string
+	lastLogcatTail    string
+
+	// sessionID is set by SetSession (wired from the sandbox) so recording and
+	// logcat artifacts can default to <trace>/sessions/<session>/ (item 30).
+	sessionID string
 }
 
 // NewAndroidEngine returns a ready-to-use AndroidEngine with no pinned device:
@@ -100,12 +118,24 @@ func newAndroidEngineWithConn(conn *adbConn) *AndroidEngine {
 	return e
 }
 
-// Close stops the background tree refresher. ADB commands are stateless
-// per-command, so there is nothing else to tear down.
+// SetSession binds the engine to its sandbox session id so recording / logcat
+// artifacts default under <trace>/sessions/<session>/ (improvement-plan item 30).
+// It is wired from sandbox.CreateSession for android sessions; tests and direct
+// construction may leave it unset (paths then fall back to <trace>/sessions/unknown).
+func (e *AndroidEngine) SetSession(id string) {
+	e.recMu.Lock()
+	e.sessionID = id
+	e.recMu.Unlock()
+}
+
+// Close stops the background tree refresher and best-effort stops any in-flight
+// screenrecord / logcat on the device. ADB commands are stateless per-command,
+// so there is nothing else to tear down.
 func (e *AndroidEngine) Close() {
 	if e.treeCache != nil {
 		e.treeCache.stopBackgroundRefresh()
 	}
+	e.stopBackgroundCapture()
 }
 
 // AddListener registers a handler that receives Android platform events.
@@ -358,6 +388,9 @@ func (e *AndroidEngine) detectScreenInfo(spatialTree []protocol.SpatialNode) *pr
 			extra["screen_size"] = screen
 		}
 	}
+	// Surface the screen recording / logcat artifact paths and logcat tail so
+	// agents and humans can find the artifacts from the observation (item 30).
+	e.attachRecordingExtras(extra)
 
 	return &protocol.PageInfo{
 		URL:          url,
