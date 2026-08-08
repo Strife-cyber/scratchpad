@@ -25,6 +25,14 @@ func (h *handler) GetEvents(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
+	// Capability isolation (improvement-plan item 35): the SSE stream requires
+	// the session's owner secret, passed as a query parameter (EventSource
+	// cannot set headers). A session with no capability is openly streamable.
+	if !sess.CheckCapability(r.URL.Query().Get("capability")) {
+		writeErrorStatus(w, r, http.StatusForbidden, fmt.Errorf("session %q requires its owner capability", id))
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeErrorStatus(w, r, http.StatusInternalServerError, fmt.Errorf("streaming unsupported by this connection"))

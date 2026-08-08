@@ -32,6 +32,13 @@ type Manager struct {
 	// session churn without the sandbox package depending on them.
 	sessionCreated   func(sessionID string)
 	sessionDestroyed func(sessionID string)
+
+	// requireCap enables per-session capability isolation (improvement-plan item
+	// 35): every created session gets a random owner secret returned in the
+	// handshake / HTTP create response, and re-attach + the SSE stream require it.
+	// Set by the server when a token is configured and shared sessions are not
+	// explicitly allowed. Off by default so loopback dev mode stays fully shared.
+	requireCap bool
 }
 
 // NewManager returns an empty Manager ready to create sessions. Per-session
@@ -84,6 +91,30 @@ func (m *Manager) SetCleanupInterval(d time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cleanupInterval = d
+}
+
+// SetRequireSessionCapability toggles per-session capability isolation
+// (improvement-plan item 35). When enabled, sessions created from now on carry
+// a random owner secret that re-attach and the SSE stream must present.
+func (m *Manager) SetRequireSessionCapability(enabled bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requireCap = enabled
+}
+
+// RequireSessionCapability reports whether per-session capability isolation is
+// enabled.
+func (m *Manager) RequireSessionCapability() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.requireCap
+}
+
+// capRequired is the lock-free read used inside session-creation paths.
+func (m *Manager) capRequired() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.requireCap
 }
 
 // SetSessionCreatedHook registers a callback invoked with the session ID after

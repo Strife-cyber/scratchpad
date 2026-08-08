@@ -90,9 +90,14 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"sessionId": sess.ID,
-	})
+	// Under capability isolation (improvement-plan item 35) the response also
+	// carries the session's owner secret, which the creator must present to
+	// re-attach via WS or to open the SSE stream.
+	resp := map[string]any{"sessionId": sess.ID}
+	if sess.Capability != "" {
+		resp["capability"] = sess.Capability
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // toOptions maps the HTTP create-session body onto engine.Options, threading the

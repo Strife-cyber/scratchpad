@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"scratchpad/internal/engine"
 	"scratchpad/internal/protocol"
 	"scratchpad/internal/sandbox"
 )
@@ -110,6 +111,52 @@ func TestGetEvents_LastEventIDResume(t *testing.T) {
 	}
 	if !strings.Contains(body, "id: 2") {
 		t.Errorf("missing event id 2 (should be replayed)\nbody:\n%s", body)
+	}
+}
+
+// TestGetEvents_CapabilityRequired verifies that under capability isolation
+// (item 35) the SSE stream refuses a request that does not present the session's
+// owner secret, and accepts the correct one. The secret is passed as a query
+// parameter because EventSource cannot set headers.
+func TestGetEvents_CapabilityRequired(t *testing.T) {
+	registerFakeEngine(t)
+	mgr := sandbox.NewManager()
+	mgr.SetRequireSessionCapability(true)
+	sess, err := mgr.CreateSession(fakeKind, engine.Options{})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if sess.Capability == "" {
+		t.Fatal("expected a capability under isolation")
+	}
+
+	// Missing / wrong capability: 403 before any stream bytes.
+	for _, path := range []string{
+		"/sessions/" + sess.ID + "/events",
+		"/sessions/" + sess.ID + "/events?capability=wrong",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		NewRouter(mgr).ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s: status: want 403, got %d", path, rec.Code)
+		}
+	}
+
+	// Correct capability: the stream opens (200 + event-stream content type).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/sessions/"+sess.ID+"/events?capability="+sess.Capability, nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		NewRouter(mgr).ServeHTTP(rec, req)
+	}()
+	cancel()
+	<-done
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
 	}
 }
 

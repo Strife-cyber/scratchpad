@@ -211,6 +211,69 @@ func TestDeleteSession_ClosesEngine(t *testing.T) {
 	}
 }
 
+// TestCapabilityIsolation verifies item-35 per-session ownership: with
+// RequireSessionCapability enabled every session gets a unique non-empty owner
+// secret, and CheckCapability accepts only the exact secret. With isolation off
+// sessions carry no capability and are always accessible.
+func TestCapabilityIsolation(t *testing.T) {
+	// Off by default: no capability, always accessible.
+	m := sandbox.NewManager()
+	s, err := m.CreateSession(testEngineKind, engine.Options{})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if s.Capability != "" {
+		t.Errorf("capability set with isolation off: %q", s.Capability)
+	}
+	if !s.CheckCapability("anything") {
+		t.Error("session with no capability should be accessible to any caller")
+	}
+	if err := m.DeleteSession(s.ID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	if m.RequireSessionCapability() {
+		t.Error("RequireSessionCapability should report false by default")
+	}
+
+	// On: sessions get unique secrets and CheckCapability is strict.
+	m2 := sandbox.NewManager()
+	m2.SetRequireSessionCapability(true)
+	s1, err := m2.CreateSession(testEngineKind, engine.Options{})
+	if err != nil {
+		t.Fatalf("create session 1: %v", err)
+	}
+	s2, err := m2.CreateSession(testEngineKind, engine.Options{})
+	if err != nil {
+		t.Fatalf("create session 2: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = m2.DeleteSession(s1.ID)
+		_ = m2.DeleteSession(s2.ID)
+	})
+
+	if !m2.RequireSessionCapability() {
+		t.Error("RequireSessionCapability should report true after enabling")
+	}
+	if s1.Capability == "" {
+		t.Error("expected a non-empty capability with isolation on")
+	}
+	if s1.Capability == s2.Capability {
+		t.Error("capabilities must be unique per session")
+	}
+	if !s1.CheckCapability(s1.Capability) {
+		t.Error("the correct capability must match")
+	}
+	if s1.CheckCapability(s2.Capability) {
+		t.Error("another session's capability must not match")
+	}
+	if s1.CheckCapability("") {
+		t.Error("an empty capability must not match a set one")
+	}
+	if s1.CheckCapability("wrong") {
+		t.Error("a wrong capability must not match")
+	}
+}
+
 // TestStartCleanupLoop_SkipsBusySession verifies the in-flight guard (item
 // 33.3): a session with an active action is never reaped by idle cleanup, even
 // when it has long since exceeded the idle timeout.

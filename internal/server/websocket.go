@@ -209,8 +209,14 @@ func (ws *wsSession) run(connStart time.Time) {
 	// WebSocket handshake: send session ID as the first message so external
 	// clients (including the MCP bridge) can bind to a session. A client may
 	// immediately reply with {"sessionId":"..."} to attach to an existing
-	// session instead of this fresh one.
-	if err := ws.writeJSON(map[string]string{"sessionId": ws.session.ID}); err != nil {
+	// session instead of this fresh one. Under capability isolation (item 35)
+	// the handshake also carries the fresh session's owner secret so its
+	// creator can prove ownership on a later re-attach.
+	hs := map[string]any{"sessionId": ws.session.ID}
+	if ws.session.Capability != "" {
+		hs["capability"] = ws.session.Capability
+	}
+	if err := ws.writeJSON(hs); err != nil {
 		slog.Warn("websocket: handshake failed",
 			"session_id", ws.session.ID, "request_id", ws.reqID, "err", err)
 		return
@@ -324,10 +330,13 @@ func (ws *wsSession) reader() {
 
 // tryAttach handles the optional first client message {"sessionId":"..."} that
 // binds the connection to an existing session instead of the freshly-created
-// one. Returns true when the message was consumed as an attach request.
+// one. Returns true when the message was consumed as an attach request. Under
+// capability isolation (item 35) the attach must also present the session's
+// owner secret; re-attaching without it is refused with a clean error.
 func (ws *wsSession) tryAttach(msg []byte) bool {
 	var attach struct {
-		SessionID string `json:"sessionId"`
+		SessionID  string `json:"sessionId"`
+		Capability string `json:"capability,omitempty"`
 	}
 	if err := json.Unmarshal(msg, &attach); err != nil || attach.SessionID == "" {
 		return false
@@ -336,6 +345,15 @@ func (ws *wsSession) tryAttach(msg []byte) bool {
 	target, ok := ws.mgr.GetSession(attach.SessionID)
 	if !ok {
 		ws.writeError(errorResponse(fmt.Errorf("attach: session %q not found", attach.SessionID),
+			ws.reqID, protocol.ErrorLevelAction, "", nil))
+		return true
+	}
+
+	// Capability isolation: only the session's creator (who holds the secret)
+	// may re-attach. A mismatched or missing secret is a clean refusal, not a
+	// leak of whether the session exists.
+	if !target.CheckCapability(attach.Capability) {
+		ws.writeError(errorResponse(fmt.Errorf("attach: session %q requires its owner capability", attach.SessionID),
 			ws.reqID, protocol.ErrorLevelAction, "", nil))
 		return true
 	}

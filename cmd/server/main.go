@@ -40,6 +40,16 @@ func main() {
 		"downscale observations' screenshots to this many encoded bytes (0 = unlimited)")
 	observeThrottleMS := flag.Int("observe-throttle-ms", 0,
 		"minimum spacing between observations on a session (ms; 0 = unlimited)")
+	bindFlag := flag.String("bind", "",
+		"listen address host:port (default "+defaultBind+"; overrides SCRATCHPAD_BIND; non-loopback requires a token or --allow-shared-sessions)")
+	tokenFlag := flag.String("token", "",
+		"bearer token required on all /api, /ws, /docs, /trace_viewer routes (overrides SCRATCHPAD_TOKEN; empty = auth off)")
+	corsFlag := flag.String("cors", "",
+		"comma-separated list of allowed CORS origins for browser-based UIs (overrides SCRATCHPAD_CORS_ORIGINS)")
+	certFile := flag.String("cert", "", "TLS certificate (PEM); requires --key to enable https")
+	keyFile := flag.String("key", "", "TLS private key (PEM); requires --cert to enable https")
+	allowShared := flag.Bool("allow-shared-sessions", false,
+		"allow sessions to be shared across all authenticated clients and permit non-loopback binds without a token (opt-out of per-session capability isolation)")
 	flag.Parse()
 
 	// Configure the process-wide structured logger.
@@ -107,48 +117,95 @@ func main() {
 		)
 	}
 
-	mux := http.NewServeMux()
+	// ---- Auth, binding, and hardening (improvement-plan item 35) ----------
+	token := resolveToken(*tokenFlag, os.Getenv("SCRATCHPAD_TOKEN"))
 
-	// /docs — Swagger UI; /swagger.json and /openapi.json — OpenAPI spec
-	mux.HandleFunc("/docs", docs.Handler)
-	mux.HandleFunc("/swagger.json", docs.Handler)
-	mux.HandleFunc("/openapi.json", docs.Handler)
+	bindAddr, err := resolveBind(*bindFlag, os.Getenv(bindEnv))
+	if err != nil {
+		logger.Error("Invalid bind address", "err", err)
+		os.Exit(1)
+	}
+	if warn, err := validateBind(bindAddr, token, *allowShared); err != nil {
+		logger.Error("Refusing to start", "err", err)
+		os.Exit(1)
+	} else if warn != "" {
+		logger.Warn("Network exposure", "warning", warn)
+	}
 
-	// /trace_viewer — self-contained .spz trace viewer (improvement-plan item 24)
-	mux.HandleFunc("/trace_viewer", docs.TraceViewer)
+	// Per-session capability isolation: when a token is configured and sessions
+	// are not explicitly shared, each session gets an owner secret returned in
+	// the WS handshake / HTTP create response, and re-attach + the SSE stream
+	// require it — only the creator may drive a session.
+	if token != "" && !*allowShared {
+		mgr.SetRequireSessionCapability(true)
+		logger.Info("Per-session capability isolation enabled",
+			"note", "sessions are owned by their creator; re-attach and the SSE stream require the session secret")
+	} else if token != "" {
+		logger.Warn("Shared sessions",
+			"note", "--allow-shared-sessions set: any authenticated client may drive any session")
+	}
 
-	// /healthz — JSON readiness probe with per-engine session status.
-	mux.HandleFunc("/healthz", healthzHandler(mgr))
+	// Operational probes stay public so liveness/readiness and metrics scraping
+	// need no credentials; everything else (docs, api, ws, trace viewer) sits
+	// behind auth. CORS runs before auth so preflight OPTIONS from allowed
+	// origins short-circuit without carrying a token.
+	outer := http.NewServeMux()
+	outer.HandleFunc("/healthz", healthzHandler(mgr))
+	outer.HandleFunc("/metrics", server.MetricsHandler)
+	outer.HandleFunc("/version", versionHandler)
 
-	// /metrics — Prometheus text exposition of action/observe/churn/error counts.
-	mux.HandleFunc("/metrics", server.MetricsHandler)
+	protected := http.NewServeMux()
+	protected.HandleFunc("/docs", docs.Handler)
+	protected.HandleFunc("/swagger.json", docs.Handler)
+	protected.HandleFunc("/openapi.json", docs.Handler)
+	protected.HandleFunc("/trace_viewer", docs.TraceViewer)
+	protected.Handle("/api/v1/", http.StripPrefix("/api/v1", apiHandler))
+	protected.HandleFunc("/ws", server.HandleWS(mgr, engine.KindChrome, wsOpts))
+	protected.HandleFunc("/ws/android", server.HandleWS(mgr, engine.KindAndroid, wsOpts))
 
-	// /version — build info.
-	mux.HandleFunc("/version", versionHandler)
+	// ServeMux prefers the longest matching pattern, so the three probe paths
+	// resolve to their handlers and every other path falls through to the
+	// authenticated, CORS-aware protected mux.
+	outer.Handle("/", corsMiddleware(corsOrigins(*corsFlag, os.Getenv("SCRATCHPAD_CORS_ORIGINS")))(middleware.Auth(token, protected)))
 
-	// /api/v1 — Phase 0 HTTP API for session lifecycle and basic actions.
-	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", apiHandler))
+	// Request-ID stamps every request (HTTP + WS upgrade) with a correlation id
+	// echoed in X-Request-ID and threaded onto error envelopes.
+	httpHandler := middleware.RequestID(outer)
 
-	// /ws  — Chrome CDP driver (default for web agents)
-	mux.HandleFunc("/ws", server.HandleWS(mgr, engine.KindChrome, wsOpts))
+	// http.Server hygiene (item 35): bounded read/idle timeouts and a header cap.
+	// WriteTimeout is 0 because long-lived SSE event streams must not be killed
+	// by a fixed write deadline.
+	srv := &http.Server{
+		Addr:           bindAddr,
+		Handler:        httpHandler,
+		ReadTimeout:    15 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+	}
 
-	// /ws/android — Android UIAutomator2 driver (stub, ready for the next phase)
-	mux.HandleFunc("/ws/android", server.HandleWS(mgr, engine.KindAndroid, wsOpts))
-
-	// Request-ID middleware stamps every request (HTTP + WS upgrade) with a
-	// correlation id echoed in X-Request-ID and threaded onto error envelopes.
-	httpHandler := middleware.RequestID(mux)
-
-	port := ":8080"
 	logger.Info("Listening",
-		"port", port,
-		"docs", "http://localhost"+port+"/docs",
-		"ws", "ws://localhost"+port+"/ws",
-		"ws_android", "ws://localhost"+port+"/ws/android",
-		"metrics", "http://localhost"+port+"/metrics",
+		"addr", bindAddr,
+		"docs", "http://localhost/docs",
+		"ws", "ws://localhost/ws",
+		"ws_android", "ws://localhost/ws/android",
+		"metrics", "http://localhost/metrics",
+		"auth", token != "",
 	)
 
-	if err := http.ListenAndServe(port, httpHandler); err != nil {
+	// TLS mode requires both --cert and --key; otherwise plain HTTP.
+	if *certFile != "" || *keyFile != "" {
+		if *certFile == "" || *keyFile == "" {
+			logger.Error("TLS requires both --cert and --key")
+			os.Exit(1)
+		}
+		logger.Info("TLS enabled", "cert", *certFile)
+		if err := srv.ListenAndServeTLS(*certFile, *keyFile); err != nil {
+			logger.Error("Server crashed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		logger.Error("Server crashed", "err", err)
 		os.Exit(1)
 	}
