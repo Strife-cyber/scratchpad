@@ -1130,6 +1130,8 @@ Three concurrency defects today:
 
 ## 34. Engine Event Bus + Push
 
+- [x] DONE (wave W7, F1 — a7fc068 per-session EventBus (ring buffer, drop-on-overflow, monotonic ids) + typed event constants, a504103 CDP→typed translation via `AddListener` + `observe_complete` ticks, 91de438 `GET /sessions/{id}/events` SSE stream (replay + Last-Event-ID) + opt-in WS push channel, b576973 MCP `browser_wait_for_event` tool)
+
 ### What & Why
 
 Everything is request/response today. Real-time signal (page navigation started, dialog appeared, console error, network request failed, download finished) arrives only when the agent next calls `observe`. Playwright surfaces these as events; agents that could subscribe would stop polling and start reacting.
@@ -1158,6 +1160,8 @@ Everything is request/response today. Real-time signal (page navigation started,
 ---
 
 ## 35. Auth, Binding, and Server Hardening
+
+- [x] DONE (wave W7, F1 — c246f44 bearer-token auth middleware (crypto/subtle, header or `?token=`), 799e52e loopback-default bind + `SCRATCHPAD_BIND` refusal of non-loopback without token/`--allow-shared-sessions`, per-session capability isolation (owner secret in handshake/HTTP create; required to re-attach and to open the SSE stream), `http.Server` timeouts + header cap, CORS allow-list, `--cert`/`--key` TLS; caveats: CLI/MCP bridge do not yet send tokens/capabilities in secured mode, and HTTP session-addressed routes remain shared among token holders)
 
 ### What & Why
 
