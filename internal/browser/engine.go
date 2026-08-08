@@ -1305,11 +1305,18 @@ func (e *ChromeEngine) StopTracing() ([]byte, string, error) {
 	}
 	outPath := e.tracingOutput
 	doneCh := e.tracingDoneCh
-	e.tracingActive = false
+	// tracingActive is deliberately left true while we wait: the
+	// tracingComplete listener treats it as a "still live" guard, so clearing
+	// it here would make the listener drop the completion event and the stop
+	// would always hang into the timeout. It is cleared on every exit path
+	// below (error, timeout, or successful capture).
 	e.tracingMu.Unlock()
 
 	// Stop trace collection.
 	if err := chromedp.Run(e.ctx, tracing.End()); err != nil {
+		e.tracingMu.Lock()
+		e.tracingActive = false
+		e.tracingMu.Unlock()
 		return nil, outPath, fmt.Errorf("tracing end: %w", err)
 	}
 
@@ -1319,39 +1326,47 @@ func (e *ChromeEngine) StopTracing() ([]byte, string, error) {
 	select {
 	case <-doneCh:
 	case <-timeout.C:
+		e.tracingMu.Lock()
+		e.tracingActive = false
+		e.tracingMu.Unlock()
 		return nil, outPath, fmt.Errorf("tracing timed out waiting for completion")
 	}
 
 	e.tracingMu.Lock()
 	handle := e.tracingStream
 	ok := e.tracingStreamOK
+	e.tracingActive = false
 	e.tracingMu.Unlock()
 	if !ok {
 		return nil, outPath, fmt.Errorf("tracing stream handle missing")
 	}
 
-	// Read the stream sequentially until EOF.
+	// Read the stream sequentially until EOF. The executor is only present on
+	// the context chromedp passes to actions, so the read loop runs inside a
+	// chromedp.Run ActionFunc rather than calling .Do on the raw engine ctx
+	// (which would fail with ErrInvalidContext).
 	var buf []byte
-	for {
-		chunkStr, eof, err := cdio.Read(handle).Do(e.ctx)
-		if err != nil {
-			return nil, outPath, fmt.Errorf("reading trace stream: %w", err)
-		}
+	if err := chromedp.Run(e.ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		for {
+			chunkStr, eof, err := cdio.Read(handle).Do(ctx)
+			if err != nil {
+				return fmt.Errorf("reading trace stream: %w", err)
+			}
 
-		// io.Read wrapper doesn't expose Base64encoded flag; the returned data is
-		// commonly base64. We decode when possible.
-		chunkBytes, decErr := base64.StdEncoding.DecodeString(chunkStr)
-		if decErr != nil {
-			chunkBytes = []byte(chunkStr)
+			// io.Read wrapper doesn't expose Base64encoded flag; the returned data is
+			// commonly base64. We decode when possible.
+			chunkBytes, decErr := base64.StdEncoding.DecodeString(chunkStr)
+			if decErr != nil {
+				chunkBytes = []byte(chunkStr)
+			}
+			buf = append(buf, chunkBytes...)
+			if eof {
+				return nil
+			}
 		}
-		buf = append(buf, chunkBytes...)
-		if eof {
-			break
-		}
+	})); err != nil {
+		return nil, outPath, err
 	}
-
-	// Best-effort close.
-	_ = cdio.Close(handle).Do(e.ctx)
 
 	// Persist to output path (bytes are expected to already be gzipped).
 	if err := os.WriteFile(outPath, buf, 0o644); err != nil {
