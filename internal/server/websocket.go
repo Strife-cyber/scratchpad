@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -93,8 +94,9 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind, opts Options) http.Handler
 			return
 		}
 
-		// Resolve creation options from the query string so MCP session_create
-		// can pass headless / device when dialling a route (item 13).
+		// Resolve creation options from the query string so MCP session_create /
+		// cli resume can pass headless / device / profile / emulation when
+		// dialling a route (items 13, 22, 23).
 		createOpts := engine.Options{}
 		if q := r.URL.Query().Get("headless"); q != "" {
 			headless := q == "true" || q == "1"
@@ -102,6 +104,35 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind, opts Options) http.Handler
 		}
 		if q := r.URL.Query().Get("device"); q != "" {
 			createOpts.Device = q
+		}
+		if q := r.URL.Query().Get("profile_dir"); q != "" {
+			createOpts.ProfileDir = q
+		}
+		if q := r.URL.Query().Get("attach_port"); q != "" {
+			if p, err := strconv.Atoi(q); err == nil && p > 0 {
+				createOpts.AttachPort = p
+			}
+		}
+		if q := r.URL.Query().Get("session_persist"); q != "" {
+			createOpts.Persistent = q == "true" || q == "1"
+		}
+		if q := r.URL.Query().Get("user_agent"); q != "" {
+			createOpts.UserAgent = q
+		}
+		if q := r.URL.Query().Get("locale"); q != "" {
+			createOpts.Locale = q
+		}
+		if q := r.URL.Query().Get("timezone"); q != "" {
+			createOpts.Timezone = q
+		}
+		if q := r.URL.Query().Get("color_scheme"); q != "" {
+			createOpts.ColorScheme = q
+		}
+		if q := r.URL.Query().Get("proxy_url"); q != "" {
+			createOpts.ProxyURL = q
+		}
+		if q := r.URL.Query().Get("proxy_auth"); q != "" {
+			createOpts.ProxyAuth = q
 		}
 
 		// Each WebSocket connection gets its own engine session. Sessions now

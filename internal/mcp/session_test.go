@@ -20,27 +20,30 @@ import (
 
 func TestSessionRouteURL(t *testing.T) {
 	cases := []struct {
-		name     string
-		platform string
-		headless *bool
-		viewport *protocol.Viewport
-		proxy    string
-		device   string
-		want     string
+		name string
+		opts sessionOptions
+		want string
 	}{
-		{"default web", "", nil, nil, "", "", "ws://h:8080/ws"},
-		{"android route", "android", nil, nil, "", "", "ws://h:8080/ws/android"},
-		{"headless true", "", boolPtr(true), nil, "", "", "ws://h:8080/ws?headless=true"},
-		{"headless false", "", boolPtr(false), nil, "", "", "ws://h:8080/ws?headless=false"},
-		{"viewport", "", nil, &protocol.Viewport{Width: 800, Height: 600}, "", "", "ws://h:8080/ws?viewport=800x600"},
-		{"proxy", "", nil, nil, "http://proxy:3128", "", "ws://h:8080/ws?proxy=http%3A%2F%2Fproxy%3A3128"},
-		{"device preset", "", nil, nil, "", "iPhone 14", "ws://h:8080/ws?device=iPhone+14"},
-		{"android headless device", "android", boolPtr(true), nil, "", "Pixel 7", "ws://h:8080/ws/android?device=Pixel+7&headless=true"},
+		{"default web", sessionOptions{}, "ws://h:8080/ws"},
+		{"android route", sessionOptions{Platform: "android"}, "ws://h:8080/ws/android"},
+		{"headless true", sessionOptions{Headless: boolPtr(true)}, "ws://h:8080/ws?headless=true"},
+		{"headless false", sessionOptions{Headless: boolPtr(false)}, "ws://h:8080/ws?headless=false"},
+		{"viewport", sessionOptions{Viewport: &protocol.Viewport{Width: 800, Height: 600}}, "ws://h:8080/ws?viewport=800x600"},
+		{"proxy", sessionOptions{ProxyURL: "http://proxy:3128"}, "ws://h:8080/ws?proxy_url=http%3A%2F%2Fproxy%3A3128"},
+		{"proxy auth", sessionOptions{ProxyAuth: "u:p"}, "ws://h:8080/ws?proxy_auth=u%3Ap"},
+		{"device preset", sessionOptions{Device: "iPhone 14"}, "ws://h:8080/ws?device=iPhone+14"},
+		{"profile dir", sessionOptions{ProfileDir: "/tmp/p"}, "ws://h:8080/ws?profile_dir=%2Ftmp%2Fp"},
+		{"attach port", sessionOptions{AttachPort: 9222}, "ws://h:8080/ws?attach_port=9222"},
+		{"persistent", sessionOptions{Persistent: true}, "ws://h:8080/ws?session_persist=true"},
+		{"emulation overrides", sessionOptions{UserAgent: "agent/1.0", Locale: "de-DE", Timezone: "Europe/Berlin", ColorScheme: "dark"},
+			"ws://h:8080/ws?color_scheme=dark&locale=de-DE&timezone=Europe%2FBerlin&user_agent=agent%2F1.0"},
+		{"android headless device", sessionOptions{Platform: "android", Headless: boolPtr(true), Device: "Pixel 7"},
+			"ws://h:8080/ws/android?device=Pixel+7&headless=true"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := sessionRouteURL("ws://h:8080/ws", tc.platform, tc.headless, tc.viewport, tc.proxy, tc.device)
+			got := sessionRouteURL("ws://h:8080/ws", tc.opts)
 			if got != tc.want {
 				t.Errorf("sessionRouteURL() = %q, want %q", got, tc.want)
 			}
@@ -92,7 +95,7 @@ func TestCreateSessionConn(t *testing.T) {
 		engineURL: "ws" + strings.TrimPrefix(srv.URL, "http"),
 		conns:     map[string]*sessionConn{},
 	}
-	sc, err := server.createSessionConn("", nil, nil, "", "")
+	sc, err := server.createSessionConn(sessionOptions{})
 	if err != nil {
 		t.Fatalf("createSessionConn: %v", err)
 	}

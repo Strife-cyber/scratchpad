@@ -509,29 +509,72 @@ func topElements(tree []protocol.SpatialNode) string {
 // Session connection helpers (session lifecycle tools)
 // ---------------------------------------------------------------------------
 
+// sessionOptions bundles every session-creation knob threaded through the WS
+// query string so the server creates the engine with the requested profile,
+// attach, and emulation settings (improvement-plan items 22/23).
+type sessionOptions struct {
+	Platform    string
+	Headless    *bool
+	Viewport    *protocol.Viewport
+	Device      string
+	ProfileDir  string // persistent Chrome user-data-dir
+	AttachPort  int    // attach to a running Chrome on 127.0.0.1:<port>
+	Persistent  bool   // exempt from idle reaping
+	UserAgent   string
+	Locale      string
+	Timezone    string
+	ColorScheme string
+	ProxyURL    string // --proxy-server (fixed at session creation)
+	ProxyAuth   string // "user:pass" for authenticated proxies
+}
+
 // sessionRouteURL builds the WS route for a platform. base is the bridge's
 // configured engine URL (e.g. ws://host:8080/ws); android platforms dial
-// /ws/android, everything else dials the default /ws route. headless, device,
-// viewport and proxy become query parameters the server reads at session
-// creation (headless and device are honored today; viewport/proxy are recorded
-// for the upcoming session_configure work and ignored by older engines).
-func sessionRouteURL(base, platform string, headless *bool, viewport *protocol.Viewport, proxy, device string) string {
+// /ws/android, everything else dials the default /ws route. Every sessionOption
+// becomes a query parameter the server reads at session creation (viewport is
+// recorded for the upcoming session_configure work and ignored by older
+// engines).
+func sessionRouteURL(base string, o sessionOptions) string {
 	u := base
-	if platform == "android" {
+	if o.Platform == "android" {
 		u = strings.TrimSuffix(u, "/ws") + "/ws/android"
 	}
 	q := url.Values{}
-	if headless != nil {
-		q.Set("headless", fmt.Sprintf("%v", *headless))
+	if o.Headless != nil {
+		q.Set("headless", fmt.Sprintf("%v", *o.Headless))
 	}
-	if device != "" {
-		q.Set("device", device)
+	if o.Device != "" {
+		q.Set("device", o.Device)
 	}
-	if viewport != nil && viewport.Width > 0 && viewport.Height > 0 {
-		q.Set("viewport", fmt.Sprintf("%dx%d", viewport.Width, viewport.Height))
+	if o.Viewport != nil && o.Viewport.Width > 0 && o.Viewport.Height > 0 {
+		q.Set("viewport", fmt.Sprintf("%dx%d", o.Viewport.Width, o.Viewport.Height))
 	}
-	if proxy != "" {
-		q.Set("proxy", proxy)
+	if o.ProfileDir != "" {
+		q.Set("profile_dir", o.ProfileDir)
+	}
+	if o.AttachPort > 0 {
+		q.Set("attach_port", fmt.Sprintf("%d", o.AttachPort))
+	}
+	if o.Persistent {
+		q.Set("session_persist", "true")
+	}
+	if o.UserAgent != "" {
+		q.Set("user_agent", o.UserAgent)
+	}
+	if o.Locale != "" {
+		q.Set("locale", o.Locale)
+	}
+	if o.Timezone != "" {
+		q.Set("timezone", o.Timezone)
+	}
+	if o.ColorScheme != "" {
+		q.Set("color_scheme", o.ColorScheme)
+	}
+	if o.ProxyURL != "" {
+		q.Set("proxy_url", o.ProxyURL)
+	}
+	if o.ProxyAuth != "" {
+		q.Set("proxy_auth", o.ProxyAuth)
 	}
 	if len(q) > 0 {
 		sep := "?"
@@ -544,13 +587,13 @@ func sessionRouteURL(base, platform string, headless *bool, viewport *protocol.V
 }
 
 // createSessionConn dials a fresh session connection (creating a new session
-// server-side) for the given platform/headless/viewport/proxy/device settings.
-func (s *Server) createSessionConn(platform string, headless *bool, viewport *protocol.Viewport, proxy, device string) (*sessionConn, error) {
-	sc, err := dial(sessionRouteURL(s.engineURL, platform, headless, viewport, proxy, device), "")
+// server-side) with the given creation settings.
+func (s *Server) createSessionConn(o sessionOptions) (*sessionConn, error) {
+	sc, err := dial(sessionRouteURL(s.engineURL, o), "")
 	if err != nil {
 		return nil, err
 	}
-	slog.Info("mcp: session created", "session_id", sc.id, "platform", platform, "device", device)
+	slog.Info("mcp: session created", "session_id", sc.id, "platform", o.Platform, "device", o.Device)
 	return sc, nil
 }
 

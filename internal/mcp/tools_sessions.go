@@ -24,15 +24,27 @@ import (
 // SessionCreateArgs creates a new isolated engine session.
 // platform is "web" (default) or "android". headless only matters for browser
 // sessions. device applies a built-in device-emulation preset by name (see
-// browser_list_devices, e.g. "iPhone 14") at session start. viewport and proxy
-// are recorded in the session URL for upcoming configure work and ignored by
-// older engines.
+// browser_list_devices, e.g. "iPhone 14") at session start. viewport is recorded
+// in the session URL for upcoming configure work and ignored by older engines.
+// The remaining fields (improvement-plan items 22/23) are threaded through the
+// WS query string: profile_dir reuses a Chrome user-data-dir as a persistent
+// profile, attach_port connects to a running Chrome on 127.0.0.1:<port>, and
+// user_agent/locale/timezone/color_scheme/proxy/proxy_auth set emulation
+// overrides at session creation.
 type SessionCreateArgs struct {
-	Platform string             `json:"platform,omitempty"`
-	Headless *bool              `json:"headless,omitempty"`
-	Viewport *protocol.Viewport `json:"viewport,omitempty"`
-	Proxy    string             `json:"proxy,omitempty"`
-	Device   string             `json:"device,omitempty"`
+	Platform    string             `json:"platform,omitempty"`
+	Headless    *bool              `json:"headless,omitempty"`
+	Viewport    *protocol.Viewport `json:"viewport,omitempty"`
+	Proxy       string             `json:"proxy,omitempty"`
+	Device      string             `json:"device,omitempty"`
+	ProfileDir  string             `json:"profile_dir,omitempty"`
+	AttachPort  int                `json:"attach_port,omitempty"`
+	Persistent  bool               `json:"session_persist,omitempty"`
+	UserAgent   string             `json:"user_agent,omitempty"`
+	Locale      string             `json:"locale,omitempty"`
+	Timezone    string             `json:"timezone,omitempty"`
+	ColorScheme string             `json:"color_scheme,omitempty"`
+	ProxyAuth   string             `json:"proxy_auth,omitempty"`
 }
 
 type SessionListArgs struct{}
@@ -99,7 +111,21 @@ func (s *Server) sessionToolDefs() []toolDef {
 			description: "Create a new isolated engine session and make it the active session for subsequent browser_* tools. Use when a task needs a second, independent page context.\n\nExample: session_create with {\"platform\":\"web\",\"headless\":true} creates a fresh headless browser session and returns its session_id.",
 			register: func(srv *mcp.Server) error {
 				return srv.RegisterTool("session_create", "Create a new isolated engine session and make it the active session.", func(_ context.Context, args SessionCreateArgs) (*mcp.ToolResponse, error) {
-					sc, err := s.createSessionConn(args.Platform, args.Headless, args.Viewport, args.Proxy, args.Device)
+					sc, err := s.createSessionConn(sessionOptions{
+						Platform:    args.Platform,
+						Headless:    args.Headless,
+						Viewport:    args.Viewport,
+						ProxyURL:    args.Proxy,
+						Device:      args.Device,
+						ProfileDir:  args.ProfileDir,
+						AttachPort:  args.AttachPort,
+						Persistent:  args.Persistent,
+						UserAgent:   args.UserAgent,
+						Locale:      args.Locale,
+						Timezone:    args.Timezone,
+						ColorScheme: args.ColorScheme,
+						ProxyAuth:   args.ProxyAuth,
+					})
 					if err != nil {
 						return nil, err
 					}
