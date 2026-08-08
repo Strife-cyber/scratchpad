@@ -47,6 +47,32 @@
 - **Capability isolation caveat** (F1): the CLI and MCP bridge don't yet send tokens/capabilities, so under full isolation a bridge re-attach would be refused — run with `--allow-shared-sessions` for bridge-driven use (documented).
 - **Hybrid yml** is documentation-forward; teaching the testrunner step-level `platform` routing is future work.
 
+## Post-wave fix found in the final verification sweep (`f48fe4b`, `b39a17d`)
+
+The final verification (after wave 7) proved the trace flow end-to-end and found
+the item-24 tracing path was broken at runtime despite green tests:
+
+- **`StopTracing` hung → fixed `f48fe4b`.** It cleared `tracingActive` *before*
+  issuing `tracing.End()`; the completion listener treats `tracingActive` as a
+  "still live" guard and dropped the event, so `doneCh` never closed and every
+  stop hit the 60s timeout (live smoke: `tracing/stop` returned "tracing timed
+  out waiting for completion"). Now `tracingActive` stays set while waiting and
+  is cleared on every exit path.
+- **Stream read failed with `ErrInvalidContext` → fixed `f48fe4b`.** The read
+  loop called `cdio.Read(handle).Do(e.ctx)` on the raw engine context, which
+  lacks the executor value chromedp injects into `Run` action contexts. The loop
+  now runs inside `chromedp.Run(chromedp.ActionFunc(...))`.
+- **No test covered the round-trip** — the integration suite exercised actions
+  but never StartTracing/StopTracing. Added `TestIntegration_TraceBundle`
+  (`b39a17d`): asserts stop completes < 15s, returns non-empty bytes, writes a
+  non-empty trace file. Passes against real Chrome.
+
+**Verified live after the fix:** `tracing/start` → `navigate` → `tracing/stop`
+completes in ~1.6s (was 60s hang), `GET /sessions/{id}/trace` serves a real
+1.8MB `.spz` (`trace.json.gz` + `timeline.jsonl` + `summary.json`), and
+`scratchpad-cli trace <id>` renders the network summary. Full race suite re-run
+green; `make test-integration` green.
+
 ## Final status — the whole plan
 
-All **37 of 38 items applied** across 7 waves and 20 agent runs (item 21 deferred). Wave-boundary gates green at every wave; the only gate failure across the entire effort was this wave's race, fixed above. Per-item progress markers are in `docs/improvement-plan.md`; per-wave records are `checkpoints/wave-01.md` … `wave-07.md`.
+All **37 of 38 items applied** across 7 waves and 20 agent runs (item 21 deferred). Wave-boundary gates green at every wave; the only gate failures across the entire effort were this wave's race (fixed above) and the item-24 trace path uncovered in final verification (fixed above). Per-item progress markers are in `docs/improvement-plan.md`; per-wave records are `checkpoints/wave-01.md` … `wave-07.md`.

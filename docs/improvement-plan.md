@@ -839,7 +839,7 @@ Tracing already exists (`StartTracing`/`StopTracing` in `engine.go:1182-1312`) b
 
 **Human debuggability at scale.** This converts "the agent did something weird" into a scrubbable visual record — the exact feature that made Playwright's trace viewer loved.
 
-- [x] DONE (wave W7, E3 — 6d92d7e `.spz` bundle on `StopTracing` (trace + timeline + screenshots + summary) + `SetSession` wiring for all engines, d1e219d `GET /api/v1/sessions/{id}/trace` + recorder flush before stop, 2cc0a6c self-contained `trace_viewer.html` at `/trace_viewer` (drag-drop `.spz`, screenshots/network/errors timeline) + OpenAPI, 0e41f57 `scratchpad-cli trace <id>` textual summary)
+- [x] DONE (wave W7, E3 — 6d92d7e `.spz` bundle on `StopTracing` (trace + timeline + screenshots + summary) + `SetSession` wiring for all engines, d1e219d `GET /api/v1/sessions/{id}/trace` + recorder flush before stop, 2cc0a6c self-contained `trace_viewer.html` at `/trace_viewer` (drag-drop `.spz`, screenshots/network/errors timeline) + OpenAPI, 0e41f57 `scratchpad-cli trace <id>` textual summary; post-wave fix `f48fe4b` — StopTracing hung (completion event dropped after tracingActive cleared early) and stream read failed with `ErrInvalidContext`; both fixed, regression test `b39a17d`)
 
 ---
 
