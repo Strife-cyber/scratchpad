@@ -117,6 +117,109 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 		}
 		return nil
 
+	case protocol.ActionLongPress:
+		// long_press: tap + hold (item 28). Hold is clamped to 500ms-2s.
+		x, y, err := e.resolveGesturePoint(req.Selector, req.X, req.Y)
+		if err != nil {
+			return err
+		}
+		if err := e.longPress(x, y, resolveHoldMS(req.HoldMS)); err != nil {
+			return fmt.Errorf("android: long press at (%d,%d) failed: %w", x, y, err)
+		}
+		e.treeCache.invalidate() // a long press often opens a context menu (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionSwipe:
+		// swipe: direction + distance percent presets (item 28). A selector/x/y
+		// overrides the start point; direction and distance drive the endpoint.
+		sx, sy := 0, 0
+		if req.Selector != nil || req.X != 0 || req.Y != 0 {
+			var err error
+			sx, sy, err = e.resolveGesturePoint(req.Selector, req.X, req.Y)
+			if err != nil {
+				return err
+			}
+		}
+		vp := e.getViewport()
+		startX, startY := vp.Width/2, vp.Height/2
+		if sx != 0 || sy != 0 {
+			startX, startY = sx, sy
+		}
+		// Recompute endpoints from the resolved start so a selector target swipes
+		// by the same relative distance as the viewport-centred default.
+		_, _, ex, ey := swipeEndpointsAt(startX, startY, vp, req.Direction, req.DistancePercent)
+		if err := e.adbSwipe(startX, startY, ex, ey, req.TimeoutMS); err != nil {
+			return fmt.Errorf("android: swipe %s failed: %w", req.Direction, err)
+		}
+		e.treeCache.invalidate() // swipe definitely changed the viewport (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionPinch:
+		// pinch: two-finger zoom approximated via input motionevent (item 28).
+		vp := e.getViewport()
+		if err := e.pinch(vp, req.PinchMode, req.DistancePercent); err != nil {
+			return fmt.Errorf("android: pinch %s failed: %w", req.PinchMode, err)
+		}
+		e.treeCache.invalidate() // zoom reflows the screen (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionKey:
+		// key: named key → Android KEYCODE_* (item 28). Formalizes the raw
+		// "keyevent" string path.
+		code, ok := androidKeyCode(req.Key)
+		if !ok {
+			return fmt.Errorf("android key: unknown key %q", req.Key)
+		}
+		if _, err := e.adb.run("shell", "input", "keyevent", code); err != nil {
+			return fmt.Errorf("android key %q: %w", req.Key, err)
+		}
+		e.treeCache.invalidate() // key may navigate or change focus (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionOpenNotifications:
+		if err := e.openNotifications(); err != nil {
+			return fmt.Errorf("android: open notifications failed: %w", err)
+		}
+		e.treeCache.invalidate() // the shade changes the screen (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionGoHome:
+		if err := e.goHome(); err != nil {
+			return fmt.Errorf("android: go home failed: %w", err)
+		}
+		e.treeCache.invalidate() // the launcher is a different screen (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
 	case protocol.ActionWait:
 		// Selector waits (best-effort based on UIAutomator dump).
 		if req.Condition == "selector_visible" || req.Condition == "selector_hidden" || req.Condition == "selector_enabled" {
