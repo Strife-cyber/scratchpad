@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -33,6 +34,21 @@ type Session struct {
 	SessionLogs []protocol.ConsoleLog
 	LogMu       sync.Mutex
 	LastTree    []protocol.SpatialNode
+
+	// Engines holds the per-context engines of a hybrid session (improvement-plan
+	// item 31), keyed by context name ("web", "android"). Nil for single-platform
+	// sessions, where Engine alone holds the one engine. Guarded by ctxMu.
+	Engines map[string]engine.Engine
+
+	// ActiveContext names the currently active context of a hybrid session
+	// (improvement-plan item 31), e.g. "web" or "android". "" for single-platform
+	// sessions. Guarded by ctxMu; Engine always mirrors the active context's
+	// engine so existing dispatch layers route without changes.
+	ActiveContext string
+
+	// ctxMu guards Engines, ActiveContext, and the Engine mirror so context
+	// switching (executor goroutine) never races Close()/ListSessions reads.
+	ctxMu sync.Mutex
 
 	// LastActivity is updated every time the session receives a message.
 	// Used by the cleanup loop to detect and close idle sessions.
@@ -167,10 +183,79 @@ func (s *Session) ThrottleObserve() {
 	s.lastObserve = time.Now()
 }
 
+// ActiveEngine returns the engine of the session's active context. For
+// single-platform sessions this is the session's one engine. Dispatch layers
+// can route through this (or the Session.Engine mirror) so actions land on the
+// active context of a hybrid session (improvement-plan item 31).
+func (s *Session) ActiveEngine() engine.Engine {
+	s.ctxMu.Lock()
+	defer s.ctxMu.Unlock()
+	return s.Engine
+}
+
+// ActiveContextName returns the name of the active context ("" for
+// single-platform sessions).
+func (s *Session) ActiveContextName() string {
+	s.ctxMu.Lock()
+	defer s.ctxMu.Unlock()
+	return s.ActiveContext
+}
+
+// Contexts returns the context names of a hybrid session, sorted for
+// determinism. Nil for single-platform sessions.
+func (s *Session) Contexts() []string {
+	s.ctxMu.Lock()
+	defer s.ctxMu.Unlock()
+	if len(s.Engines) == 0 {
+		return nil
+	}
+	return s.contextNamesLocked()
+}
+
+// contextNamesLocked returns the sorted context names of a hybrid session.
+// Callers must hold ctxMu.
+func (s *Session) contextNamesLocked() []string {
+	names := make([]string, 0, len(s.Engines))
+	for name := range s.Engines {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// SetContext switches the active context of a hybrid session (improvement-plan
+// item 31). It returns a clean error when the context is unknown or the session
+// has no other context (single-platform). The switch resets the delta base so
+// the next observation is a full tree rather than a cross-platform diff.
+func (s *Session) SetContext(name string) error {
+	s.ctxMu.Lock()
+	defer s.ctxMu.Unlock()
+	if len(s.Engines) == 0 {
+		return fmt.Errorf("set_context: session %q has a single platform; nothing to switch", s.ID)
+	}
+	eng, ok := s.Engines[name]
+	if !ok {
+		return fmt.Errorf("set_context: unknown context %q (have %v)", name, s.contextNamesLocked())
+	}
+	s.ActiveContext = name
+	s.Engine = eng
+	s.LastTree = nil
+	return nil
+}
+
 // CreateSession instantiates a brand-new engine of the requested Kind and
 // registers the session in the manager's map.
 // The caller is responsible for calling DeleteSession when the agent disconnects.
-func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session, error) {
+//
+// mods are applied to a copy of opts before any engine work. The only modifier
+// is engine.WithEngines, which supplies pre-built engines for a hybrid session
+// (improvement-plan item 31) and skips the registry entirely. When opts carries
+// a Platforms list instead, one engine per platform is instantiated.
+func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options, mods ...func(*engine.Options)) (*Session, error) {
+	for _, mod := range mods {
+		mod(&opts)
+	}
+
 	// Enforce the MaxSessions cap before doing any (expensive) engine work so a
 	// full manager rejects creation cheaply with a typed 429 error.
 	m.mu.RLock()
@@ -178,6 +263,20 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 	m.mu.RUnlock()
 	if atLimit {
 		return nil, protocol.ErrSessionLimitReached
+	}
+
+	// Hybrid sessions (improvement-plan item 31) come from pre-supplied engines
+	// (engine.WithEngines) or by instantiating one engine per requested platform
+	// (opts.Platforms). Both bypass the single-engine path below.
+	if len(opts.Engines) > 0 {
+		return m.registerMultiEngineSession(opts.Engines, kind, opts)
+	}
+	if len(opts.Platforms) > 0 {
+		engines, err := m.buildEnginesForPlatforms(opts.Platforms, opts)
+		if err != nil {
+			return nil, err
+		}
+		return m.registerMultiEngineSession(engines, kind, opts)
 	}
 
 	eng, err := engine.New(kind, opts)
@@ -233,6 +332,116 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 	return s, nil
 }
 
+// registerMultiEngineSession wires pre-built engines into a hybrid session
+// (improvement-plan item 31): it picks a default active context, binds each
+// engine to the sandbox session id (so Android screenshots / Chrome traces land
+// in the right place), attaches an action timeline recorder to the web engine,
+// and registers the session in the manager.
+func (m *Manager) registerMultiEngineSession(engines map[string]engine.Engine, kind engine.Kind, opts engine.Options) (*Session, error) {
+	id := uuid.New().String()
+	now := time.Now()
+	active := defaultActiveContext(engines)
+	s := &Session{
+		ID:               id,
+		Kind:             kind,
+		Engines:          engines,
+		ActiveContext:    active,
+		Engine:           engines[active],
+		CreatedAt:        now,
+		Persistent:       opts.Persistent,
+		ConsoleRingLimit: 500,
+		LastActivity:     now,
+		Limits:           m.limits,
+	}
+
+	// Bind every engine to the sandbox session id so per-session recordings
+	// (Android screenshots/logcat, Chrome .spz archives) key on the same id.
+	for _, eng := range engines {
+		if setter, ok := eng.(interface{ SetSession(string) }); ok {
+			setter.SetSession(id)
+		}
+	}
+
+	// The web context gets the action timeline recorder so hybrid sessions keep
+	// the same step-by-step JSONL stream as single Chrome sessions.
+	if kind == engine.KindChrome {
+		if web, ok := engines["web"]; ok {
+			rec, rerr := browser.NewActionRecorder(os.Getenv(browser.TraceDirEnv), id)
+			if rerr != nil {
+				slog.Warn("sandbox: action timeline recorder unavailable",
+					"session_id", id, "err", rerr)
+			} else {
+				s.Recorder = rec
+				web.AddListener(rec.Listener())
+			}
+		}
+	}
+
+	m.mu.Lock()
+	m.sessions[id] = s
+	hook := m.sessionCreated
+	m.mu.Unlock()
+
+	if hook != nil {
+		hook(id)
+	}
+
+	return s, nil
+}
+
+// buildEnginesForPlatforms instantiates one engine per requested platform
+// context (improvement-plan item 31), creating them in sorted order so a
+// mid-way failure closes only the engines built so far. Each context maps to an
+// engine kind via kindForContext ("web" -> Chrome, "android" -> Android).
+func (m *Manager) buildEnginesForPlatforms(platforms []string, opts engine.Options) (map[string]engine.Engine, error) {
+	engines := make(map[string]engine.Engine, len(platforms))
+	order := append([]string(nil), platforms...)
+	sort.Strings(order)
+	for _, name := range order {
+		eng, err := engine.New(kindForContext(name), opts)
+		if err != nil {
+			// Close everything built so far so a failed hybrid creation leaks
+			// nothing.
+			for _, e := range engines {
+				e.Close()
+			}
+			return nil, fmt.Errorf("platform %q: %w", name, err)
+		}
+		engines[name] = eng
+	}
+	return engines, nil
+}
+
+// kindForContext maps a hybrid context name to the engine kind that backs it
+// (improvement-plan item 31): "web" -> Chrome, "android" -> Android, anything
+// else -> Chrome (the default platform).
+func kindForContext(name string) engine.Kind {
+	if name == "android" {
+		return engine.KindAndroid
+	}
+	return engine.KindChrome
+}
+
+// defaultActiveContext picks the initial active context of a hybrid session:
+// "web" when present, else "android", else the first name in sorted order.
+func defaultActiveContext(engines map[string]engine.Engine) string {
+	if _, ok := engines["web"]; ok {
+		return "web"
+	}
+	if _, ok := engines["android"]; ok {
+		return "android"
+	}
+	names := make([]string, 0, len(engines))
+	for name := range engines {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) > 0 {
+		return names[0]
+	}
+	return ""
+}
+
 // GetSession retrieves an active session by ID.
 func (m *Manager) GetSession(id string) (*Session, bool) {
 	m.mu.RLock()
@@ -266,7 +475,9 @@ func (m *Manager) DeleteSession(id string) error {
 }
 
 // Close shuts down the session, flushing and closing the action timeline
-// recorder (if any) before closing the engine. Safe to call once.
+// recorder (if any) before closing every engine. For hybrid sessions it closes
+// each context's engine; the active-context mirror (Engine) is one of those, so
+// it is never closed twice. Safe to call once.
 func (s *Session) Close() {
 	if s.Recorder != nil {
 		if err := s.Recorder.Close(); err != nil {
@@ -274,5 +485,22 @@ func (s *Session) Close() {
 				"session_id", s.ID, "err", err)
 		}
 	}
-	s.Engine.Close()
+	s.ctxMu.Lock()
+	var engines []engine.Engine
+	if len(s.Engines) > 0 {
+		seen := make(map[engine.Engine]bool, len(s.Engines))
+		for _, eng := range s.Engines {
+			if seen[eng] {
+				continue
+			}
+			seen[eng] = true
+			engines = append(engines, eng)
+		}
+	} else if s.Engine != nil {
+		engines = append(engines, s.Engine)
+	}
+	s.ctxMu.Unlock()
+	for _, eng := range engines {
+		eng.Close()
+	}
 }

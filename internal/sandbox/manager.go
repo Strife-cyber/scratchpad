@@ -128,13 +128,21 @@ func (m *Manager) ListSessions() []protocol.SessionInfo {
 	defer m.mu.RUnlock()
 	out := make([]protocol.SessionInfo, 0, len(m.sessions))
 	for _, s := range m.sessions {
-		out = append(out, protocol.SessionInfo{
+		info := protocol.SessionInfo{
 			ID:           s.ID,
 			Kind:         string(s.Kind),
 			CreatedAt:    s.CreatedAt,
 			LastActivity: s.LastActivityAt(),
 			Persistent:   s.Persistent,
-		})
+		}
+		// Hybrid sessions report their active context as the platform so
+		// session_list distinguishes the current context of a multi-engine
+		// session (improvement-plan item 31). Single-platform sessions keep
+		// Platform empty.
+		if len(s.Engines) > 0 {
+			info.Platform = s.ActiveContextName()
+		}
+		out = append(out, info)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out
