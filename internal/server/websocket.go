@@ -818,6 +818,10 @@ func (ws *wsSession) sendObservation(actionID string, req *protocol.ObserveReque
 		return
 	}
 
+	// Emit the observe_complete tick so event subscribers (wait_for_event, SSE
+	// dashboards) react without polling (improvement-plan item 34).
+	ws.session.PublishObserveComplete(obs)
+
 	// Echo the action_id onto the action result so the agent can correlate a
 	// cancellation or a result with the request that produced it.
 	if obs.ActionResult != nil && actionID != "" {

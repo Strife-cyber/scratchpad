@@ -229,6 +229,10 @@ func (h *handler) writeObservation(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 
+	// Emit the observe_complete tick so event subscribers react without polling
+	// (improvement-plan item 34).
+	sess.PublishObserveComplete(obs)
+
 	// Optionally send a delta when it's smaller than a full tree. Snapshot the
 	// full tree first: the delta path nils out SpatialTree, and LastTree must
 	// keep the full tree as the base for the next delta.

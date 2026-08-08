@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -86,6 +87,12 @@ type Session struct {
 	// inside the recorder, so it is safe to feed from the websocket goroutine
 	// while the CDP event loop also writes via the engine listener.
 	Recorder *browser.ActionRecorder
+
+	// Events is the session's typed event bus (improvement-plan item 34).
+	// Engines publish raw events through an AddListener-wired translator
+	// (browser.NewEventPublisher); transports publish observe_complete via
+	// PublishObserveComplete. WS push, SSE, and wait_for_event all consume it.
+	Events *EventBus
 }
 
 // LastActivityAt returns the last-activity timestamp, synchronized so the
@@ -201,6 +208,40 @@ func (s *Session) ActiveContextName() string {
 	return s.ActiveContext
 }
 
+// PublishEvent pushes a typed event onto the session's bus, stamped with the
+// session id. data is marshaled into the event payload; nil yields an empty
+// payload. A nil bus (defensive; sessions always have one) is a no-op.
+func (s *Session) PublishEvent(t string, data any) {
+	if s.Events == nil {
+		return
+	}
+	var raw json.RawMessage
+	if data != nil {
+		if b, err := json.Marshal(data); err == nil {
+			raw = b
+		}
+	}
+	s.Events.Publish(protocol.Event{Type: t, SessionID: s.ID, Data: raw})
+}
+
+// PublishObserveComplete emits the observe_complete tick after a successful
+// observation so subscribers can react without polling (improvement-plan item
+// 34). The payload carries a light page snapshot (url + node count) when the
+// caller supplies an observation.
+func (s *Session) PublishObserveComplete(obs *protocol.ObservationResponse) {
+	if s.Events == nil {
+		return
+	}
+	data := map[string]any{}
+	if obs != nil {
+		if obs.PageInfo != nil {
+			data["url"] = obs.PageInfo.URL
+		}
+		data["node_count"] = len(obs.SpatialTree)
+	}
+	s.PublishEvent(protocol.EventObserveComplete, data)
+}
+
 // Contexts returns the context names of a hybrid session, sorted for
 // determinism. Nil for single-platform sessions.
 func (s *Session) Contexts() []string {
@@ -290,6 +331,7 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options, mods ...f
 		ID:               id,
 		Kind:             kind,
 		Engine:           eng,
+		Events:           NewEventBus(0),
 		CreatedAt:        now,
 		Persistent:       opts.Persistent,
 		ConsoleRingLimit: 500,
@@ -320,6 +362,11 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options, mods ...f
 		}
 	}
 
+	// Feed raw platform events into the session's typed event bus
+	// (improvement-plan item 34). The translator runs in the engine's event
+	// loop; the bus fan-out drops on overflow so it never blocks the engine.
+	eng.AddListener(browser.NewEventPublisher(s.Events.Publish))
+
 	m.mu.Lock()
 	m.sessions[id] = s
 	hook := m.sessionCreated
@@ -347,6 +394,7 @@ func (m *Manager) registerMultiEngineSession(engines map[string]engine.Engine, k
 		Engines:          engines,
 		ActiveContext:    active,
 		Engine:           engines[active],
+		Events:           NewEventBus(0),
 		CreatedAt:        now,
 		Persistent:       opts.Persistent,
 		ConsoleRingLimit: 500,
@@ -360,6 +408,10 @@ func (m *Manager) registerMultiEngineSession(engines map[string]engine.Engine, k
 		if setter, ok := eng.(interface{ SetSession(string) }); ok {
 			setter.SetSession(id)
 		}
+		// Feed each context's raw platform events into the shared session bus
+		// (improvement-plan item 34); the translator is a no-op for platforms
+		// whose events are not CDP.
+		eng.AddListener(browser.NewEventPublisher(s.Events.Publish))
 	}
 
 	// The web context gets the action timeline recorder so hybrid sessions keep
