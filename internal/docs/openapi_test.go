@@ -17,6 +17,7 @@ var requiredPaths = []string{
 	"/docs",
 	"/swagger.json",
 	"/openapi.json",
+	"/trace_viewer",
 	// Session lifecycle.
 	"/api/v1/sessions",
 	"/api/v1/sessions/{id}",
@@ -40,6 +41,7 @@ var requiredPaths = []string{
 	"/api/v1/sessions/{id}/recording/stop",
 	"/api/v1/sessions/{id}/tracing/start",
 	"/api/v1/sessions/{id}/tracing/stop",
+	"/api/v1/sessions/{id}/trace",
 	// WebSocket endpoints.
 	"/ws",
 	"/ws/android",
@@ -158,5 +160,33 @@ func TestDocsServesSwaggerUI(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "swagger-ui") {
 		t.Error("/docs body does not reference the Swagger UI bundle")
+	}
+}
+
+// TestTraceViewerServesSelfContainedPage asserts /trace_viewer returns the
+// embedded viewer HTML: self-contained (no CDN references) and ready to accept
+// a .spz drop.
+func TestTraceViewerServesSelfContainedPage(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/trace_viewer", nil)
+	rec := httptest.NewRecorder()
+	TraceViewer(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status want 200, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("content-type want text/html; charset=utf-8, got %q", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, ".spz") {
+		t.Error("trace viewer does not mention the .spz format")
+	}
+	if !strings.Contains(body, "DecompressionStream") {
+		t.Error("trace viewer should inflate entries client-side with DecompressionStream")
+	}
+	// Self-contained: no http(s):// src/href to CDNs or external scripts.
+	for _, bad := range []string{"src=\"http", "src='http", "href=\"http", "href='http", "//cdn."} {
+		if strings.Contains(body, bad) {
+			t.Errorf("trace viewer references an external asset (%q) — must be self-contained", bad)
+		}
 	}
 }

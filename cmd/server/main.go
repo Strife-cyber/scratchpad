@@ -114,6 +114,9 @@ func main() {
 	mux.HandleFunc("/swagger.json", docs.Handler)
 	mux.HandleFunc("/openapi.json", docs.Handler)
 
+	// /trace_viewer — self-contained .spz trace viewer (improvement-plan item 24)
+	mux.HandleFunc("/trace_viewer", docs.TraceViewer)
+
 	// /healthz — JSON readiness probe with per-engine session status.
 	mux.HandleFunc("/healthz", healthzHandler(mgr))
 

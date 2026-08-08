@@ -96,6 +96,20 @@
         }
       }
     },
+    "/trace_viewer": {
+      "get": {
+        "tags": ["Docs"],
+        "summary": "Trace viewer",
+        "description": "Self-contained .spz trace viewer (improvement-plan item 24). Drag a session's trace bundle onto the page to scrub its steps, screenshots, console errors, and network bars. No external assets or services.",
+        "operationId": "getTraceViewer",
+        "responses": {
+          "200": {
+            "description": "HTML trace viewer page",
+            "content": { "text/html": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
     "/swagger.json": {
       "get": {
         "tags": ["Docs"],
@@ -499,6 +513,37 @@
           },
           "404": {
             "description": "Session not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/trace": {
+      "get": {
+        "tags": ["Session Data"],
+        "summary": "Download session trace bundle (.spz)",
+        "description": "Returns the session's bundled trace archive (improvement-plan item 24): the raw DevTools trace, the action timeline, per-step screenshots, and a summary.json, zipped into a single .spz file. Produced automatically on tracing stop; open it in the /trace_viewer page. 404 when the session never traced.",
+        "operationId": "getTrace",
+        "parameters": [{ "$ref": "#/components/parameters/SessionID" }],
+        "responses": {
+          "200": {
+            "description": ".spz zip attachment",
+            "content": { "application/zip": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "400": {
+            "description": "Engine does not produce trace bundles",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found, or no bundle recorded yet",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ErrorResponse" }
