@@ -4,9 +4,30 @@ import (
 	"sync"
 	"testing"
 
+	"scratchpad/internal/browser"
 	"scratchpad/internal/engine"
 	"scratchpad/internal/protocol"
 )
+
+// newHybridSession creates a hybrid session from pre-built engines, redirecting
+// SCRATCHPAD_TRACE_DIR to a temp dir so the KindChrome action timeline recorder
+// never leaves artifacts in the package directory. It returns the owning manager
+// alongside the session.
+func newHybridSession(t *testing.T, engines map[string]engine.Engine) (*Session, *Manager) {
+	t.Helper()
+	t.Setenv(browser.TraceDirEnv, t.TempDir())
+	m := NewManager()
+	s, err := m.CreateSession(engine.KindChrome, engine.Options{}, engine.WithEngines(engines))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Close at test end so the action timeline recorder's file handle is
+	// released and t.TempDir() can be cleaned up on Windows. Close is
+	// idempotent for the recorder and engines, so tests that close early are
+	// unaffected.
+	t.Cleanup(s.Close)
+	return s, m
+}
 
 // hybridCloseEngine wraps engine.MemoryEngine and records whether Close was
 // called, so tests can assert that closing a hybrid session closes every
@@ -35,15 +56,10 @@ func (e *hybridCloseEngine) WasClosed() bool {
 // defaults the active context to "web", and mirrors that engine on the
 // Session.Engine field so existing dispatch code routes without changes.
 func TestCreateSession_WithEngines(t *testing.T) {
-	m := NewManager()
 	web := engine.NewMemoryEngine(t)
 	android := engine.NewMemoryEngine(t)
 
-	s, err := m.CreateSession(engine.KindChrome, engine.Options{},
-		engine.WithEngines(map[string]engine.Engine{"web": web, "android": android}))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	s, m := newHybridSession(t, map[string]engine.Engine{"web": web, "android": android})
 	if s == nil {
 		t.Fatal("expected non-nil session")
 	}
@@ -81,15 +97,10 @@ func TestCreateSession_WithEngines(t *testing.T) {
 // context updates the mirror and resets the delta base so the next observation
 // is a full tree rather than a cross-platform diff.
 func TestSession_SetContext(t *testing.T) {
-	m := NewManager()
 	web := engine.NewMemoryEngine(t)
 	android := engine.NewMemoryEngine(t)
 
-	s, err := m.CreateSession(engine.KindChrome, engine.Options{},
-		engine.WithEngines(map[string]engine.Engine{"web": web, "android": android}))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	s, _ := newHybridSession(t, map[string]engine.Engine{"web": web, "android": android})
 
 	// Simulate an observation on the web context so LastTree is non-empty.
 	s.LastTree = []protocol.SpatialNode{{NodeID: "n1", Role: "text"}}
@@ -122,12 +133,7 @@ func TestSession_SetContext(t *testing.T) {
 // session does not own returns a clean error and leaves the active context
 // unchanged.
 func TestSession_SetContext_Unknown(t *testing.T) {
-	m := NewManager()
-	s, err := m.CreateSession(engine.KindChrome, engine.Options{},
-		engine.WithEngines(map[string]engine.Engine{"web": engine.NewMemoryEngine(t)}))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	s, _ := newHybridSession(t, map[string]engine.Engine{"web": engine.NewMemoryEngine(t)})
 	if err := s.SetContext("ios"); err == nil {
 		t.Error("SetContext(ios): want error for unknown context")
 	}
@@ -152,15 +158,10 @@ func TestSession_SetContext_SinglePlatform(t *testing.T) {
 // TestSession_Close_ClosesAllEngines verifies that closing a hybrid session
 // closes every context's engine exactly once (the active mirror is one of them).
 func TestSession_Close_ClosesAllEngines(t *testing.T) {
-	m := NewManager()
 	web := &hybridCloseEngine{Engine: engine.NewMemoryEngine(t)}
 	android := &hybridCloseEngine{Engine: engine.NewMemoryEngine(t)}
 
-	s, err := m.CreateSession(engine.KindChrome, engine.Options{},
-		engine.WithEngines(map[string]engine.Engine{"web": web, "android": android}))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	s, _ := newHybridSession(t, map[string]engine.Engine{"web": web, "android": android})
 	if s.Engine != web {
 		t.Fatal("setup: active mirror should be the web engine")
 	}
