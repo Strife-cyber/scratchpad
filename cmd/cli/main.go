@@ -31,6 +31,8 @@ func main() {
 		timelineCmd(os.Args[2:])
 	case "trace":
 		traceCmd(os.Args[2:])
+	case "record":
+		recordCmd(os.Args[2:])
 	case "init":
 		initCmd(os.Args[2:])
 	case "resume":
@@ -51,6 +53,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli doctor [--fix] [--json] [--server URL] [--port N]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli timeline <session_id> [--server URL] [--trace-dir DIR] [--json]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli trace <session_id> [--server URL] [--trace-dir DIR] [--json]")
+	fmt.Fprintln(os.Stderr, "  scratchpad-cli record --from-session <id> [--out PATH] [--sanitize] [--server URL] [--trace-dir DIR]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli resume --profile <dir> [--server URL]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli mcp [flags]")
 	fmt.Fprintln(os.Stderr, "")
@@ -162,6 +165,38 @@ func traceCmd(args []string) {
 		JSON:      *jsonOut,
 	}
 	if err := testrunner.RunTrace(opts); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+// recordCmd transpiles a session's action timeline into a replayable YAML
+// suite (improvement-plan item 25). Only selector-based actions are emitted;
+// the --sanitize flag redacts secrets via the built-in pattern list.
+func recordCmd(args []string) {
+	fs := flag.NewFlagSet("record", flag.ExitOnError)
+	var (
+		fromSession = fs.String("from-session", "", "session id to read the recorded timeline from")
+		outPath     = fs.String("out", "", "write the suite to this file (default: stdout)")
+		sanitize    = fs.Bool("sanitize", false, "redact secrets with the built-in pattern list")
+		serverURL   = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		traceDir    = fs.String("trace-dir", "", "read the timeline from a local trace dir instead of the server")
+	)
+	_ = fs.Parse(args)
+
+	if strings.TrimSpace(*fromSession) == "" {
+		fmt.Fprintln(os.Stderr, "record: missing --from-session <session_id>")
+		os.Exit(1)
+	}
+
+	opts := testrunner.RecordOptions{
+		SessionID: *fromSession,
+		ServerURL: strings.TrimRight(*serverURL, "/"),
+		TraceDir:  *traceDir,
+		OutPath:   *outPath,
+		Sanitize:  *sanitize,
+	}
+	if err := testrunner.RunRecord(opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

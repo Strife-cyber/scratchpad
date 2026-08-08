@@ -45,6 +45,11 @@ type TimelineEvent struct {
 	Selector *protocol.Selector `json:"selector,omitempty"`
 	URL      string             `json:"url,omitempty"`
 
+	// Text carries the typed value for type actions so codegen can replay them
+	// faithfully (improvement-plan item 25) and the viewer can show what was
+	// entered.
+	Text string `json:"text,omitempty"`
+
 	RequestID string `json:"request_id,omitempty"`
 
 	// ObservationHash is a short stable hash of the page state captured after
@@ -177,6 +182,7 @@ func (r *ActionRecorder) RecordAction(req protocol.ActionRequest, reqID string, 
 		Type:       "action",
 		Action:     req.Action,
 		Selector:   req.Selector,
+		Text:       req.Text,
 		RequestID:  reqID,
 		DurationMS: durationMS,
 	}

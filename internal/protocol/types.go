@@ -381,6 +381,13 @@ const (
 
 	// Android text-input fixes (improvement-plan item 32).
 	ActionClearText = "clear_text"
+
+	// Timeline recording markers (improvement-plan item 25): browser_begin_record
+	// / browser_end_record annotate the action timeline so codegen can emit a
+	// suite for just the marked region. They are no-op actions in the engine;
+	// the action recorder persists them as timeline events.
+	ActionRecordBegin = "record_begin"
+	ActionRecordEnd   = "record_end"
 )
 
 // ActionRequest represents a command from the AI agent.
