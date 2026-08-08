@@ -1258,6 +1258,8 @@ Nothing bounds resource use: a pathological page yields a 10k-node AX tree in ev
 
 ## 38. Test Harness, Benchmarks & CI
 
+- [x] DONE (wave F2 — b5b5c89 integration harness: fixture site + build-tagged navigate→observe→act→assert suite for every action/selector, b8c25e1+22d1c61 MCP conformance over a raw JSON-RPC client + CI integration job, cd01d2f protocol goldens for ObservationResponse/ActionRequest, e4a68ff fuzz targets for parseSuites/parseAXTree/ComputeDiff, b8c25e1 CI bench budget gate, 98a203e make test-integration, 10760bf README --race note; caveat: conformance uses a raw JSON-RPC client because mcp-golang v0.16.1 cannot unmarshal image content blocks, and the bench budget gates the diff benchmark as the observation-latency proxy since no observe benchmark exists yet)
+
 ### What & Why
 
 There are good unit tests (`engine_test.go`, `events_test.go`, `selectors_test.go`, `diff` tests + benches, `types_test.go`, `manager_test.go`), but there is **no integration suite that drives a real browser**, no MCP conformance tests, no race-detector run in CI, and no performance regression gate. For a platform whose whole promise is reliability, that's the missing keystone.
