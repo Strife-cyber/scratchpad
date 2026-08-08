@@ -315,6 +315,9 @@ func (ws *wsSession) handle(env protocol.Envelope) {
 	case protocol.MsgTypeObserve:
 		ws.sendObservation("")
 
+	case protocol.MsgTypeListTabs:
+		ws.handleListTabs()
+
 	case protocol.MsgTypeListSessions:
 		ws.handleListSessions()
 
@@ -495,6 +498,19 @@ func (ws *wsSession) handleListSessions() {
 	_ = ws.writeJSON(protocol.Envelope{Type: protocol.MsgTypeListSessions, Data: data})
 }
 
+// handleListTabs returns a lightweight listing of the session's open browser
+// tabs (id/url/title/active) without a full observation. Only Chrome sessions
+// support tab listing; other engines get a typed unsupported error.
+func (ws *wsSession) handleListTabs() {
+	be, ok := ws.session.Engine.(*browser.ChromeEngine)
+	if !ok {
+		ws.writeError(errorResponse(fmt.Errorf("%w: list_tabs requires a Chrome engine session", protocol.ErrUnsupported),
+			ws.reqID, protocol.ErrorLevelWarning, protocol.ActionListTabs, nil))
+		return
+	}
+	_ = ws.writeJSON(protocol.TabListResponse{Type: protocol.MsgTypeListTabs, Tabs: be.ListTabs()})
+}
+
 func (ws *wsSession) handleCloseSession(raw json.RawMessage) {
 	var req protocol.CloseSessionRequest
 	if raw != nil {
@@ -526,13 +542,11 @@ func (ws *wsSession) handleResize(raw json.RawMessage) {
 	}
 	slog.Debug("websocket: resize",
 		"session_id", ws.session.ID, "request_id", ws.reqID, "width", vp.Width, "height", vp.Height)
-	// Resize is a no-op for now (item 13); acknowledge immediately and queue a
-	// fresh observation so it runs after any in-flight action.
-	_ = ws.writeJSON(map[string]any{"type": protocol.MsgTypeResize, "data": map[string]any{"ok": true}})
-	select {
-	case ws.queue <- queueItem{env: protocol.Envelope{Type: protocol.MsgTypeObserve}}:
-	case <-ws.closed:
-	}
+	// Resize is not implemented yet (improvement-plan item 13). Fail loudly with a
+	// typed unsupported error instead of acking a no-op as success, so agents
+	// never trust the old fake-ok path.
+	ws.writeError(errorResponse(fmt.Errorf("%w: resize is not implemented yet (improvement-plan item 13)", protocol.ErrUnsupported),
+		ws.reqID, protocol.ErrorLevelWarning, "resize", nil))
 }
 
 // ---------------------------------------------------------------------------
