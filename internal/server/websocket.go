@@ -59,6 +59,15 @@ type wsSession struct {
 	reqID   string
 	opts    Options
 
+	// sessionMu guards the session pointer. It is written exactly once, on the
+	// reader goroutine, when the first client message attaches the connection to
+	// an existing session (tryAttach). The executor and reader read it without
+	// the lock because they synchronize through the queue channel (the reader
+	// never queues a message before tryAttach returns) and same-goroutine
+	// ordering respectively; the eventPusher goroutine must use currentSession()
+	// because it is spawned before the first message is read.
+	sessionMu sync.RWMutex
+
 	// queue holds inbound non-control messages for the per-session executor.
 	queue chan queueItem
 
@@ -328,6 +337,25 @@ func (ws *wsSession) reader() {
 	}
 }
 
+// currentSession returns the session this connection is bound to, synchronized
+// for the eventPusher goroutine which runs concurrently with the reader's
+// tryAttach swap. Executor/reader callers may read ws.session directly (see the
+// sessionMu comment).
+func (ws *wsSession) currentSession() *sandbox.Session {
+	ws.sessionMu.RLock()
+	s := ws.session
+	ws.sessionMu.RUnlock()
+	return s
+}
+
+// setSession binds the connection to a different session. Only tryAttach (on
+// the reader goroutine, for the first message) calls it.
+func (ws *wsSession) setSession(s *sandbox.Session) {
+	ws.sessionMu.Lock()
+	ws.session = s
+	ws.sessionMu.Unlock()
+}
+
 // tryAttach handles the optional first client message {"sessionId":"..."} that
 // binds the connection to an existing session instead of the freshly-created
 // one. Returns true when the message was consumed as an attach request. Under
@@ -367,7 +395,7 @@ func (ws *wsSession) tryAttach(msg []byte) bool {
 	// Keep-alive lease: attaching bumps the idle timer so an attached session
 	// is not reaped while it is being used.
 	target.Touch()
-	ws.session = target
+	ws.setSession(target)
 
 	slog.Info("websocket: attached to session",
 		"session_id", target.ID, "request_id", ws.reqID)
@@ -835,13 +863,39 @@ func (ws *wsSession) handleSubscribeEvents(raw json.RawMessage) {
 // are drained (skipped) so enabling later resumes from the newest event. It
 // stops when the connection closes, unsubscribing from the bus so the engine's
 // event loop never blocks on a dead connection.
+//
+// The session pointer is read via currentSession() (mutex-guarded) because this
+// goroutine is spawned before the first client message, which may attach the
+// connection to a different session (tryAttach). If that happens the pusher
+// re-subscribes to the new session's bus instead of leaking a subscription on
+// the discarded fresh session (which tryAttach deletes).
 func (ws *wsSession) eventPusher() {
-	if ws.session.Events == nil {
-		return
-	}
-	sub := ws.session.Events.Subscribe(32)
-	defer sub.Cancel()
+	var sub *sandbox.Subscription
+	subbed := (*sandbox.Session)(nil)
+	defer func() {
+		if sub != nil {
+			sub.Cancel()
+		}
+	}()
+
 	for {
+		sess := ws.currentSession()
+		if sess == nil || sess.Events == nil {
+			// No event bus to push from; nothing to do. (Every real session has
+			// a bus; nil only occurs in test helpers.)
+			select {
+			case <-ws.closed:
+				return
+			}
+		}
+		if sub == nil || subbed != sess {
+			if sub != nil {
+				sub.Cancel()
+			}
+			sub = sess.Events.Subscribe(32)
+			subbed = sess
+		}
+
 		select {
 		case ev := <-sub.C:
 			if !ws.pushEvents.Load() {
