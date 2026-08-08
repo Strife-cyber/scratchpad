@@ -150,6 +150,22 @@ type ObserveRequest struct {
 	// responses (e.g. the MCP bridge) to also include the full raw JSON. It is
 	// a transport hint, not an engine directive.
 	IncludeRawJSON *bool `json:"include_raw_json,omitempty"`
+
+	// FullPage, when true, captures the screenshot across the full scrollable
+	// page instead of just the viewport (improvement-plan item 18).
+	FullPage *bool `json:"full_page,omitempty"`
+
+	// ElementSelector, when set, crops the screenshot to the bounding box of
+	// the first matching element (item 18). Takes precedence over FullPage.
+	ElementSelector *Selector `json:"element_selector,omitempty"`
+
+	// ScreenshotFormat overrides the screenshot encoding: "jpeg" (default),
+	// "png" or "webp" (item 18).
+	ScreenshotFormat string `json:"screenshot_format,omitempty"`
+
+	// ScreenshotQuality sets the JPEG/WebP encode quality in [0,100] (default
+	// 80). Ignored by png.
+	ScreenshotQuality *int `json:"screenshot_quality,omitempty"`
 }
 
 func (o *ObserveRequest) WantScreenshot() bool {
@@ -202,6 +218,21 @@ func (o *ObserveRequest) WantRawJSON() bool {
 	return o != nil && o.IncludeRawJSON != nil && *o.IncludeRawJSON
 }
 
+// FullPageCapture reports whether the observation screenshot should span the
+// full scrollable page (item 18).
+func (o *ObserveRequest) FullPageCapture() bool {
+	return o != nil && o.FullPage != nil && *o.FullPage
+}
+
+// ScreenshotQualityLevel returns the requested JPEG/WebP quality, or 0 when
+// unset (the engine then applies its default).
+func (o *ObserveRequest) ScreenshotQualityLevel() int {
+	if o == nil || o.ScreenshotQuality == nil || *o.ScreenshotQuality <= 0 {
+		return 0
+	}
+	return *o.ScreenshotQuality
+}
+
 // =============================================================================
 // Action results (Playwright-style rich return)
 // =============================================================================
@@ -231,6 +262,19 @@ type ActionResult struct {
 	// ElementHighlight is a base64 JPEG with the targeted element
 	// visually highlighted (red outline), when applicable.
 	ElementHighlight string `json:"element_highlight,omitempty"`
+
+	// ScreenshotMime is the media type of the Screenshot payload when it is not
+	// image/jpeg (improvement-plan item 18: png/webp). It lets transports label
+	// the image correctly instead of assuming JPEG.
+	ScreenshotMime string `json:"screenshot_mime,omitempty"`
+
+	// FilePath is the on-disk path of an artifact produced by the action
+	// (capture_pdf, item 18). The HTTP API serves it via
+	// GET /api/v1/sessions/{id}/artifacts/{name}.
+	FilePath string `json:"file_path,omitempty"`
+
+	// FileSize is the size in bytes of the artifact at FilePath (capture_pdf).
+	FileSize int64 `json:"file_size,omitempty"`
 }
 
 // =============================================================================
@@ -297,6 +341,12 @@ const (
 	ActionGetClipboard = "get_clipboard"
 	ActionSetClipboard = "set_clipboard"
 	ActionPaste        = "paste"
+
+	// Downloads & capture actions (improvement-plan items 17/18).
+	ActionWaitDownload  = "wait_download"
+	ActionListDownloads = "list_downloads"
+	ActionCapturePDF    = "capture_pdf"
+	ActionScreenshot    = "screenshot"
 )
 
 // ActionRequest represents a command from the AI agent.
@@ -405,6 +455,10 @@ type ActionRequest struct {
 	// "press_escape" — presses Escape key
 	// "click_button" — clicks a close/dismiss button if found
 	ModalStrategy string `json:"modal_strategy,omitempty"`
+
+	// ScreenshotOptions is used by "screenshot" (full_page, element_selector,
+	// format, quality — improvement-plan item 18). Ignored by other actions.
+	ScreenshotOptions *ScreenshotOptions `json:"screenshot_options,omitempty"`
 }
 
 // ResolveTimeout returns the action timeout, defaulting to 10s when unset.
@@ -577,6 +631,79 @@ type NetworkRequestInfo struct {
 // NetworkListResponse is the reply to MsgTypeNetworkList.
 type NetworkListResponse struct {
 	Requests []NetworkRequestInfo `json:"requests"`
+}
+
+// =============================================================================
+// Screenshot & PDF capture (improvement-plan item 18)
+// =============================================================================
+
+// ScreenshotOptions controls how a screenshot is captured. All fields are
+// optional; zero values mean "engine default" (jpeg @ 80, viewport only).
+// Android engines do not support these options.
+type ScreenshotOptions struct {
+	// FullPage captures the full scrollable page instead of just the viewport.
+	FullPage bool `json:"full_page,omitempty"`
+
+	// ElementSelector, when set, crops the capture to the bounding box of the
+	// first matching element. Takes precedence over FullPage.
+	ElementSelector *Selector `json:"element_selector,omitempty"`
+
+	// Format is the image encoding: "jpeg" (default), "png" or "webp".
+	Format string `json:"format,omitempty"`
+
+	// Quality is the JPEG/WebP encode quality in [0,100]. 0 (or unset) uses the
+	// engine default (80). Ignored by png.
+	Quality *int `json:"quality,omitempty"`
+}
+
+// FormatOr returns the requested image format, or def when unset.
+func (o ScreenshotOptions) FormatOr(def string) string {
+	if o.Format == "" {
+		return def
+	}
+	return o.Format
+}
+
+// QualityLevel returns the requested encode quality, or 0 when unset (caller
+// applies its default).
+func (o ScreenshotOptions) QualityLevel() int {
+	if o.Quality == nil || *o.Quality <= 0 {
+		return 0
+	}
+	return *o.Quality
+}
+
+// =============================================================================
+// File downloads (improvement-plan item 17)
+// =============================================================================
+
+// DownloadState is the lifecycle state of a file download.
+type DownloadState string
+
+const (
+	DownloadInProgress DownloadState = "in_progress"
+	DownloadCompleted  DownloadState = "completed"
+	DownloadCancelled  DownloadState = "cancelled"
+)
+
+// DownloadInfo describes one file download. ID is the CDP download GUID, URL is
+// the resource being downloaded, SuggestedFilename is the server-provided name
+// and Filename/Path reflect the final on-disk location (Chrome may append
+// " (1)" when a file with the same name already exists).
+type DownloadInfo struct {
+	ID                string        `json:"id"`
+	URL               string        `json:"url"`
+	SuggestedFilename string        `json:"suggested_filename,omitempty"`
+	Filename          string        `json:"filename,omitempty"`
+	Path              string        `json:"path,omitempty"`
+	State             DownloadState `json:"state"`
+	ReceivedBytes     int64         `json:"received_bytes,omitempty"`
+	TotalBytes        int64         `json:"total_bytes,omitempty"`
+}
+
+// DownloadListResponse is the reply to ActionListDownloads.
+type DownloadListResponse struct {
+	Downloads []DownloadInfo `json:"downloads"`
 }
 
 // =============================================================================

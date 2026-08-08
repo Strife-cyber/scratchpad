@@ -72,6 +72,18 @@ func MergeObserveRequests(reqs []*protocol.ObserveRequest) *protocol.ObserveRequ
 		if req.IncludeRawJSON != nil {
 			merged.IncludeRawJSON = req.IncludeRawJSON
 		}
+		if req.FullPage != nil {
+			merged.FullPage = req.FullPage
+		}
+		if req.ElementSelector != nil {
+			merged.ElementSelector = req.ElementSelector
+		}
+		if req.ScreenshotFormat != "" {
+			merged.ScreenshotFormat = req.ScreenshotFormat
+		}
+		if req.ScreenshotQuality != nil {
+			merged.ScreenshotQuality = req.ScreenshotQuality
+		}
 	}
 	return merged
 }

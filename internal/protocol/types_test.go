@@ -165,6 +165,127 @@ func TestActionResultTypeGolden(t *testing.T) {
 	}
 }
 
+func TestDownloadInfoGolden(t *testing.T) {
+	input := protocol.DownloadInfo{
+		ID:                "abc-123",
+		URL:               "https://example.com/export.csv",
+		SuggestedFilename: "export.csv",
+		Filename:          "export (1).csv",
+		Path:              "downloads/export (1).csv",
+		State:             protocol.DownloadCompleted,
+		ReceivedBytes:     1234,
+		TotalBytes:        1234,
+	}
+
+	data, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	golden := filepath.Join("testdata", "download_info.golden.json")
+	if *update {
+		os.WriteFile(golden, data, 0644)
+		return
+	}
+
+	expected, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if diff := string(data); diff != string(expected) {
+		t.Errorf("mismatch\ngot:  %s\nwant: %s", string(data), string(expected))
+	}
+}
+
+func TestScreenshotOptionsRoundtrip(t *testing.T) {
+	q := 65
+	original := protocol.ScreenshotOptions{
+		FullPage:        true,
+		ElementSelector: &protocol.Selector{CSS: "#report"},
+		Format:          "webp",
+		Quality:         &q,
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.ScreenshotOptions
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if !decoded.FullPage {
+		t.Error("FullPage: want true, got false")
+	}
+	if decoded.ElementSelector == nil || decoded.ElementSelector.CSS != "#report" {
+		t.Errorf("ElementSelector: want css=#report, got %+v", decoded.ElementSelector)
+	}
+	if decoded.Format != "webp" {
+		t.Errorf("Format: want webp, got %q", decoded.Format)
+	}
+	if decoded.Quality == nil || *decoded.Quality != 65 {
+		t.Errorf("Quality: want 65, got %+v", decoded.Quality)
+	}
+	if got := decoded.FormatOr("jpeg"); got != "webp" {
+		t.Errorf("FormatOr: want webp, got %q", got)
+	}
+	if got := (protocol.ScreenshotOptions{}).FormatOr("jpeg"); got != "jpeg" {
+		t.Errorf("FormatOr default: want jpeg, got %q", got)
+	}
+	if got := decoded.QualityLevel(); got != 65 {
+		t.Errorf("QualityLevel: want 65, got %d", got)
+	}
+	if got := (protocol.ScreenshotOptions{}).QualityLevel(); got != 0 {
+		t.Errorf("QualityLevel default: want 0, got %d", got)
+	}
+}
+
+// TestActionRequestScreenshotRoundtrip verifies the item-18 screenshot_options
+// field survives a JSON round-trip so agents can drive browser_screenshot over
+// WS and MCP.
+func TestActionRequestScreenshotRoundtrip(t *testing.T) {
+	q := 90
+	original := protocol.ActionRequest{
+		Action: protocol.ActionScreenshot,
+		ScreenshotOptions: &protocol.ScreenshotOptions{
+			FullPage:        true,
+			ElementSelector: &protocol.Selector{CSS: ".invoice"},
+			Format:          "png",
+			Quality:         &q,
+		},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.ActionRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if decoded.Action != protocol.ActionScreenshot {
+		t.Errorf("Action: want %q, got %q", protocol.ActionScreenshot, decoded.Action)
+	}
+	if decoded.ScreenshotOptions == nil {
+		t.Fatal("ScreenshotOptions: want non-nil")
+	}
+	if !decoded.ScreenshotOptions.FullPage {
+		t.Error("ScreenshotOptions.FullPage: want true")
+	}
+	if decoded.ScreenshotOptions.ElementSelector == nil || decoded.ScreenshotOptions.ElementSelector.CSS != ".invoice" {
+		t.Errorf("ScreenshotOptions.ElementSelector: want css=.invoice, got %+v", decoded.ScreenshotOptions.ElementSelector)
+	}
+	if decoded.ScreenshotOptions.Format != "png" {
+		t.Errorf("ScreenshotOptions.Format: want png, got %q", decoded.ScreenshotOptions.Format)
+	}
+	if decoded.ScreenshotOptions.Quality == nil || *decoded.ScreenshotOptions.Quality != 90 {
+		t.Errorf("ScreenshotOptions.Quality: want 90, got %+v", decoded.ScreenshotOptions.Quality)
+	}
+}
+
 // =============================================================================
 // ObserveRequest tests
 // =============================================================================
