@@ -44,28 +44,29 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 		return nil
 
 	case protocol.ActionType:
-		if req.Selector != nil {
-			matches, err := e.findAndroidMatches(req.Selector)
-			if err != nil {
-				return fmt.Errorf("android type: selector resolution failed: %w", err)
-			}
-			if len(matches) == 0 {
-				return fmt.Errorf("android type: selector matched no elements")
-			}
-			x := int(matches[0].Bounds.X + matches[0].Bounds.Width/2)
-			y := int(matches[0].Bounds.Y + matches[0].Bounds.Height/2)
-			if _, err := e.adb.run("shell", "input", "tap", fmt.Sprintf("%d", x), fmt.Sprintf("%d", y)); err != nil {
-				return fmt.Errorf("android: type focus tap failed: %w", err)
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-
-		_, err := e.adb.run("shell", "input", "text", req.Text)
-		if err != nil {
+		// type: Unicode-safe input (item 32). ASCII-safe text types directly via
+		// `input text`; everything else (accents, emoji, spaces, shell chars) goes
+		// through the clipboard+paste fallback, which is byte-exact. press_enter
+		// (default false) sends ENTER only when requested — matching the web engine,
+		// which never presses Enter implicitly.
+		if err := e.typeText(req.Selector, req.Text, req.PressEnter); err != nil {
 			return fmt.Errorf("android: type %q failed: %w", req.Text, err)
 		}
-		_, _ = e.adb.run("shell", "input", "keyevent", "66") // ENTER
-		e.treeCache.invalidate()                             // typing changed the focused field (item 27)
+		e.treeCache.invalidate() // typing changed the focused field (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionClearText:
+		// clear_text: empty the focused/selected field (item 32). Moves to the end,
+		// selects all (CTRL+A, with a hold-DEL fallback), then deletes.
+		if err := e.clearText(req.Selector); err != nil {
+			return fmt.Errorf("android: clear_text failed: %w", err)
+		}
+		e.treeCache.invalidate() // clearing changed the focused field (item 27)
 		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
