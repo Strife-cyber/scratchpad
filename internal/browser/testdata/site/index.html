@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scratchpad Fixture Site</title>
+<style>
+  body { font-family: sans-serif; margin: 24px; background: #fff; color: #222; }
+  .box { border: 1px solid #999; padding: 12px; margin: 12px 0; border-radius: 4px; }
+  #scrollable { height: 180px; overflow: auto; border: 1px solid #999; padding: 8px; }
+  .long { height: 600px; }
+  input[type=text], input[type=number] { padding: 4px; }
+  /* Keep the interactable test targets compact near the top so headless
+     mouse/click actions land inside the 1280x720 viewport without scrolling. */
+</style>
+</head>
+<body>
+  <h1 id="page-title">Fixture Index</h1>
+
+  <div class="box">
+    <button id="btn-click">Click Me</button>
+    <button data-testid="login-btn">Login</button>
+    <button id="btn-double">Double Me</button>
+    <a href="#anchor" id="link-home">Home Link</a>
+    <button id="btn-hover">Hover Target</button>
+    <button id="role-link" role="link">Role Link</button>
+  </div>
+
+  <div class="box">
+    <label for="text-input">Text Input</label>
+    <input id="text-input" type="text" placeholder="Enter email">
+    <input id="number-input" type="number" value="0">
+    <label><input type="checkbox" id="agree"> I agree</label>
+    <label><input type="checkbox" id="opt-in" checked> Opt in</label>
+  </div>
+
+  <div class="box">
+    <label for="country">Country</label>
+    <select id="country">
+      <option value="US">United States</option>
+      <option value="CA">Canada</option>
+      <option value="GB">United Kingdom</option>
+    </select>
+  </div>
+
+  <div class="box">
+    <form id="login-form">
+      <input id="form-email" type="text" placeholder="Email">
+      <button id="form-submit" type="submit">Submit Form</button>
+    </form>
+  </div>
+
+  <div class="box">
+    <p id="mutable">original text</p>
+    <button id="btn-change">Change Text</button>
+  </div>
+
+  <div class="box">
+    <span id="draggable" draggable="true">Drag me</span>
+    <div id="drop-target">Drop here</div>
+  </div>
+
+  <div class="box">
+    <input type="file" id="file-input">
+  </div>
+
+  <div id="scrollable">
+    <p class="long" id="scroll-end">Scrollable content tail</p>
+  </div>
+
+  <div class="box">
+    <iframe id="inner-frame" src="frame.html" width="300" height="150"></iframe>
+  </div>
+
+  <script>
+    document.getElementById('btn-change').addEventListener('click', function () {
+      document.getElementById('mutable').textContent = 'changed text';
+    });
+    document.getElementById('btn-hover').addEventListener('mouseenter', function () {
+      this.setAttribute('data-hovered', 'true');
+    });
+    document.getElementById('btn-double').addEventListener('dblclick', function () {
+      document.getElementById('mutable').textContent = 'double clicked';
+    });
+    document.getElementById('login-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      this.setAttribute('data-submitted', 'true');
+    });
+    document.getElementById('country').addEventListener('change', function () {
+      this.setAttribute('data-changed', this.value);
+    });
+  </script>
+</body>
+</html>

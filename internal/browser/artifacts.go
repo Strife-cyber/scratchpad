@@ -88,13 +88,17 @@ func screenshotMime(format string) string {
 }
 
 // observeScreenshotOptions converts an ObserveRequest's item-18 screenshot
-// fields into ScreenshotOptions for captureScreenshot.
+// fields into ScreenshotOptions for captureScreenshot. A nil request (a full,
+// default observation) yields default options; the engine must never panic on a
+// bare observe.
 func observeScreenshotOptions(req *protocol.ObserveRequest) protocol.ScreenshotOptions {
-	opts := protocol.ScreenshotOptions{
-		FullPage: req.FullPageCapture(),
-		Format:   req.ScreenshotFormat,
-		Quality:  req.ScreenshotQuality,
+	opts := protocol.ScreenshotOptions{}
+	if req == nil {
+		return opts
 	}
+	opts.FullPage = req.FullPageCapture()
+	opts.Format = req.ScreenshotFormat
+	opts.Quality = req.ScreenshotQuality
 	if req.ElementSelector != nil {
 		opts.ElementSelector = req.ElementSelector
 	}
@@ -102,8 +106,12 @@ func observeScreenshotOptions(req *protocol.ObserveRequest) protocol.ScreenshotO
 }
 
 // observeScreenshotMime reports the media type the observation screenshot will
-// have given the request's screenshot_format (defaults to image/jpeg).
+// have given the request's screenshot_format (defaults to image/jpeg). Nil-safe
+// like observeScreenshotOptions.
 func observeScreenshotMime(req *protocol.ObserveRequest) string {
+	if req == nil {
+		return "image/jpeg"
+	}
 	return screenshotMime(req.ScreenshotFormat)
 }
 

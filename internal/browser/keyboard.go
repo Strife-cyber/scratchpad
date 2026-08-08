@@ -9,6 +9,7 @@ import (
 	"scratchpad/internal/protocol"
 
 	"github.com/chromedp/cdproto/input"
+	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
 )
 
@@ -92,9 +93,15 @@ func dispatchKey(ctx context.Context, k kb.Key, mods input.Modifier) error {
 		WithWindowsVirtualKeyCode(k.Windows).
 		WithNativeVirtualKeyCode(k.Native).
 		WithModifiers(mods)
-	if err := keyDown.Do(ctx); err != nil {
-		return err
-	}
+
+	keyUp := input.DispatchKeyEvent(input.KeyUp).
+		WithKey(k.Key).
+		WithCode(k.Code).
+		WithWindowsVirtualKeyCode(k.Windows).
+		WithNativeVirtualKeyCode(k.Native).
+		WithModifiers(mods)
+
+	tasks := []chromedp.Action{keyDown}
 
 	// Printable keys get a char event so their text lands (a text field with
 	// focus and no interception receives the character).
@@ -107,18 +114,15 @@ func dispatchKey(ctx context.Context, k kb.Key, mods input.Modifier) error {
 			WithUnmodifiedText(k.Unmodified).
 			WithWindowsVirtualKeyCode(int64(first)).
 			WithModifiers(mods)
-		if err := keyChar.Do(ctx); err != nil {
-			return err
-		}
+		tasks = append(tasks, keyChar)
 	}
 
-	keyUp := input.DispatchKeyEvent(input.KeyUp).
-		WithKey(k.Key).
-		WithCode(k.Code).
-		WithWindowsVirtualKeyCode(k.Windows).
-		WithNativeVirtualKeyCode(k.Native).
-		WithModifiers(mods)
-	return keyUp.Do(ctx)
+	tasks = append(tasks, keyUp)
+
+	// The dispatches must run through chromedp.Run: a bare .Do(ctx) on a
+	// chromedp context does not resolve the CDP executor and fails with
+	// "invalid context". Unit tests (no browser) never exercised this path.
+	return chromedp.Run(ctx, tasks...)
 }
 
 // pressKeyCombo presses one key with modifiers through the real CDP input
@@ -167,7 +171,7 @@ func typeText(ctx context.Context, text string, mods input.Modifier, clearFirst 
 	for _, r := range text {
 		for _, ev := range kb.Encode(r) {
 			ev.Modifiers |= mods
-			if err := ev.Do(ctx); err != nil {
+			if err := chromedp.Run(ctx, ev); err != nil {
 				return err
 			}
 		}
@@ -195,14 +199,11 @@ func selectAll(ctx context.Context, held input.Modifier) error {
 		WithKey("a").WithCode("KeyA").
 		WithWindowsVirtualKeyCode(65).WithNativeVirtualKeyCode(65).
 		WithModifiers(mods)
-	if err := down.Do(ctx); err != nil {
-		return err
-	}
 	up := input.DispatchKeyEvent(input.KeyUp).
 		WithKey("a").WithCode("KeyA").
 		WithWindowsVirtualKeyCode(65).WithNativeVirtualKeyCode(65).
 		WithModifiers(mods)
-	return up.Do(ctx)
+	return chromedp.Run(ctx, down, up)
 }
 
 // focusElement focuses an element for deterministic typing (item 15):
@@ -240,16 +241,19 @@ func (e *ChromeEngine) focusElement(ctx context.Context, sel protocol.Selector, 
 }
 
 // clickAt sends a real mouse press+release at the given coordinates. It is the
-// shared primitive for focus (and reused by the focus action).
+// shared primitive for focus (and reused by the focus action). The events must
+// run through chromedp.Run: calling .Do(ctx) directly on the engine/action
+// context fails with "invalid context" because the CDP executor is only injected
+// by Run.
 func (e *ChromeEngine) clickAt(ctx context.Context, x, y float64) error {
 	press := input.DispatchMouseEvent(input.MousePressed, x, y).
 		WithButton(input.Left).
 		WithClickCount(1)
-	if err := press.Do(ctx); err != nil {
+	if err := chromedp.Run(ctx, press); err != nil {
 		return err
 	}
 	release := input.DispatchMouseEvent(input.MouseReleased, x, y).
 		WithButton(input.Left).
 		WithClickCount(1)
-	return release.Do(ctx)
+	return chromedp.Run(ctx, release)
 }
