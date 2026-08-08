@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"scratchpad/internal/engine"
 	"scratchpad/internal/protocol"
 
 	"github.com/gorilla/websocket"
@@ -52,6 +53,11 @@ type sessionConn struct {
 	id        string
 	conn      *websocket.Conn
 	engineURL string
+
+	// baseTree is the last full spatial tree seen for this session. The server
+	// sends deltas to save bandwidth; the bridge reconstructs the full tree
+	// before formatting so tools never see "Nodes: 0".
+	baseTree []protocol.SpatialNode
 
 	mu sync.Mutex
 }
@@ -205,7 +211,27 @@ func (s *Server) sendEnvelopeTo(sessionID string, env protocol.Envelope) (*mcp.T
 	if err != nil {
 		return nil, err
 	}
-	return s.parseResponse(msg)
+	return s.parseResponse(sc, msg, nil)
+}
+
+// observeOn sends an MsgTypeObserve envelope (with the client's request as
+// data) on the given session's connection and parses the observation, passing
+// the request through so parseResponse can honor include_raw_json. sessionID ""
+// targets the active session.
+func (s *Server) observeOn(sessionID string, req *protocol.ObserveRequest) (*mcp.ToolResponse, error) {
+	sc, err := s.getConn(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	env := protocol.Envelope{Type: protocol.MsgTypeObserve}
+	if req != nil {
+		env.Data = mustJSON(req)
+	}
+	msg, err := sc.roundTrip(env)
+	if err != nil {
+		return nil, err
+	}
+	return s.parseResponse(sc, msg, req)
 }
 
 // getConn returns the connection for sessionID, falling back to the active
@@ -303,7 +329,12 @@ func (sc *sessionConn) reconnect() error {
 // parseResponse parses one raw engine message as either an ErrorResponse or an
 // ObservationResponse. Errors are returned as descriptive text so the AI agent
 // gets helpful feedback.
-func (s *Server) parseResponse(message []byte) (*mcp.ToolResponse, error) {
+//
+// req, when non-nil, is the observe request that produced the observation; its
+// IncludeRawJSON flag decides whether the raw observation JSON is included as a
+// second text block. Without it the response is a compact summary (page, action
+// result, node count, top interactive elements) plus the screenshot.
+func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.ObserveRequest) (*mcp.ToolResponse, error) {
 	// Try ErrorResponse first — the engine always sends this on failure. The
 	// envelope is passed through VERBATIM (preserving code, hint, request_id,
 	// selector and screenshot) so the AI sees the same stable error grammar as
@@ -326,9 +357,20 @@ func (s *Server) parseResponse(message []byte) (*mcp.ToolResponse, error) {
 		return nil, fmt.Errorf("mcp: unexpected response: %s", string(message))
 	}
 
+	// Reconstruct a full tree from a delta so downstream formatting sees real
+	// nodes, not the empty tree the delta message carries. The bridge keeps the
+	// per-session base; the reconstructed tree becomes the new base so the next
+	// delta applies against the freshest state (a full observation also refreshes
+	// it).
+	if obs.Delta != nil {
+		obs.SpatialTree = engine.ApplyDelta(sc.baseTree, obs.Delta)
+		sc.baseTree = obs.SpatialTree
+	} else if obs.SpatialTree != nil {
+		sc.baseTree = obs.SpatialTree
+	}
+
 	b64Images := obs.Visual
 	obs.Visual = ""
-	cleanMessage, _ := json.Marshal(obs)
 
 	pageText := ""
 	if obs.PageInfo != nil {
@@ -361,11 +403,19 @@ func (s *Server) parseResponse(message []byte) (*mcp.ToolResponse, error) {
 		}
 	}
 
-	displayText := fmt.Sprintf("State: %+v%s%s\nNodes: %d", obs.SystemState, pageText, actionResult, len(obs.SpatialTree))
+	truncated := ""
+	if obs.Truncated {
+		truncated = fmt.Sprintf(" (truncated, full=%d)", obs.FullNodeCount)
+	}
 
-	contents := []*mcp.Content{
-		mcp.NewTextContent(displayText),
-		mcp.NewTextContent(string(cleanMessage)),
+	displayText := fmt.Sprintf("State: %+v%s%s\nNodes: %d%s%s",
+		obs.SystemState, pageText, actionResult, len(obs.SpatialTree), truncated, topElements(obs.SpatialTree))
+
+	contents := []*mcp.Content{mcp.NewTextContent(displayText)}
+
+	if req != nil && req.WantRawJSON() {
+		cleanMessage, _ := json.Marshal(obs)
+		contents = append(contents, mcp.NewTextContent(string(cleanMessage)))
 	}
 
 	if b64Images != "" {
@@ -378,6 +428,35 @@ func (s *Server) parseResponse(message []byte) (*mcp.ToolResponse, error) {
 	}
 
 	return mcp.NewToolResponse(contents...), nil
+}
+
+// topElements renders the most relevant spatial nodes as a compact "Elements:
+// ..." list. Interactive nodes and named headings/links are shown first, up to
+// maxShown entries, so the agent gets actionable element ids without the full
+// JSON tree.
+func topElements(tree []protocol.SpatialNode) string {
+	const maxShown = 6
+	shown := 0
+	var b strings.Builder
+	b.WriteString("\nElements:")
+	for _, n := range tree {
+		if shown >= maxShown {
+			break
+		}
+		if !n.Interactive && n.Name == "" {
+			continue
+		}
+		label := n.Name
+		if label == "" {
+			label = n.NodeID
+		}
+		fmt.Fprintf(&b, " [%s %q id=%s]", n.Role, label, n.NodeID)
+		shown++
+	}
+	if remaining := len(tree) - shown; remaining > 0 {
+		fmt.Fprintf(&b, " (+%d more)", remaining)
+	}
+	return b.String()
 }
 
 // ---------------------------------------------------------------------------

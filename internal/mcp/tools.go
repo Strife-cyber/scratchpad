@@ -17,9 +17,54 @@ type NavigateArgs struct {
 	URL string `json:"url"`
 }
 
-// ObserveArgs is empty — browser_observe takes no arguments.
+// ObserveArgs configures which parts of a page observation are captured and
+// any budgets to apply. Every field is optional; unset fields keep the engine's
+// defaults (a full observation).
 type ObserveArgs struct {
-	_ string `json:"-"`
+	Screenshot *bool `json:"screenshot,omitempty"`
+	Tree       *bool `json:"tree,omitempty"`
+	Tabs       *bool `json:"tabs,omitempty"`
+	Console    *bool `json:"console,omitempty"`
+	PageInfo   *bool `json:"page_info,omitempty"`
+
+	// MaxNodes caps the returned spatial tree; when exceeded the response sets
+	// truncated:true and full_node_count.
+	MaxNodes *int `json:"max_nodes,omitempty"`
+	// MaxDepth drops nodes deeper than this many levels (root = 0).
+	MaxDepth *int `json:"max_depth,omitempty"`
+	// InteractiveOnly returns only actionable nodes (buttons, links, inputs).
+	InteractiveOnly *bool `json:"interactive_only,omitempty"`
+	// IncludeText, when false, strips node names/values from the tree.
+	IncludeText *bool `json:"include_text,omitempty"`
+	// MaxScreenshotBytes caps the encoded screenshot size.
+	MaxScreenshotBytes *int `json:"max_screenshot_bytes,omitempty"`
+	// IncludeRawJSON appends the full observation JSON as a second text block
+	// (off by default — responses are compact summaries).
+	IncludeRawJSON *bool `json:"include_raw_json,omitempty"`
+}
+
+// request converts the args to a protocol.ObserveRequest, or nil when every
+// field is unset (the engine then performs a full observation).
+func (a ObserveArgs) request() *protocol.ObserveRequest {
+	req := &protocol.ObserveRequest{
+		Screenshot:         a.Screenshot,
+		Tree:               a.Tree,
+		Tabs:               a.Tabs,
+		Console:            a.Console,
+		PageInfo:           a.PageInfo,
+		MaxNodes:           a.MaxNodes,
+		MaxDepth:           a.MaxDepth,
+		InteractiveOnly:    a.InteractiveOnly,
+		IncludeText:        a.IncludeText,
+		MaxScreenshotBytes: a.MaxScreenshotBytes,
+		IncludeRawJSON:     a.IncludeRawJSON,
+	}
+	if req.Screenshot == nil && req.Tree == nil && req.Tabs == nil && req.Console == nil && req.PageInfo == nil &&
+		req.MaxNodes == nil && req.MaxDepth == nil && req.InteractiveOnly == nil && req.IncludeText == nil &&
+		req.MaxScreenshotBytes == nil && req.IncludeRawJSON == nil {
+		return nil
+	}
+	return req
 }
 
 // AssertArgs drives the protocol assert action (element_visible, text_present,
@@ -241,6 +286,23 @@ func actionTool[T any](s *Server, name, description string, build func(args T) p
 	return def
 }
 
+// observeTool is the browser_observe tool. It is registered with a custom
+// handler (not the generic tool()) so the observe request — including the
+// include_raw_json hint — travels with the call into parseResponse, which
+// needs it to decide whether to append the raw JSON tree.
+func observeTool(s *Server) toolDef {
+	const description = "Capture the current page state (screenshot + spatial tree + page info). All arguments optional: screenshot/tree/tabs/console/page_info toggles, max_nodes, max_depth, interactive_only, include_text, max_screenshot_bytes; include_raw_json appends the full JSON tree.\n\nExample: browser_observe with {} returns the full page snapshot; with {\"max_nodes\":200} caps the tree."
+	return toolDef{
+		name:        "browser_observe",
+		description: description,
+		register: func(srv *mcp.Server) error {
+			return srv.RegisterTool("browser_observe", description, func(ctx context.Context, args ObserveArgs) (*mcp.ToolResponse, error) {
+				return s.observeOn("", args.request())
+			})
+		},
+	}
+}
+
 // listTabsTool is the browser_list_tabs tool. It is a plain tool (not an
 // action) so it sends the lightweight MsgTypeListTabs message instead of a full
 // observation. Its action field is still set to ActionListTabs so the coverage
@@ -301,9 +363,7 @@ func (s *Server) toolDefs() []toolDef {
 				Data: mustJSON(protocol.InitializeRequest{URL: a.URL}),
 			}
 		}),
-		tool(s, "browser_observe", "Capture the current page state (screenshot + spatial tree + page info).\n\nExample: browser_observe with {} returns the full page snapshot.", func(a ObserveArgs) protocol.Envelope {
-			return protocol.Envelope{Type: protocol.MsgTypeObserve}
-		}),
+		observeTool(s),
 		listTabsTool(s),
 
 		// ---- Power-user fallback ---------------------------------------------

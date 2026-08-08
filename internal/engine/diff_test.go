@@ -99,6 +99,60 @@ func TestComputeDiff_Mixed(t *testing.T) {
 	}
 }
 
+func TestApplyDelta_RoundTrip(t *testing.T) {
+	// ComputeDiff then ApplyDelta round-trips a tree exactly.
+	base := []protocol.SpatialNode{
+		makeNode("a", "button", "Submit", 0, 0, 100, 40),
+		makeNode("b", "link", "Home", 0, 50, 80, 20),
+		makeNode("c", "tab", "Tab1", 0, 100, 40, 20),
+	}
+	next := []protocol.SpatialNode{
+		makeNode("a", "button", "Submit", 0, 0, 100, 40),    // unchanged
+		makeNode("b", "link", "Home", 10, 50, 80, 20),       // updated
+		makeNode("d", "checkbox", "Accept", 0, 200, 20, 20), // added
+	}
+
+	delta := ComputeDiff(base, next)
+	got := ApplyDelta(base, delta)
+
+	if len(got) != 3 {
+		t.Fatalf("round-trip tree has %d nodes, want 3", len(got))
+	}
+	// b must be replaced by its updated form, d appended, c dropped.
+	byID := make(map[string]protocol.SpatialNode, len(got))
+	order := make([]string, 0, len(got))
+	for _, n := range got {
+		byID[n.NodeID] = n
+		order = append(order, n.NodeID)
+	}
+	if n, ok := byID["b"]; !ok || n.Bounds.X != 10 {
+		t.Errorf("updated node b not in place: %v", got)
+	}
+	if _, ok := byID["d"]; !ok {
+		t.Error("added node d missing after ApplyDelta")
+	}
+	if _, ok := byID["c"]; ok {
+		t.Error("removed node c should not be present")
+	}
+	// Base order is preserved, added nodes appended.
+	if order[0] != "a" || order[1] != "b" || order[2] != "d" {
+		t.Errorf("node order after apply = %v, want [a b d]", order)
+	}
+}
+
+func TestApplyDelta_EdgeCases(t *testing.T) {
+	base := []protocol.SpatialNode{makeNode("a", "button", "Submit", 0, 0, 100, 40)}
+
+	if got := ApplyDelta(base, nil); len(got) != 1 || got[0].NodeID != "a" {
+		t.Errorf("nil delta should return base unchanged, got %v", got)
+	}
+
+	got := ApplyDelta(nil, &protocol.TreeDelta{Added: []protocol.SpatialNode{makeNode("x", "link", "X", 0, 0, 10, 10)}})
+	if len(got) != 1 || got[0].NodeID != "x" {
+		t.Errorf("nil base + delta should yield added nodes, got %v", got)
+	}
+}
+
 func TestSpatialNodeChanged(t *testing.T) {
 	a := makeNode("1", "button", "Click", 0, 0, 100, 40)
 	b := a

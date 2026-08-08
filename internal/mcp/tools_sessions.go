@@ -87,7 +87,7 @@ func (s *Server) sessionToolDefs() []toolDef {
 						sc.mu.Unlock()
 						return mcp.NewToolResponse(mcp.NewTextContent("Action cancelled.")), nil
 					}
-					return s.parseResponse(msg)
+					return s.parseResponse(sc, msg, nil)
 				})
 			},
 		},
@@ -176,7 +176,7 @@ func (s *Server) sessionToolDefs() []toolDef {
 					if err != nil {
 						return nil, err
 					}
-					base, err := s.parseResponse(msg)
+					base, err := s.parseResponse(sc, msg, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -262,7 +262,7 @@ func (s *Server) closeSession(id string) (*mcp.ToolResponse, error) {
 		if json.Unmarshal(msg, &ack) == nil && ack.Type == protocol.MsgTypeCloseSession {
 			return closeAck(id), nil
 		}
-		return s.parseResponse(msg)
+		return s.parseResponse(sc, msg, nil)
 	}
 
 	// Slow path: no local connection for this session.
@@ -303,7 +303,7 @@ func (s *Server) closeSessionRemote(id string, env protocol.Envelope) (*mcp.Tool
 		return closeAck(id), nil
 	}
 	// The server refused the close (e.g. session_not_found): surface verbatim.
-	return s.parseResponse(msg)
+	return s.parseResponse(sc, msg, nil)
 }
 
 // closeAck builds the success ToolResponse for a closed session.
