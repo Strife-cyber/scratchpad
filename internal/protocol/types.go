@@ -56,6 +56,10 @@ type SessionInfo struct {
 	URL          string    `json:"url,omitempty"`
 	Platform     string    `json:"platform,omitempty"`
 	Title        string    `json:"title,omitempty"`
+
+	// Persistent reports whether the session is exempt from idle cleanup
+	// (improvement-plan item 22).
+	Persistent bool `json:"persistent,omitempty"`
 }
 
 // SessionListResponse is the reply to MsgTypeListSessions.
@@ -347,6 +351,11 @@ const (
 	ActionListDownloads = "list_downloads"
 	ActionCapturePDF    = "capture_pdf"
 	ActionScreenshot    = "screenshot"
+
+	// Browser emulation (improvement-plan item 23): applies user-agent, locale,
+	// timezone, and color-scheme overrides mid-session. Proxy cannot be changed
+	// here (it is an allocator-level setting fixed at session creation).
+	ActionUpdateEmulation = "session_update_emulation"
 )
 
 // ActionRequest represents a command from the AI agent.
@@ -432,6 +441,12 @@ type ActionRequest struct {
 
 	// Geolocation is used by "set_geolocation".
 	Geolocation *Geolocation `json:"geolocation,omitempty"`
+
+	// Emulation is used by "session_update_emulation" to apply browser emulation
+	// overrides mid-session (improvement-plan item 23): user-agent, locale,
+	// timezone, and color-scheme. Proxy is allocator-level and cannot be changed
+	// here.
+	Emulation *EmulationOptions `json:"emulation,omitempty"`
 
 	// NetworkMock is used by "mock_network_response".
 	NetworkMock *NetworkMock `json:"network_mock,omitempty"`
@@ -563,6 +578,22 @@ type Geolocation struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 	AccuracyM float64 `json:"accuracy_m,omitempty"`
+}
+
+// EmulationOptions describes browser emulation overrides (improvement-plan item
+// 23). UserAgent/Locale/Timezone/ColorScheme are applied via CDP
+// Emulation.*Override commands at session creation and are adjustable mid-session
+// via the session_update_emulation action. ProxyURL/ProxyAuth are allocator-level
+// settings fixed at session creation (Chromium's --proxy-server flag plus
+// Fetch-domain auth-challenge handling); they are recorded here so the active
+// overrides can be surfaced in PageInfo.Extra.
+type EmulationOptions struct {
+	UserAgent   string `json:"user_agent,omitempty"`
+	Locale      string `json:"locale,omitempty"`
+	Timezone    string `json:"timezone,omitempty"`
+	ColorScheme string `json:"color_scheme,omitempty"` // "light", "dark", "" = system
+	ProxyURL    string `json:"proxy_url,omitempty"`
+	ProxyAuth   string `json:"proxy_auth,omitempty"` // "user:pass" for authenticated proxies
 }
 
 type NetworkMock struct {
@@ -803,9 +834,31 @@ type AssertionRequest struct {
 }
 
 // InitializeRequest sets up the initial browser sandbox.
+//
+// ProfileDir, AttachPort, and Persistent (improvement-plan item 22) are
+// session-creation options that must be fixed when the engine's allocator is
+// built; transports that create the session via query parameters (WebSocket) or
+// the HTTP body carry them separately. They are echoed here so clients that only
+// speak the first-navigate message can still express them. Emulation (item 23)
+// is applied at creation when present.
 type InitializeRequest struct {
 	URL      string   `json:"url"`
 	Viewport Viewport `json:"viewport"`
+
+	// ProfileDir reuses a Chrome user-data-dir as a persistent profile.
+	ProfileDir string `json:"profile_dir,omitempty"`
+
+	// AttachPort, when non-zero, attaches to an already-running Chrome on
+	// http://127.0.0.1:<port> instead of spawning a new one. The attached browser
+	// is not closed on session close.
+	AttachPort int `json:"attach_port,omitempty"`
+
+	// Persistent marks the session as persistent: the idle cleanup loop does not
+	// reap it, and scratchpad-cli resume can restore it by profile directory.
+	Persistent bool `json:"session_persist,omitempty"`
+
+	// Emulation carries browser emulation overrides to apply at session creation.
+	Emulation *EmulationOptions `json:"emulation,omitempty"`
 }
 
 type Viewport struct {
