@@ -142,6 +142,17 @@ type ChromeEngine struct {
 	emulMu       sync.Mutex
 	lastViewport protocol.Viewport
 	devicePreset string
+
+	// Download tracking (improvement-plan item 17): CDP Browser.downloadWillBegin
+	// and Browser.downloadProgress events are folded into a per-session table
+	// keyed by the download GUID, plus a FIFO queue of began downloads so
+	// wait_download consumes them in order. downloadBeginCh is closed (and
+	// replaced) whenever a new download begins, waking waiters.
+	downloadMu      sync.Mutex
+	downloadDir     string
+	downloads       map[string]*protocol.DownloadInfo
+	downloadQueue   []string
+	downloadBeginCh chan struct{}
 }
 
 // targetInfo holds metadata about a browser tab/window target.
@@ -200,6 +211,9 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 		maxConsoleEntries:   consoleCapFromEnv(),
 		lastViewport:        protocol.Viewport{Width: 1280, Height: 720},
 		devicePreset:        "Desktop HD",
+		downloads:           make(map[string]*protocol.DownloadInfo),
+		downloadBeginCh:     make(chan struct{}),
+		downloadDir:         resolveDownloadDir(),
 	}
 
 	// Wire up internal listeners before any external code can add its own.
@@ -207,6 +221,8 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 	e.setupNetworkListener()
 	e.setupFetchInterceptor()
 	e.setupTargetListener()
+	e.setupDownloadBehavior()
+	e.setupDownloadListener()
 	e.setupObserveCaching()
 
 	return e
@@ -523,11 +539,14 @@ func (e *ChromeEngine) SwitchTab(tabID string) error {
 		t.Active = t.ID == tabID
 	}
 
-	// Re-setup event dispatcher, network listener, and Fetch interceptor for the
-	// new tab context (re-enabling interception when it was active).
+	// Re-setup event dispatcher, network listener, Fetch interceptor, and
+	// download behavior/listener for the new tab context (re-enabling
+	// interception when it was active).
 	e.setupEventDispatcher()
 	e.setupNetworkListener()
 	e.reattachNetworkIfEnabled()
+	e.setupDownloadBehavior()
+	e.setupDownloadListener()
 
 	return nil
 }
