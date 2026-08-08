@@ -908,6 +908,12 @@ type ObservationResponse struct {
 	// decide whether to re-request with a larger budget.
 	Truncated     bool `json:"truncated,omitempty"`
 	FullNodeCount int  `json:"full_node_count,omitempty"`
+
+	// Stale is true when the spatial tree was served from the engine's cache
+	// without re-dumping the screen (improvement-plan item 27). Clients can use
+	// it to avoid re-observing a screen that has not changed since their last
+	// action; the tree is still a faithful snapshot of the current screen.
+	Stale bool `json:"stale,omitempty"`
 }
 
 type SystemState struct {
