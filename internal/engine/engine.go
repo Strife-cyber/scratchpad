@@ -31,7 +31,13 @@ type Engine interface {
 
 	// Observe captures the current visual + structural state of the page/screen
 	// and returns it as a self-contained ObservationResponse.
-	Observe() (*protocol.ObservationResponse, error)
+	//
+	// The optional requests select which parts of the observation to capture
+	// (tree, screenshot, tabs, console, page info) and apply budgets (max_nodes,
+	// max_depth, max_screenshot_bytes). Passing no requests is equivalent to a
+	// full observation. When multiple requests are given they are merged, with
+	// later requests overriding earlier ones; a nil entry is ignored.
+	Observe(reqs ...*protocol.ObserveRequest) (*protocol.ObservationResponse, error)
 
 	// ExecuteAction dispatches a single user-style action (click, type, scroll, wait).
 	// The provided ctx carries the action's cancellation signal: cancelling it must

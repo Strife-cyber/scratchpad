@@ -119,6 +119,33 @@ type ObserveRequest struct {
 	Tabs       *bool `json:"tabs,omitempty"`       // list open tabs
 	Console    *bool `json:"console,omitempty"`    // include console logs
 	PageInfo   *bool `json:"page_info,omitempty"`  // include page info
+
+	// MaxNodes caps the number of SpatialNodes returned in the tree. When the
+	// full tree exceeds this, the engine returns the top interactive nodes,
+	// sets ObservationResponse.Truncated and reports the full count in
+	// ObservationResponse.FullNodeCount. 0 (or nil) means the default budget.
+	MaxNodes *int `json:"max_nodes,omitempty"`
+
+	// MaxDepth caps the AX depth of returned nodes; nodes deeper than this are
+	// dropped. 0 (or nil) means no depth limit.
+	MaxDepth *int `json:"max_depth,omitempty"`
+
+	// InteractiveOnly, when true, returns only actionable nodes (buttons,
+	// links, inputs, ...).
+	InteractiveOnly *bool `json:"interactive_only,omitempty"`
+
+	// IncludeText, when false, drops node names/values so the tree is smaller.
+	IncludeText *bool `json:"include_text,omitempty"`
+
+	// MaxScreenshotBytes caps the encoded size of the JPEG screenshot; when
+	// exceeded the engine re-encodes/downscales the image. 0 (or nil) means no
+	// cap.
+	MaxScreenshotBytes *int `json:"max_screenshot_bytes,omitempty"`
+
+	// IncludeRawJSON, when true, asks transports that normally summarize
+	// responses (e.g. the MCP bridge) to also include the full raw JSON. It is
+	// a transport hint, not an engine directive.
+	IncludeRawJSON *bool `json:"include_raw_json,omitempty"`
 }
 
 func (o *ObserveRequest) WantScreenshot() bool {
@@ -128,6 +155,48 @@ func (o *ObserveRequest) WantTree() bool     { return o == nil || o.Tree == nil 
 func (o *ObserveRequest) WantTabs() bool     { return o == nil || o.Tabs == nil || *o.Tabs }
 func (o *ObserveRequest) WantConsole() bool  { return o == nil || o.Console == nil || *o.Console }
 func (o *ObserveRequest) WantPageInfo() bool { return o == nil || o.PageInfo == nil || *o.PageInfo }
+
+// NodeBudget returns the configured max_nodes cap, or 0 when the caller left it
+// unset (the engine applies its default budget).
+func (o *ObserveRequest) NodeBudget() int {
+	if o == nil || o.MaxNodes == nil || *o.MaxNodes <= 0 {
+		return 0
+	}
+	return *o.MaxNodes
+}
+
+// DepthLimit returns the configured max_depth cap, or 0 when no limit applies.
+func (o *ObserveRequest) DepthLimit() int {
+	if o == nil || o.MaxDepth == nil || *o.MaxDepth <= 0 {
+		return 0
+	}
+	return *o.MaxDepth
+}
+
+// OnlyInteractive reports whether only actionable nodes should be returned.
+func (o *ObserveRequest) OnlyInteractive() bool {
+	return o != nil && o.InteractiveOnly != nil && *o.InteractiveOnly
+}
+
+// WantText reports whether node names/values should be included. Default true.
+func (o *ObserveRequest) WantText() bool {
+	return o == nil || o.IncludeText == nil || *o.IncludeText
+}
+
+// ScreenshotBudget returns the configured max_screenshot_bytes cap, or 0 when
+// unset (no cap).
+func (o *ObserveRequest) ScreenshotBudget() int {
+	if o == nil || o.MaxScreenshotBytes == nil || *o.MaxScreenshotBytes <= 0 {
+		return 0
+	}
+	return *o.MaxScreenshotBytes
+}
+
+// WantRawJSON reports whether transports should include the full raw JSON
+// response in addition to their compact summary.
+func (o *ObserveRequest) WantRawJSON() bool {
+	return o != nil && o.IncludeRawJSON != nil && *o.IncludeRawJSON
+}
 
 // =============================================================================
 // Action results (Playwright-style rich return)
@@ -467,6 +536,13 @@ type ObservationResponse struct {
 	// AssertionResult is populated when Action == "assert" or explicit
 	// wait actions run. Kept for backward compatibility.
 	AssertionResult *AssertionResult `json:"assertion_result,omitempty"`
+
+	// Truncated is true when the spatial tree was capped by the max_nodes
+	// budget (or interactive_only filtering) and does not represent the full
+	// page. FullNodeCount reports the size of the full tree so clients can
+	// decide whether to re-request with a larger budget.
+	Truncated     bool `json:"truncated,omitempty"`
+	FullNodeCount int  `json:"full_node_count,omitempty"`
 }
 
 type SystemState struct {

@@ -93,19 +93,30 @@ func (e *AndroidEngine) Navigate(url string) error {
 // Observe dumps the UIAutomator2 accessibility tree, flattens it into
 // SpatialNodes, and captures a screenshot — matching ChromeEngine's contract.
 // Also populates PageInfo with the current screen/activity.
+//
+// The optional requests gate which parts are captured (tree, screenshot, page
+// info) and cap the tree size. Passing no requests yields a full observation.
 // Implements engine.Engine.
-func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
+func (e *AndroidEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.ObservationResponse, error) {
+	req := engine.MergeObserveRequests(reqs)
+
 	spatialTree, err := e.dumpSpatialTree()
 	if err != nil {
 		return nil, err
 	}
+	spatialTree, truncated, fullNodeCount := engine.ApplyObserveBudget(spatialTree, req)
 
-	// Screenshot is best-effort — a missing screenshot is non-fatal.
-	imgBytes, _ := captureScreen()
-	b64Img := base64.StdEncoding.EncodeToString(imgBytes)
+	var b64Img string
+	if req.WantScreenshot() {
+		// Screenshot is best-effort — a missing screenshot is non-fatal.
+		imgBytes, _ := captureScreen()
+		b64Img = base64.StdEncoding.EncodeToString(imgBytes)
+	}
 
-	// Capture page/screen info.
-	pageInfo := e.detectScreenInfo(spatialTree)
+	var pageInfo *protocol.PageInfo
+	if req.WantPageInfo() {
+		pageInfo = e.detectScreenInfo(spatialTree)
+	}
 
 	obs := &protocol.ObservationResponse{
 		Type:        "observation",
@@ -117,6 +128,10 @@ func (e *AndroidEngine) Observe() (*protocol.ObservationResponse, error) {
 
 		AssertionResult: e.lastAssertionResult,
 		ActionResult:    e.lastActionResult,
+	}
+	if truncated {
+		obs.Truncated = true
+		obs.FullNodeCount = fullNodeCount
 	}
 
 	// Clear per-step diagnostics/assertions after emission.

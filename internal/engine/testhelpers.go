@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -61,15 +62,35 @@ func (m *MemoryEngine) Navigate(url string) error {
 	return m.navErr
 }
 
-// Observe records the call and returns the stored observation response (or
-// the one configured via SetObservationResponse).
-func (m *MemoryEngine) Observe() (*protocol.ObservationResponse, error) {
+// Observe records the call (including any observe-request options) and returns
+// the stored observation response (or the one configured via
+// SetObservationResponse).
+func (m *MemoryEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.ObservationResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	args := map[string]any{}
+	for i, req := range reqs {
+		if req == nil {
+			continue
+		}
+		prefix := fmt.Sprintf("req_%d_", i)
+		args[prefix+"want_screenshot"] = req.WantScreenshot()
+		args[prefix+"want_tree"] = req.WantTree()
+		args[prefix+"want_tabs"] = req.WantTabs()
+		args[prefix+"want_console"] = req.WantConsole()
+		args[prefix+"want_page_info"] = req.WantPageInfo()
+		args[prefix+"max_nodes"] = req.NodeBudget()
+		args[prefix+"max_depth"] = req.DepthLimit()
+		args[prefix+"interactive_only"] = req.OnlyInteractive()
+		args[prefix+"want_text"] = req.WantText()
+		args[prefix+"max_screenshot_bytes"] = req.ScreenshotBudget()
+		args[prefix+"want_raw_json"] = req.WantRawJSON()
+	}
+
 	m.calls = append(m.calls, CallRecord{
 		Method: "Observe",
-		Args:   map[string]any{},
+		Args:   args,
 	})
 	return m.responses, nil
 }
