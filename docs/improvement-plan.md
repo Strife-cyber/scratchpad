@@ -872,6 +872,8 @@ Playwright's codegen lets you click through an app and *generate a test*. Scratc
 
 ## 26. Android Device Selection & Multi-Device Support
 
+- [x] DONE (wave W6, E1 — ad7bca3 device selection + ListDevices + ANDROID_SERIAL + device-state errors, bb3b8b7 GET /api/v1/devices/android + session serial threading, e9d7171 MCP android_list_devices + session_create serial; caveat: route is /devices/android, not /devices — the latter is the item-13 browser emulation presets)
+
 ### What & Why
 
 `runADB` (in `internal/android/adb.go`) shells out to `adb` with no device selection beyond whatever `adb` picks by default. With two devices connected, commands go to an arbitrary one. There's also no enumeration endpoint — agents can't discover what devices exist.
@@ -900,6 +902,8 @@ Playwright's codegen lets you click through an app and *generate a test*. Scratc
 ---
 
 ## 27. Android Performance: Persistent ADB & Cached Hierarchies
+
+- [x] DONE (wave W6, E1 — 495ef4c ObservationResponse.Stale, 829dc54 warm adb server + cached spatial tree + stale flag + background refresh, 579e6ec single exec-out hierarchy dump + benchmarks; caveats: `--compressed` not used — it omits bounds/state attrs the parser needs; "persistent connection" is a warm `adb start-server` + exec-out pipeline, not an interactive `adb shell` multiplexer, because the shell pty echoes input and breaks output framing)
 
 ### What & Why
 
