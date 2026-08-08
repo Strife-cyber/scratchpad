@@ -623,6 +623,8 @@ No download support exists: if a page triggers a download, chromedp just... lets
 
 **Completes the loop for file-export flows** (reports, invoices, media). Agents can finally verify that clicking "Export CSV" produced a file with the right size.
 
+- [x] DONE (wave D3 — 1e73788 protocol types + goldens, 968df43 `Browser.setDownloadBehavior` + `downloadWillBegin`/`downloadProgress` listener + `SCRATCHPAD_DOWNLOAD_DIR` (default `./downloads`), 120a312 `ActionWaitDownload` (final path + size) + `ActionListDownloads` + `PageInfo.Extra.download_dir`, 74cca4a MCP `browser_download_wait`/`browser_download_list`; Android: downloads are app-managed — skipped, intent recorded here)
+
 ---
 
 ## 18. PDF Capture, Full-Page & Element Screenshots
@@ -651,6 +653,8 @@ Screenshots are the core observation primitive, but three common asks are missin
 ### Impact
 
 **Artifact completeness.** Full-page and element screenshots make observations dramatically more useful (an agent can read an entire table without scrolling), and PDF capture opens document-automation use cases.
+
+- [x] DONE (wave D3 — 1e73788 protocol option fields, f543225 full-page/element screenshot + format/quality through the observe path + `ObservationResponse.ScreenshotMime`, 957e932 `ActionCapturePDF` → `<SCRATCHPAD_TRACE_DIR>/pdfs` + artifact registry, 24ca90d `GET /sessions/{id}/artifacts/{name}` + screenshot endpoint query params + OpenAPI, 74cca4a MCP `browser_screenshot`/`browser_pdf`; PDFs return file paths, not base64 Visual)
 
 ---
 
