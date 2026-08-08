@@ -547,6 +547,70 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}
 		return nil
 
+	case protocol.ActionGetClipboard:
+		// Read the clipboard (item 16): text via navigator.clipboard.readText, or
+		// an image as base64 via Clipboard.read. The value rides back in
+		// ActionResult.ActionMetadata so the MCP bridge can surface it.
+		text, b64, gotMime, err := e.getClipboard(ctx, req.MimeType)
+		if err != nil {
+			return err
+		}
+		meta := map[string]any{}
+		if text != "" {
+			meta["text"] = text
+		}
+		if b64 != "" {
+			meta["base64"] = b64
+			meta["mime_type"] = gotMime
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:         req.Action,
+			Success:        true,
+			ElapsedMS:      time.Since(start).Milliseconds(),
+			ActionMetadata: meta,
+		}
+		return nil
+
+	case protocol.ActionSetClipboard:
+		// Write the clipboard (item 16): plain text (or an image from base64),
+		// then paste it into the focused/selected element when a selector is
+		// given. Pasting uses the real CDP key events from item 15.
+		if err := e.setClipboard(ctx, req.Text, req.MimeType); err != nil {
+			return err
+		}
+		if req.Selector != nil {
+			if _, err := e.focusElement(ctx, *req.Selector, "caret", timeout); err != nil {
+				return fmt.Errorf("set_clipboard: focus failed: %w", err)
+			}
+			if err := e.pasteClipboard(ctx); err != nil {
+				return fmt.Errorf("set_clipboard: paste failed: %w", err)
+			}
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionPaste:
+		// Paste the clipboard contents at the focused element (item 16) via real
+		// CDP key events, optionally focusing a selector first.
+		if req.Selector != nil {
+			if _, err := e.focusElement(ctx, *req.Selector, "caret", timeout); err != nil {
+				return fmt.Errorf("paste: focus failed: %w", err)
+			}
+		}
+		if err := e.pasteClipboard(ctx); err != nil {
+			return err
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
 	case protocol.ActionExecuteJS:
 		if strings.TrimSpace(req.JS) == "" {
 			return fmt.Errorf("execute_js requires js")

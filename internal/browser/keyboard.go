@@ -175,10 +175,11 @@ func typeText(ctx context.Context, text string, mods input.Modifier, clearFirst 
 	return nil
 }
 
-// selectAllModifier returns the modifier used for the select-all shortcut:
-// Meta on macOS (Cmd+A), Ctrl everywhere else. It follows the same convention
-// as chromedp's kb encoding.
-func selectAllModifier() input.Modifier {
+// primaryModifier returns the platform's primary shortcut modifier: Meta on
+// macOS (Cmd), Ctrl everywhere else. It follows the same convention as
+// chromedp's kb encoding and is used for select-all (Cmd+A / Ctrl+A) and
+// paste (Cmd+V / Ctrl+V).
+func primaryModifier() input.Modifier {
 	if runtime.GOOS == "darwin" {
 		return input.ModifierMeta
 	}
@@ -189,7 +190,7 @@ func selectAllModifier() input.Modifier {
 // current focus, holding any additional modifier bits (e.g. when the caller is
 // already holding modifiers).
 func selectAll(ctx context.Context, held input.Modifier) error {
-	mods := held | selectAllModifier()
+	mods := held | primaryModifier()
 	down := input.DispatchKeyEvent(input.KeyDown).
 		WithKey("a").WithCode("KeyA").
 		WithWindowsVirtualKeyCode(65).WithNativeVirtualKeyCode(65).
