@@ -290,3 +290,41 @@ func TestStartCleanupLoop(t *testing.T) {
 		}
 	}
 }
+
+// TestStartCleanupLoop_SkipsPersistentSession verifies that persistent sessions
+// (improvement-plan item 22) are exempt from idle reaping: a persistent session
+// long past its idle deadline survives every cleanup tick, and ListSessions
+// reports its persistent flag.
+func TestStartCleanupLoop_SkipsPersistentSession(t *testing.T) {
+	m := sandbox.NewManager()
+	m.SetMaxIdleDuration(1 * time.Millisecond)
+	m.SetCleanupInterval(1 * time.Millisecond)
+
+	s, err := m.CreateSession(testEngineKind, engine.Options{Persistent: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	s.LastActivity = time.Time{} // always expired
+
+	m.StartCleanupLoop()
+
+	// Several cleanup ticks must not reap the persistent session.
+	time.Sleep(50 * time.Millisecond)
+	if _, ok := m.GetSession(s.ID); !ok {
+		t.Fatal("persistent session was reaped by idle cleanup")
+	}
+
+	// ListSessions surfaces the persistent flag.
+	found := false
+	for _, info := range m.ListSessions() {
+		if info.ID == s.ID {
+			found = true
+			if !info.Persistent {
+				t.Error("ListSessions reported persistent=false for a persistent session")
+			}
+		}
+	}
+	if !found {
+		t.Error("persistent session missing from ListSessions")
+	}
+}

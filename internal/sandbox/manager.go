@@ -133,6 +133,7 @@ func (m *Manager) ListSessions() []protocol.SessionInfo {
 			Kind:         string(s.Kind),
 			CreatedAt:    s.CreatedAt,
 			LastActivity: s.LastActivityAt(),
+			Persistent:   s.Persistent,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
@@ -153,6 +154,11 @@ func (m *Manager) StartCleanupLoop() {
 			var toEvict []string
 			m.mu.Lock()
 			for id, s := range m.sessions {
+				// Persistent sessions are exempt from idle reaping (item 22) so
+				// scratchpad-cli resume can restore them by profile directory.
+				if s.Persistent {
+					continue
+				}
 				if !s.IsExpired(m.maxIdleDuration) {
 					continue
 				}

@@ -24,6 +24,11 @@ type Session struct {
 	// session_snapshot so agents can reason about session age.
 	CreatedAt time.Time
 
+	// Persistent marks a session as persistent (improvement-plan item 22): the
+	// manager's idle-cleanup loop never reaps it, so scratchpad-cli resume can
+	// restore it by profile directory. Set from engine.Options.Persistent.
+	Persistent bool
+
 	Engine      engine.Engine // interface — could be Chrome, Android, etc.
 	SessionLogs []protocol.ConsoleLog
 	LogMu       sync.Mutex
@@ -187,6 +192,7 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 		Kind:             kind,
 		Engine:           eng,
 		CreatedAt:        now,
+		Persistent:       opts.Persistent,
 		ConsoleRingLimit: 500,
 		LastActivity:     now,
 		Limits:           m.limits,
