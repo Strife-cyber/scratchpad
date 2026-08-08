@@ -1105,6 +1105,18 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 			ElapsedMS: time.Since(start).Milliseconds(),
 		}
 		return nil
+	case protocol.ActionRecordBegin, protocol.ActionRecordEnd:
+		// Timeline recording markers (improvement-plan item 25): no-op actions
+		// that always succeed. The websocket handler's action recorder persists
+		// them as record_begin/record_end timeline events so `scratchpad-cli
+		// record` can emit a suite for the marked region. They must never fail,
+		// so agents can mark a region without disrupting the flow.
+		e.lastActionResult = &protocol.ActionResult{
+			Action:  req.Action,
+			Success: true,
+		}
+		return nil
+
 	default:
 		if h, ok := getRegisteredAction(req.Action); ok {
 			return h(e, ctx, req)

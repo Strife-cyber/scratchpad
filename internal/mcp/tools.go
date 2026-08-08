@@ -374,6 +374,9 @@ var supportedActions = []string{
 	protocol.ActionListDownloads,
 	protocol.ActionCapturePDF,
 	protocol.ActionScreenshot,
+	// Timeline recording markers (improvement-plan item 25).
+	protocol.ActionRecordBegin,
+	protocol.ActionRecordEnd,
 }
 
 // toolDefs returns the descriptor table RegisterTools iterates. Descriptions
@@ -508,5 +511,6 @@ func (s *Server) toolDefs() []toolDef {
 		s.androidAppsToolDefs(),
 		s.androidRecordingToolDefs(),
 		s.androidClipboardToolDefs(),
+		s.recordToolDefs(),
 	)
 }
