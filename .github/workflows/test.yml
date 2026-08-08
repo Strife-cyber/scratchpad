@@ -43,6 +43,45 @@ jobs:
         with:
           name: bench-results
           path: bench.txt
+      # Performance regression gate (improvement-plan item 38): the heaviest
+      # pure-CPU diff benchmark is the observation-latency canary. Local
+      # baseline is ~0.6ms/op for a 1000-node diff; the 10ms ceiling gives
+      # ~16x headroom for slow shared runners and only trips on pathological
+      # regressions (e.g. a naive O(n^2) rewrite).
+      - name: Diff benchmark budget gate
+        run: |
+          go test -run '^$' -bench '^BenchmarkComputeDiff_1000Nodes$' -benchtime=100x -count=1 ./internal/engine/ > diffbench.txt
+          budget_ns=10000000  # 10 ms/op ceiling
+          ns=$(awk '/BenchmarkComputeDiff_1000Nodes/ { for (i=1;i<=NF;i++) if ($i=="ns/op") { v=$(i-1); gsub(/,/,"",v); print v; exit } }' diffbench.txt)
+          if [ -z "$ns" ]; then
+            echo "::error::could not parse diff benchmark output"
+            cat diffbench.txt
+            exit 1
+          fi
+          echo "BenchmarkComputeDiff_1000Nodes: ${ns} ns/op (budget ${budget_ns} ns/op)"
+          if [ "$ns" -gt "$budget_ns" ]; then
+            echo "::error::bench budget exceeded: ${ns} > ${budget_ns} ns/op"
+            exit 1
+          fi
+
+  integration:
+    name: Integration Tests (headless Chrome)
+    runs-on: ubuntu-latest
+    needs: [unit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+      - name: Install Chrome
+        run: |
+          wget -q -O /tmp/google-chrome-stable_current_amd64.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get update
+          sudo apt-get install -y /tmp/google-chrome-stable_current_amd64.deb
+          echo "CHROME_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+      - name: Integration tests (browser + MCP conformance)
+        run: go test -tags integration -count=1 ./internal/browser/ ./internal/mcp/
 
   lint:
     name: Lint
