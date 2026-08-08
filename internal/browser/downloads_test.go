@@ -228,6 +228,30 @@ func TestWaitNextDownload_Timeout(t *testing.T) {
 	}
 }
 
+func TestDownloadMetadata(t *testing.T) {
+	info := &protocol.DownloadInfo{
+		ID: "g9", URL: "https://x/report.csv", SuggestedFilename: "report.csv",
+		Filename: "report (1).csv", Path: "/dl/report (1).csv",
+		State: protocol.DownloadCompleted, ReceivedBytes: 42, TotalBytes: 42,
+	}
+	meta := downloadMetadata(info)
+	if meta["id"] != "g9" || meta["url"] != "https://x/report.csv" {
+		t.Errorf("identity keys wrong: %+v", meta)
+	}
+	if meta["path"] != "/dl/report (1).csv" {
+		t.Errorf("path: want final on-disk path, got %v", meta["path"])
+	}
+	if meta["filename"] != "report (1).csv" {
+		t.Errorf("filename: want collision-renamed name, got %v", meta["filename"])
+	}
+	if meta["size"] != int64(42) {
+		t.Errorf("size: want 42, got %v", meta["size"])
+	}
+	if meta["state"] != string(protocol.DownloadCompleted) {
+		t.Errorf("state: want completed, got %v", meta["state"])
+	}
+}
+
 func TestListDownloads_OrderedByID(t *testing.T) {
 	e := &ChromeEngine{downloads: map[string]*protocol.DownloadInfo{
 		"g3": {ID: "g3", State: protocol.DownloadInProgress},

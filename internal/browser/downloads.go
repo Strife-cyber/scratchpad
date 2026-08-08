@@ -119,6 +119,29 @@ func (e *ChromeEngine) DownloadDir() string {
 	return e.downloadDir
 }
 
+// downloadMetadata flattens a DownloadInfo into an ActionResult.ActionMetadata
+// map so wait_download can surface the final path + size to the agent.
+func downloadMetadata(info *protocol.DownloadInfo) map[string]any {
+	meta := map[string]any{
+		"id":    info.ID,
+		"url":   info.URL,
+		"state": string(info.State),
+	}
+	if info.SuggestedFilename != "" {
+		meta["suggested_filename"] = info.SuggestedFilename
+	}
+	if info.Filename != "" {
+		meta["filename"] = info.Filename
+	}
+	if info.Path != "" {
+		meta["path"] = info.Path
+	}
+	if info.ReceivedBytes > 0 {
+		meta["size"] = info.ReceivedBytes
+	}
+	return meta
+}
+
 // listDownloads returns a snapshot of every download seen by the session,
 // ordered by download GUID for determinism.
 func (e *ChromeEngine) listDownloads() []protocol.DownloadInfo {

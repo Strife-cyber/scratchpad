@@ -611,6 +611,48 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}
 		return nil
 
+	case protocol.ActionWaitDownload:
+		// Wait for the next file download to reach a terminal state (item 17):
+		// consumes the next began download from the FIFO queue and blocks until
+		// it completes (or is cancelled), returning the final path + size in
+		// action metadata so agents can verify exports produced a file.
+		info, err := e.waitNextDownload(ctx)
+		if err != nil {
+			errMsg := fmt.Sprintf("wait_download: no download completed within %s", timeout)
+			if ctx.Err() == context.Canceled {
+				errMsg = fmt.Sprintf("wait_download cancelled after %.1fs", time.Since(start).Seconds())
+			}
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   false,
+				Error:     errMsg,
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+			return nil
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:         req.Action,
+			Success:        true,
+			ElapsedMS:      time.Since(start).Milliseconds(),
+			ActionMetadata: downloadMetadata(info),
+		}
+		return nil
+
+	case protocol.ActionListDownloads:
+		// List every download seen by the session (item 17). No CDP round-trip:
+		// the download table is maintained by the download event listener.
+		downloads := e.listDownloads()
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+			ActionMetadata: map[string]any{
+				"downloads":      downloads,
+				"download_count": len(downloads),
+			},
+		}
+		return nil
+
 	case protocol.ActionExecuteJS:
 		if strings.TrimSpace(req.JS) == "" {
 			return fmt.Errorf("execute_js requires js")
