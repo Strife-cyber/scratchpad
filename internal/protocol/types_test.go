@@ -801,6 +801,98 @@ func TestActionRequestRoundtrip(t *testing.T) {
 	}
 }
 
+// TestActionRequestAndroidFieldsRoundtrip verifies the item-28/29/30/32 Android
+// action fields (direction, distance_percent, hold_ms, pinch_mode, package,
+// path, press_enter, record) survive a JSON round-trip so agents can drive the
+// Android gesture/app/recording/clipboard suite over WS and MCP.
+func TestActionRequestAndroidFieldsRoundtrip(t *testing.T) {
+	original := protocol.ActionRequest{
+		Action:          protocol.ActionSwipe,
+		Direction:       "up",
+		DistancePercent: 60,
+		HoldMS:          900,
+		PinchMode:       "out",
+		Package:         "com.example.app",
+		Path:            "/tmp/app.apk",
+		PressEnter:      true,
+		Record: &protocol.RecordOptions{
+			Dir:         "videos",
+			Path:        "traces/s/1/logcat.txt",
+			Package:     "com.example.app",
+			Filter:      "*:E",
+			Clear:       true,
+			DurationSec: 60,
+		},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.ActionRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if decoded.Action != protocol.ActionSwipe {
+		t.Errorf("Action: want swipe, got %q", decoded.Action)
+	}
+	if decoded.Direction != "up" {
+		t.Errorf("Direction: want up, got %q", decoded.Direction)
+	}
+	if decoded.DistancePercent != 60 {
+		t.Errorf("DistancePercent: want 60, got %d", decoded.DistancePercent)
+	}
+	if decoded.HoldMS != 900 {
+		t.Errorf("HoldMS: want 900, got %d", decoded.HoldMS)
+	}
+	if decoded.PinchMode != "out" {
+		t.Errorf("PinchMode: want out, got %q", decoded.PinchMode)
+	}
+	if decoded.Package != "com.example.app" {
+		t.Errorf("Package: want com.example.app, got %q", decoded.Package)
+	}
+	if decoded.Path != "/tmp/app.apk" {
+		t.Errorf("Path: want /tmp/app.apk, got %q", decoded.Path)
+	}
+	if !decoded.PressEnter {
+		t.Error("PressEnter: want true")
+	}
+	if decoded.Record == nil {
+		t.Fatal("Record: want non-nil")
+	}
+	if decoded.Record.Dir != "videos" || decoded.Record.Path != "traces/s/1/logcat.txt" ||
+		decoded.Record.Package != "com.example.app" || decoded.Record.Filter != "*:E" ||
+		!decoded.Record.Clear || decoded.Record.DurationSec != 60 {
+		t.Errorf("Record roundtrip mismatch: %+v", decoded.Record)
+	}
+}
+
+// TestInitializeRequestIntentRoundtrip verifies the item-29 deep-link intent
+// field on InitializeRequest survives a JSON round-trip.
+func TestInitializeRequestIntentRoundtrip(t *testing.T) {
+	original := protocol.InitializeRequest{
+		URL:    "myapp://open",
+		Intent: map[string]string{"push_id": "42", "source": "tests"},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.InitializeRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if decoded.URL != original.URL {
+		t.Errorf("URL: want %q, got %q", original.URL, decoded.URL)
+	}
+	if len(decoded.Intent) != 2 || decoded.Intent["push_id"] != "42" || decoded.Intent["source"] != "tests" {
+		t.Errorf("Intent roundtrip mismatch: %v", decoded.Intent)
+	}
+}
+
 // TestActionRequestKeyboardClipboardRoundtrip verifies the item-15/16 fields
 // (key, modifiers, clear_first, focus_mode, mime_type) survive a JSON round-trip
 // so agents can drive press_key/focus/clipboard actions over WS and MCP.

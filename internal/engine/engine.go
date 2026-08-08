@@ -19,6 +19,17 @@ const (
 	KindAndroid Kind = "android"
 )
 
+// Intenter is an optional Engine refinement for targets that accept Android
+// intent extras during navigation (deep links with query-style extras,
+// improvement-plan item 29). Dispatch layers type-assert the session engine
+// against it and fall back to plain Navigate(url) when the engine does not
+// implement it (e.g. the browser engine).
+type Intenter interface {
+	// NavigateWithIntent launches the given URL/app with Android intent extras:
+	// `am start -a android.intent.action.VIEW -d <url> -e key value ... -W`.
+	NavigateWithIntent(url string, intent map[string]string) error
+}
+
 // EventHandler processes raw platform events (CDP events for Chrome, ADB
 // events for Android, etc.). Handlers must be non-blocking.
 type EventHandler func(event any)

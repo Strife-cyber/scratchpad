@@ -356,6 +356,31 @@ const (
 	// timezone, and color-scheme overrides mid-session. Proxy cannot be changed
 	// here (it is an allocator-level setting fixed at session creation).
 	ActionUpdateEmulation = "session_update_emulation"
+
+	// Android gestures & named keys (improvement-plan item 28).
+	ActionLongPress         = "long_press"
+	ActionSwipe             = "swipe"
+	ActionPinch             = "pinch"
+	ActionKey               = "key"
+	ActionOpenNotifications = "open_notifications"
+	ActionGoHome            = "go_home"
+
+	// Android app management & deep links (improvement-plan item 29).
+	ActionAppInstall   = "app_install"
+	ActionAppUninstall = "app_uninstall"
+	ActionAppClearData = "app_clear_data"
+	ActionAppForceStop = "app_force_stop"
+	ActionAppList      = "app_list"
+	ActionWaitApp      = "wait_app"
+
+	// Android screen recording & logcat capture (improvement-plan item 30).
+	ActionStartRecording = "start_recording"
+	ActionStopRecording  = "stop_recording"
+	ActionStartLogcat    = "start_logcat"
+	ActionStopLogcat     = "stop_logcat"
+
+	// Android text-input fixes (improvement-plan item 32).
+	ActionClearText = "clear_text"
 )
 
 // ActionRequest represents a command from the AI agent.
@@ -486,6 +511,45 @@ type ActionRequest struct {
 	// PDFOptions is used by "capture_pdf" (improvement-plan item 18). Ignored by
 	// other actions.
 	PDFOptions *PDFOptions `json:"pdf_options,omitempty"`
+
+	// ---- Android gesture & app fields (improvement-plan items 28/29/30/32) ----
+
+	// Direction names a swipe direction: "up", "down", "left" or "right". Used
+	// by "swipe" on Android (item 28).
+	Direction string `json:"direction,omitempty"`
+
+	// DistancePercent is a swipe/pinch distance as a percent of the relevant
+	// viewport dimension (0-100). 0 means the engine default (50% of the
+	// viewport). Used by "swipe" and "pinch" on Android (item 28).
+	DistancePercent int `json:"distance_percent,omitempty"`
+
+	// HoldMS is the press-and-hold duration for "long_press" on Android. 0 means
+	// the engine default (600ms); the range 500ms-2s is supported (item 28).
+	HoldMS int `json:"hold_ms,omitempty"`
+
+	// PinchMode is "in" (zoom out / fingers together) or "out" (zoom in / fingers
+	// apart) for "pinch" on Android (item 28).
+	PinchMode string `json:"pinch_mode,omitempty"`
+
+	// Package names an Android app package. Used by "app_install",
+	// "app_uninstall", "app_clear_data", "app_force_stop", "wait_app", and by
+	// logcat pid filtering (items 29/30).
+	Package string `json:"package,omitempty"`
+
+	// Path is a local (or remote http) APK path for "app_install", and the local
+	// output file for "stop_recording" / "stop_logcat" pulls when Record.Path is
+	// empty (items 29/30).
+	Path string `json:"path,omitempty"`
+
+	// PressEnter, when true, presses ENTER after typing on Android, matching the
+	// web engine semantics where "type" does not press Enter by default
+	// (improvement-plan item 32).
+	PressEnter bool `json:"press_enter,omitempty"`
+
+	// Record carries screen-recording / logcat options (improvement-plan item 30).
+	// Used by "start_recording", "stop_recording", "start_logcat" and
+	// "stop_logcat". Ignored by other actions.
+	Record *RecordOptions `json:"record,omitempty"`
 }
 
 // ResolveTimeout returns the action timeout, defaulting to 10s when unset.
@@ -494,6 +558,34 @@ func (a ActionRequest) ResolveTimeout() int {
 		return 10000
 	}
 	return a.TimeoutMS
+}
+
+// RecordOptions configures Android screen recording and logcat capture
+// (improvement-plan item 30). Every field is optional; zero values resolve to
+// the engine defaults.
+type RecordOptions struct {
+	// Dir is the local output directory the pulled video is written to. Empty
+	// resolves to SCRATCHPAD_VIDEO_DIR, then "videos".
+	Dir string `json:"dir,omitempty"`
+
+	// Path is the local output file the pulled logcat is written to. Empty
+	// resolves to <trace-dir>/sessions/<session>/logcat.txt (item 30).
+	Path string `json:"path,omitempty"`
+
+	// Package, when set, filters logcat to that app's pid (`adb shell pidof`
+	// resolves it; the session stores the pid for --pid).
+	Package string `json:"package,omitempty"`
+
+	// Filter is the logcat priority filter, e.g. "*:E" for errors only. Empty
+	// uses "*:V" (everything).
+	Filter string `json:"filter,omitempty"`
+
+	// Clear, when true, clears the logcat buffer before capture starts (-c).
+	Clear bool `json:"clear,omitempty"`
+
+	// DurationSec is the screenrecord --time-limit in seconds. 0 uses the engine
+	// default (180s).
+	DurationSec int `json:"duration_sec,omitempty"`
 }
 
 // =============================================================================
@@ -859,6 +951,12 @@ type InitializeRequest struct {
 
 	// Emulation carries browser emulation overrides to apply at session creation.
 	Emulation *EmulationOptions `json:"emulation,omitempty"`
+
+	// Intent carries Android intent extras for deep-link navigation
+	// (improvement-plan item 29). When set on an android session, navigate
+	// becomes `am start -a android.intent.action.VIEW -d <url> -e key value ... -W`
+	// instead of a plain VIEW. Ignored by web engines.
+	Intent map[string]string `json:"intent,omitempty"`
 }
 
 type Viewport struct {
