@@ -1,6 +1,10 @@
 package engine
 
-import "scratchpad/internal/protocol"
+import (
+	"time"
+
+	"scratchpad/internal/protocol"
+)
 
 // DefaultMaxTreeNodes is the default cap on the number of SpatialNodes returned
 // by Observe() when the caller does not specify a max_nodes budget. Trees
@@ -8,6 +12,17 @@ import "scratchpad/internal/protocol"
 // applyTreeBudget), with ObservationResponse.Truncated and FullNodeCount set so
 // callers can re-request with a larger budget when they need the whole tree.
 const DefaultMaxTreeNodes = 150
+
+// Observe() performance budgets (improvement-plan item 37.4). These name the
+// reference-page targets the observe benchmarks gate against: a tree-only
+// observation should complete within BudgetObserveTree, and one that also
+// captures a screenshot within BudgetObserveWithScreenshot. The benchmarks in
+// internal/browser exercise the pure (browser-free) portions of that pipeline
+// under these budgets; the CDP capture itself needs a live page to time.
+const (
+	BudgetObserveTree           = 150 * time.Millisecond
+	BudgetObserveWithScreenshot = 250 * time.Millisecond
+)
 
 // MergeObserveRequests folds a variadic set of observe requests into a single
 // effective request. Later requests override earlier ones for any field they

@@ -10,7 +10,7 @@ import (
 
 // syntheticJPEG renders a noisy image large enough that encoding produces a
 // multi-kilobyte JPEG. Pure-in-memory, so the test never touches a browser.
-func syntheticJPEG(t *testing.T, w, h int) []byte {
+func syntheticJPEG(t testing.TB, w, h int) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	// Random-ish gradient gives JPEG entropy so the buffer is actually large.
