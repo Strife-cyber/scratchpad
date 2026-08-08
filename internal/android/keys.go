@@ -62,8 +62,8 @@ var androidKeyCodes = map[string]string{
 // getAndroidClipboard reads the device clipboard text via `adb shell cmd
 // clipboard get-text` (Android 10+, API 29). On older Android versions the
 // command is unavailable and the error surfaces with the requirement attached.
-func getAndroidClipboard() (string, error) {
-	out, err := runADB("shell", "cmd", "clipboard", "get-text")
+func (e *AndroidEngine) getAndroidClipboard() (string, error) {
+	out, err := e.adb.run("shell", "cmd", "clipboard", "get-text")
 	if err != nil {
 		return "", fmt.Errorf("%w: Android 10+ requires `cmd clipboard get-text`", err)
 	}
@@ -73,8 +73,8 @@ func getAndroidClipboard() (string, error) {
 // setAndroidClipboard writes text to the device clipboard via `adb shell cmd
 // clipboard set-text` (Android 10+). The shell user is granted the clipboard
 // permission on Android 10+; on older versions this returns an error.
-func setAndroidClipboard(text string) error {
-	if _, err := runADB("shell", "cmd", "clipboard", "set-text", text); err != nil {
+func (e *AndroidEngine) setAndroidClipboard(text string) error {
+	if _, err := e.adb.run("shell", "cmd", "clipboard", "set-text", text); err != nil {
 		return fmt.Errorf("%w: Android 10+ requires `cmd clipboard set-text`", err)
 	}
 	return nil
@@ -95,11 +95,11 @@ func (e *AndroidEngine) focusAndPaste(sel *protocol.Selector) error {
 		}
 		x := int(matches[0].Bounds.X + matches[0].Bounds.Width/2)
 		y := int(matches[0].Bounds.Y + matches[0].Bounds.Height/2)
-		if _, err := runADB("shell", "input", "tap", fmt.Sprintf("%d", x), fmt.Sprintf("%d", y)); err != nil {
+		if _, err := e.adb.run("shell", "input", "tap", fmt.Sprintf("%d", x), fmt.Sprintf("%d", y)); err != nil {
 			return fmt.Errorf("focus tap failed: %w", err)
 		}
 	}
-	if _, err := runADB("shell", "input", "keyevent", "279"); err != nil { // KEYCODE_PASTE
+	if _, err := e.adb.run("shell", "input", "keyevent", "279"); err != nil { // KEYCODE_PASTE
 		return fmt.Errorf("paste via keyevent 279 failed: %w", err)
 	}
 	return nil

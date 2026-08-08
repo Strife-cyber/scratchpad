@@ -10,16 +10,17 @@ import (
 // (CodeSelectorNoMatch, CodeTimeout). These live here rather than in types.go
 // so the protocol package's serialized surface stays additive-only.
 const (
-	CodeBrowserCrashed   = "browser_crashed"
-	CodeNavigationFailed = "navigation_failed"
-	CodeSessionNotFound  = "session_not_found"
-	CodeInvalidRequest   = "invalid_request"
-	CodeAssertionFailed  = "assertion_failed"
-	CodeUnsupported      = "unsupported"
-	CodeConnectionFailed = "connection_failed"
-	CodeSessionLimit     = "session_limit_reached"
-	CodeGuardrailHit     = "guardrail_hit"
-	CodeInternalError    = "internal_error"
+	CodeBrowserCrashed    = "browser_crashed"
+	CodeNavigationFailed  = "navigation_failed"
+	CodeSessionNotFound   = "session_not_found"
+	CodeInvalidRequest    = "invalid_request"
+	CodeAssertionFailed   = "assertion_failed"
+	CodeUnsupported       = "unsupported"
+	CodeConnectionFailed  = "connection_failed"
+	CodeSessionLimit      = "session_limit_reached"
+	CodeGuardrailHit      = "guardrail_hit"
+	CodeInternalError     = "internal_error"
+	CodeDeviceUnavailable = "device_unavailable"
 )
 
 // Classification is the result of mapping an arbitrary error onto the typed
@@ -107,6 +108,12 @@ var (
 		Status: http.StatusInternalServerError,
 		Hint:   "An unexpected internal error occurred. Retry the action; if it persists, note this error and start a fresh session.",
 	}
+	classDeviceUnavailable = Classification{
+		Code:   CodeDeviceUnavailable,
+		Level:  ErrorLevelAction,
+		Status: http.StatusBadGateway,
+		Hint:   "The requested Android device is not connected or not in a usable state. Run 'adb devices -l' to list available devices and their states, then retry with a valid serial.",
+	}
 )
 
 // catalog maps the sentinel errors from errors.go to their classification.
@@ -127,6 +134,7 @@ var catalog = []struct {
 	{ErrConnectionFailed, classConnectionFailed},
 	{ErrSessionLimitReached, classSessionLimit},
 	{ErrGuardrailHit, classGuardrailHit},
+	{ErrDeviceUnavailable, classDeviceUnavailable},
 }
 
 // messageRule matches a legacy inline error message (most of the engine still

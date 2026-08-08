@@ -31,7 +31,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			y = int(matches[0].Bounds.Y + matches[0].Bounds.Height/2)
 		}
 
-		_, err := runADB("shell", "input", "tap", fmt.Sprintf("%d", x), fmt.Sprintf("%d", y))
+		_, err := e.adb.run("shell", "input", "tap", fmt.Sprintf("%d", x), fmt.Sprintf("%d", y))
 		if err != nil {
 			return fmt.Errorf("android: click at (%d,%d) failed: %w", x, y, err)
 		}
@@ -53,17 +53,17 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			}
 			x := int(matches[0].Bounds.X + matches[0].Bounds.Width/2)
 			y := int(matches[0].Bounds.Y + matches[0].Bounds.Height/2)
-			if _, err := runADB("shell", "input", "tap", fmt.Sprintf("%d", x), fmt.Sprintf("%d", y)); err != nil {
+			if _, err := e.adb.run("shell", "input", "tap", fmt.Sprintf("%d", x), fmt.Sprintf("%d", y)); err != nil {
 				return fmt.Errorf("android: type focus tap failed: %w", err)
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
 
-		_, err := runADB("shell", "input", "text", req.Text)
+		_, err := e.adb.run("shell", "input", "text", req.Text)
 		if err != nil {
 			return fmt.Errorf("android: type %q failed: %w", req.Text, err)
 		}
-		_, _ = runADB("shell", "input", "keyevent", "66") // ENTER
+		_, _ = e.adb.run("shell", "input", "keyevent", "66") // ENTER
 		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
@@ -84,7 +84,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			}
 		}
 		if startX == 0 && startY == 0 {
-			vp := getViewport()
+			vp := e.getViewport()
 			startX, startY = vp.Width/2, vp.Height/2
 		}
 
@@ -97,7 +97,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			endY = 10
 		}
 
-		_, err := runADB("shell", "input", "swipe",
+		_, err := e.adb.run("shell", "input", "swipe",
 			fmt.Sprintf("%d", startX),
 			fmt.Sprintf("%d", startY),
 			fmt.Sprintf("%d", endX),
@@ -286,7 +286,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			if named, ok := androidKeyCode(req.Text); ok {
 				code = named
 			}
-			_, err := runADB("shell", "input", "keyevent", code)
+			_, err := e.adb.run("shell", "input", "keyevent", code)
 			return err
 
 		case protocol.ActionPressKey:
@@ -296,7 +296,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			if !ok {
 				return fmt.Errorf("android press_key: unknown key %q", key)
 			}
-			if _, err := runADB("shell", "input", "keyevent", code); err != nil {
+			if _, err := e.adb.run("shell", "input", "keyevent", code); err != nil {
 				return fmt.Errorf("android press_key %q: %w", key, err)
 			}
 			e.lastActionResult = &protocol.ActionResult{
@@ -308,7 +308,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 
 		case protocol.ActionGetClipboard:
 			// get_clipboard: read device clipboard text (item 16).
-			text, err := getAndroidClipboard()
+			text, err := e.getAndroidClipboard()
 			if err != nil {
 				return err
 			}
@@ -328,7 +328,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			// into the focused/selected element; paste alone just pastes the
 			// current clipboard value (item 16).
 			if req.Action == protocol.ActionSetClipboard {
-				if err := setAndroidClipboard(req.Text); err != nil {
+				if err := e.setAndroidClipboard(req.Text); err != nil {
 					return err
 				}
 			}

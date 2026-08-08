@@ -20,8 +20,7 @@ var _ engine.Engine = (*AndroidEngine)(nil)
 
 func init() {
 	engine.Register(engine.KindAndroid, func(opts engine.Options) (engine.Engine, error) {
-		_ = opts // reserved for future Android options
-		return NewAndroidEngine(), nil
+		return NewAndroidEngineWithOptions(opts)
 	})
 }
 
@@ -36,6 +35,10 @@ type AndroidEngine struct {
 	listeners []engine.EventHandler
 	mu        sync.RWMutex
 
+	// adb is the per-session connection manager (item 26/27): it owns the device
+	// serial and routes every command through an injectable runner.
+	adb *adbConn
+
 	// Phase 1 diagnostics/assertions (emitted via Observe()).
 	lastAssertionResult *protocol.AssertionResult
 	lastActionResult    *protocol.ActionResult
@@ -46,10 +49,28 @@ type AndroidEngine struct {
 	lastSeenActivity string
 }
 
-// NewAndroidEngine returns a ready-to-use AndroidEngine.
-// ADB must be on PATH and a device must be connected (or an emulator running).
+// NewAndroidEngine returns a ready-to-use AndroidEngine with no pinned device:
+// adb resolves its default device (or ANDROID_SERIAL). ADB must be on PATH and a
+// device must be connected (or an emulator running).
 func NewAndroidEngine() *AndroidEngine {
-	return &AndroidEngine{}
+	e, _ := NewAndroidEngineWithOptions(engine.Options{})
+	return e
+}
+
+// NewAndroidEngineWithOptions builds an AndroidEngine from creation options. A
+// non-empty AndroidSerial pins the session to that device and the device is
+// validated at creation — a missing/offline/unauthorized serial fails fast with
+// protocol.ErrDeviceUnavailable instead of sending the agent into a session that
+// cannot reach its device.
+func NewAndroidEngineWithOptions(opts engine.Options) (*AndroidEngine, error) {
+	serial := resolveSerial(opts.AndroidSerial)
+	conn := newADBConn(serial, realRunner{})
+	if serial != "" {
+		if err := validateDevice(conn); err != nil {
+			return nil, err
+		}
+	}
+	return &AndroidEngine{adb: conn}, nil
 }
 
 // Close is a no-op for Android — ADB connections are stateless per-command.
@@ -71,7 +92,7 @@ func (e *AndroidEngine) Navigate(url string) error {
 	// Check if it's a package name (no scheme, looks like com.something.app)
 	if !strings.Contains(url, "://") && strings.Contains(url, ".") {
 		// Launch app by package name using monkey
-		_, err := runADB("shell", "monkey", "-p", url, "-c", "android.intent.category.LAUNCHER", "1")
+		_, err := e.adb.run("shell", "monkey", "-p", url, "-c", "android.intent.category.LAUNCHER", "1")
 		if err != nil {
 			return fmt.Errorf("android: Launch app %q failed: %w", url, err)
 		}
@@ -79,7 +100,7 @@ func (e *AndroidEngine) Navigate(url string) error {
 	}
 
 	// Otherwise treat as URL
-	_, err := runADB(
+	_, err := e.adb.run(
 		"shell", "am", "start",
 		"-a", "android.intent.action.VIEW",
 		"-d", url,
@@ -109,7 +130,7 @@ func (e *AndroidEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obs
 	var b64Img string
 	if req.WantScreenshot() {
 		// Screenshot is best-effort — a missing screenshot is non-fatal.
-		imgBytes, _ := captureScreen()
+		imgBytes, _ := e.captureScreen()
 		b64Img = base64.StdEncoding.EncodeToString(imgBytes)
 	}
 
@@ -121,7 +142,7 @@ func (e *AndroidEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obs
 	obs := &protocol.ObservationResponse{
 		Type:        "observation",
 		SystemState: protocol.SystemState{DocumentStatus: "interactive"},
-		Viewport:    getViewport(),
+		Viewport:    e.getViewport(),
 		Visual:      b64Img,
 		SpatialTree: spatialTree,
 		PageInfo:    pageInfo,
@@ -143,7 +164,7 @@ func (e *AndroidEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obs
 
 func (e *AndroidEngine) dumpSpatialTree() ([]protocol.SpatialNode, error) {
 	// Ask UIAutomator2 to dump the current view hierarchy to the device.
-	dumpOut, err := runADB("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml")
+	dumpOut, err := e.adb.run("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml")
 	if err != nil {
 		return nil, fmt.Errorf("android: UI dump command failed: %w", err)
 	}
@@ -152,7 +173,7 @@ func (e *AndroidEngine) dumpSpatialTree() ([]protocol.SpatialNode, error) {
 		return nil, fmt.Errorf("android: UI dump failed: %s", dumpOut)
 	}
 
-	xmlData, err := runADB("shell", "cat", "/data/local/tmp/window_dump.xml")
+	xmlData, err := e.adb.run("shell", "cat", "/data/local/tmp/window_dump.xml")
 	if err != nil {
 		return nil, fmt.Errorf("android: read UI dump failed: %w", err)
 	}
@@ -223,9 +244,8 @@ func flattenAndroidTree(node protocol.UINode, tree *[]protocol.SpatialNode) {
 
 // getViewport queries the device's screen resolution via `adb shell wm size`.
 // Falls back to 1080×1920 if ADB is unavailable or output is unparseable.
-func getViewport() protocol.Viewport {
-	// BUG FIX: was checking err != nil (only ran regex on failure). Fixed to err == nil.
-	out, err := runADB("shell", "wm", "size")
+func (e *AndroidEngine) getViewport() protocol.Viewport {
+	out, err := e.adb.run("shell", "wm", "size")
 	if err == nil {
 		// Prefer the last match — devices with an override size report both
 		// "Physical size: WxH" and "Override size: WxH" on separate lines.
@@ -241,7 +261,7 @@ func getViewport() protocol.Viewport {
 
 // detectScreenInfo builds a PageInfo from the current Android device state.
 func (e *AndroidEngine) detectScreenInfo(spatialTree []protocol.SpatialNode) *protocol.PageInfo {
-	pkg, activity := getCurrentActivity()
+	pkg, activity := e.getCurrentActivity()
 
 	// Determine platform: check for Flutter in the UIAutomator hierarchy.
 	platform := "android"
@@ -283,26 +303,47 @@ func (e *AndroidEngine) detectScreenInfo(spatialTree []protocol.SpatialNode) *pr
 		url = pkg + "/" + activity
 	}
 
+	extra := map[string]string{
+		"package":  pkg,
+		"activity": activity,
+	}
+	// Attach stable device identity so agents can reason about the hardware they
+	// are driving (item 26). Cached on adbConn; best-effort.
+	if model, version, screen := e.adb.deviceInfo(); model != "" || version != "" || screen != "" {
+		if model != "" {
+			extra["device_model"] = model
+		}
+		if version != "" {
+			extra["android_version"] = version
+		}
+		if screen != "" {
+			extra["screen_size"] = screen
+		}
+	}
+
 	return &protocol.PageInfo{
 		URL:          url,
 		Title:        title,
 		Platform:     platform,
 		LoadStatus:   "complete",
 		NavigationID: navID,
-		Extra: map[string]string{
-			"package":  pkg,
-			"activity": activity,
-		},
+		Extra:        extra,
 	}
+}
+
+// captureScreen takes a raw PNG screenshot from the device using
+// `adb shell screencap -p` and returns the bytes.
+func (e *AndroidEngine) captureScreen() ([]byte, error) {
+	return e.adb.runBytes("shell", "screencap", "-p")
 }
 
 // getCurrentActivity returns the foreground (package, activity) on the device
 // by parsing `adb shell dumpsys window` output.
-func getCurrentActivity() (string, string) {
-	out, err := runADB("shell", "dumpsys", "window", "displays")
+func (e *AndroidEngine) getCurrentActivity() (string, string) {
+	out, err := e.adb.run("shell", "dumpsys", "window", "displays")
 	if err != nil {
 		// Fallback for older Android.
-		out, err = runADB("shell", "dumpsys", "window")
+		out, err = e.adb.run("shell", "dumpsys", "window")
 		if err != nil {
 			return "", ""
 		}

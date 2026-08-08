@@ -48,4 +48,9 @@ var (
 	// or max_total_steps) blocked an action. Retryable after the agent changes
 	// strategy; the guardrail protects the server from runaway agents.
 	ErrGuardrailHit = errors.New("session guardrail hit")
+
+	// ErrDeviceUnavailable reports that an Android device/emulator referenced by
+	// serial is not connected, or is not in a usable state (offline, unauthorized,
+	// ...). Surfaced at Android session creation so a bad serial fails fast.
+	ErrDeviceUnavailable = errors.New("android device unavailable")
 )

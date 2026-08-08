@@ -45,6 +45,12 @@ type Options struct {
 	// for authenticated proxies (improvement-plan item 23).
 	ProxyURL  string `json:"proxy_url,omitempty"`
 	ProxyAuth string `json:"proxy_auth,omitempty"`
+
+	// AndroidSerial pins an Android session to a specific device/emulator by adb
+	// serial (improvement-plan item 26). Empty means the adb default device, or
+	// ANDROID_SERIAL when that env var is set. The session is rejected at
+	// creation when the device is absent or not in a usable state.
+	AndroidSerial string `json:"serial,omitempty"`
 }
 
 // Emulation returns a protocol.EmulationOptions populated from the emulation

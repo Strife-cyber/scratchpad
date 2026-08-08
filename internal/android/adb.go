@@ -8,27 +8,27 @@ import (
 )
 
 // runADB executes an adb command and returns trimmed stdout.
-// adb must be on PATH and a device/emulator must be connected.
+// adb must be on PATH and a device/emulator must be connected. Serial selection
+// is handled by the caller (adbConn); when no -s flag is present adb falls back
+// to ANDROID_SERIAL and then its default device.
 func runADB(args ...string) (string, error) {
+	out, err := runADBBytes(args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// runADBBytes is runADB for binary/streaming output (exec-out pipelines,
+// screencap). It returns the raw stdout bytes untrimmed.
+func runADBBytes(args ...string) ([]byte, error) {
 	cmd := exec.Command("adb", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("adb %v: %w (stderr: %s)", args, err, stderr.String())
+		return nil, fmt.Errorf("adb %v: %w (stderr: %s)", args, err, stderr.String())
 	}
-	return strings.TrimSpace(stdout.String()), nil
-}
-
-// captureScreen takes a raw PNG screenshot from the device using
-// `adb shell screencap -p` and returns the bytes.
-func captureScreen() ([]byte, error) {
-	cmd := exec.Command("adb", "shell", "screencap", "-p")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("adb screencap: %w", err)
-	}
-	return out.Bytes(), nil
+	return stdout.Bytes(), nil
 }
