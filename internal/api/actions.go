@@ -156,16 +156,19 @@ func (h *handler) writeObservation(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 
-	// Optionally send a delta when it's smaller than a full tree.
-	if len(sess.LastTree) > 0 && len(obs.SpatialTree) > 0 {
-		delta := engine.ComputeDiff(sess.LastTree, obs.SpatialTree)
-		if len(delta.Added)+len(delta.Updated)+len(delta.Removed) < len(obs.SpatialTree) {
+	// Optionally send a delta when it's smaller than a full tree. Snapshot the
+	// full tree first: the delta path nils out SpatialTree, and LastTree must
+	// keep the full tree as the base for the next delta.
+	fullTree := obs.SpatialTree
+	if len(sess.LastTree) > 0 && len(fullTree) > 0 {
+		delta := engine.ComputeDiff(sess.LastTree, fullTree)
+		if len(delta.Added)+len(delta.Updated)+len(delta.Removed) < len(fullTree) {
 			obs.Type = "delta"
 			obs.Delta = delta
 			obs.SpatialTree = nil
 		}
 	}
-	sess.LastTree = obs.SpatialTree
+	sess.LastTree = fullTree
 
 	// Drain and attach buffered console logs.
 	sess.LogMu.Lock()

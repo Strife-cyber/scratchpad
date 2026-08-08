@@ -313,7 +313,7 @@ func (ws *wsSession) handle(env protocol.Envelope) {
 		ws.handleAction(env.Data)
 
 	case protocol.MsgTypeObserve:
-		ws.sendObservation("")
+		ws.sendObservation("", ws.parseObserveRequest(env.Data))
 
 	case protocol.MsgTypeListTabs:
 		ws.handleListTabs()
@@ -328,7 +328,7 @@ func (ws *wsSession) handle(env protocol.Envelope) {
 		// Also handle legacy messages with no type field (empty object {}).
 		// This keeps older clients' bare observe working.
 		if env.Type == "" && env.Data == nil {
-			ws.sendObservation("")
+			ws.sendObservation("", nil)
 			return
 		}
 		slog.Warn("websocket: unknown message type",
@@ -369,7 +369,7 @@ func (ws *wsSession) handleNavigate(raw json.RawMessage) {
 		return
 	}
 
-	ws.sendObservation("")
+	ws.sendObservation("", nil)
 }
 
 // handleAction runs one action with a cancellable context. The action is
@@ -456,7 +456,7 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 		return
 	}
 
-	ws.sendObservation(req.ActionID)
+	ws.sendObservation(req.ActionID, nil)
 }
 
 // handleCancel cancels the in-flight action. An unknown action_id is a clean
@@ -556,12 +556,28 @@ func (ws *wsSession) handleResize(raw json.RawMessage) {
 // estimatedNodeBytes is used to decide whether a delta is smaller than the full tree.
 const estimatedNodeBytes = 120
 
+// parseObserveRequest decodes a client's observe options from the message data.
+// A nil or empty payload yields a nil request, which the engine treats as a
+// full observation.
+func (ws *wsSession) parseObserveRequest(raw json.RawMessage) *protocol.ObserveRequest {
+	if raw == nil || len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return nil
+	}
+	var req protocol.ObserveRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		slog.Warn("websocket: invalid observe request",
+			"session_id", ws.session.ID, "request_id", ws.reqID, "err", err)
+		return nil
+	}
+	return &req
+}
+
 // sendObservation captures the current engine state and pushes it over the
 // WebSocket. It sends a delta when the estimated serialized size of the diff is
 // smaller than the full tree, saving bandwidth for both Chrome and Android.
-func (ws *wsSession) sendObservation(actionID string) {
+func (ws *wsSession) sendObservation(actionID string, req *protocol.ObserveRequest) {
 	start := time.Now()
-	obs, err := ws.session.Engine.Observe()
+	obs, err := ws.session.Engine.Observe(req)
 	dur := time.Since(start)
 
 	slog.Debug("websocket: observe",
@@ -581,31 +597,35 @@ func (ws *wsSession) sendObservation(actionID string) {
 		obs.ActionResult.ActionID = actionID
 	}
 
-	// Decide whether to send a full tree or a delta based on estimated
-	// serialized byte size (~120 bytes per SpatialNode on average).
-	if len(ws.session.LastTree) > 0 && len(obs.SpatialTree) > 0 {
-		delta := engine.ComputeDiff(ws.session.LastTree, obs.SpatialTree)
+	// Snapshot the full tree BEFORE any delta transform: the delta path nils out
+	// SpatialTree, and LastTree must remain the full tree so the NEXT delta can
+	// be computed against a valid base.
+	fullTree := obs.SpatialTree
+	if len(ws.session.LastTree) > 0 && len(fullTree) > 0 {
+		delta := engine.ComputeDiff(ws.session.LastTree, fullTree)
 		diffCount := len(delta.Added) + len(delta.Updated) + len(delta.Removed)
-		if diffCount*estimatedNodeBytes < len(obs.SpatialTree)*estimatedNodeBytes {
+		if diffCount*estimatedNodeBytes < len(fullTree)*estimatedNodeBytes {
 			obs.Type = "delta"
 			obs.Delta = delta
 			obs.SpatialTree = nil
 		}
 	}
-	ws.session.LastTree = obs.SpatialTree
+	ws.session.LastTree = fullTree
 
-	// Drain and attach any buffered console logs.
-	ws.session.LogMu.Lock()
-	if len(ws.session.SessionLogs) > 0 {
-		ws.session.ConsoleRing = append(ws.session.ConsoleRing, ws.session.SessionLogs...)
-		if ws.session.ConsoleRingLimit > 0 && len(ws.session.ConsoleRing) > ws.session.ConsoleRingLimit {
-			over := len(ws.session.ConsoleRing) - ws.session.ConsoleRingLimit
-			ws.session.ConsoleRing = ws.session.ConsoleRing[over:]
+	// Drain and attach any buffered console logs (unless the request opted out).
+	if req == nil || req.WantConsole() {
+		ws.session.LogMu.Lock()
+		if len(ws.session.SessionLogs) > 0 {
+			ws.session.ConsoleRing = append(ws.session.ConsoleRing, ws.session.SessionLogs...)
+			if ws.session.ConsoleRingLimit > 0 && len(ws.session.ConsoleRing) > ws.session.ConsoleRingLimit {
+				over := len(ws.session.ConsoleRing) - ws.session.ConsoleRingLimit
+				ws.session.ConsoleRing = ws.session.ConsoleRing[over:]
+			}
 		}
+		obs.Logs = ws.session.SessionLogs
+		ws.session.SessionLogs = nil
+		ws.session.LogMu.Unlock()
 	}
-	obs.Logs = ws.session.SessionLogs
-	ws.session.SessionLogs = nil
-	ws.session.LogMu.Unlock()
 
 	// Record the observation hash for this step (the engine view right after a
 	// navigate/action/resize/observe) into the session timeline.
