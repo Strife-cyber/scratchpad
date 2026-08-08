@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -407,6 +408,10 @@ func (ws *wsSession) handle(env protocol.Envelope) {
 
 	case protocol.MsgTypeSetContext:
 		ws.handleSetContext(env.Data)
+
+	case protocol.MsgTypeWaitEvent:
+		// Wait for a session event matching a type + predicate (item 34).
+		ws.handleWaitEvent(env.Data)
 
 	default:
 		// Also handle legacy messages with no type field (empty object {}).
@@ -835,6 +840,112 @@ func (ws *wsSession) eventPusher() {
 			return
 		}
 	}
+}
+
+// defaultWaitEventTimeout bounds a MsgTypeWaitEvent when the request omits
+// timeout_ms (improvement-plan item 34).
+const defaultWaitEventTimeout = 30 * time.Second
+
+// handleWaitEvent waits (up to TimeoutMS, default 30s) for a session event
+// matching req.Event and optional predicate, then replies with a typed
+// WaitEventResponse. Runs on the executor goroutine, so it is serialized with
+// actions on the session — a pending wait cannot observe mid-action state, and
+// other calls queue behind it (matching the MCP bridge's per-session
+// serialization).
+//
+// The ring buffer is replayed first so events that fired just before the
+// request are not missed. The subscription is created BEFORE the replay to
+// close the race: everything published after Subscribe is delivered on the
+// channel, everything before it is in the ring.
+func (ws *wsSession) handleWaitEvent(raw json.RawMessage) {
+	var req protocol.WaitEventRequest
+	if raw != nil {
+		_ = json.Unmarshal(raw, &req)
+	}
+	if ws.session.Events == nil {
+		ws.writeError(errorResponse(fmt.Errorf("%w: wait_event requires an event bus", protocol.ErrUnsupported),
+			ws.reqID, protocol.ErrorLevelWarning, "", nil))
+		return
+	}
+	timeout := time.Duration(req.TimeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = defaultWaitEventTimeout
+	}
+
+	sub := ws.session.Events.Subscribe(16)
+	defer sub.Cancel()
+
+	if ev, ok := matchEventIn(ws.session.Events.Recent(0), req); ok {
+		ws.writeWaitEventResponse(ev, false)
+		return
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case ev := <-sub.C:
+			if eventMatches(ev, req) {
+				ws.writeWaitEventResponse(ev, false)
+				return
+			}
+		case <-timer.C:
+			ws.writeWaitEventResponse(protocol.Event{}, true)
+			return
+		case <-ws.closed:
+			return
+		}
+	}
+}
+
+// writeWaitEventResponse replies to a MsgTypeWaitEvent with a typed
+// WaitEventResponse envelope.
+func (ws *wsSession) writeWaitEventResponse(ev protocol.Event, timedOut bool) {
+	data, _ := json.Marshal(protocol.WaitEventResponse{
+		Type:     protocol.MsgTypeWaitEvent,
+		Event:    ev,
+		TimedOut: timedOut,
+	})
+	_ = ws.writeJSON(protocol.Envelope{Type: protocol.MsgTypeWaitEvent, Data: data})
+}
+
+// matchEventIn returns the first event in events matching req, if any. Used to
+// replay the ring buffer before blocking on live subscriptions.
+func matchEventIn(events []protocol.Event, req protocol.WaitEventRequest) (protocol.Event, bool) {
+	for _, ev := range events {
+		if eventMatches(ev, req) {
+			return ev, true
+		}
+	}
+	return protocol.Event{}, false
+}
+
+// eventMatches reports whether ev satisfies req: the type must equal req.Event
+// (empty matches any type), and when req.Predicate is set it must be a JSON
+// object whose fields all appear with equal values in ev.Data. Both sides are
+// decoded with encoding/json, so number/string/bool/array/object values compare
+// consistently via reflect.DeepEqual.
+func eventMatches(ev protocol.Event, req protocol.WaitEventRequest) bool {
+	if req.Event != "" && ev.Type != req.Event {
+		return false
+	}
+	if req.Predicate == "" {
+		return true
+	}
+	var pred map[string]any
+	if err := json.Unmarshal([]byte(req.Predicate), &pred); err != nil {
+		return false
+	}
+	var data map[string]any
+	if err := json.Unmarshal(ev.Data, &data); err != nil {
+		return false
+	}
+	for k, v := range pred {
+		if dv, ok := data[k]; !ok || !reflect.DeepEqual(dv, v) {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------

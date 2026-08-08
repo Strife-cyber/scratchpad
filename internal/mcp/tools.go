@@ -512,5 +512,6 @@ func (s *Server) toolDefs() []toolDef {
 		s.androidRecordingToolDefs(),
 		s.androidClipboardToolDefs(),
 		s.recordToolDefs(),
+		s.eventToolDefs(),
 	)
 }
