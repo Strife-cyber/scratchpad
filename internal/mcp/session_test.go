@@ -25,20 +25,22 @@ func TestSessionRouteURL(t *testing.T) {
 		headless *bool
 		viewport *protocol.Viewport
 		proxy    string
+		device   string
 		want     string
 	}{
-		{"default web", "", nil, nil, "", "ws://h:8080/ws"},
-		{"android route", "android", nil, nil, "", "ws://h:8080/ws/android"},
-		{"headless true", "", boolPtr(true), nil, "", "ws://h:8080/ws?headless=true"},
-		{"headless false", "", boolPtr(false), nil, "", "ws://h:8080/ws?headless=false"},
-		{"viewport", "", nil, &protocol.Viewport{Width: 800, Height: 600}, "", "ws://h:8080/ws?viewport=800x600"},
-		{"proxy", "", nil, nil, "http://proxy:3128", "ws://h:8080/ws?proxy=http%3A%2F%2Fproxy%3A3128"},
-		{"android headless", "android", boolPtr(true), nil, "", "ws://h:8080/ws/android?headless=true"},
+		{"default web", "", nil, nil, "", "", "ws://h:8080/ws"},
+		{"android route", "android", nil, nil, "", "", "ws://h:8080/ws/android"},
+		{"headless true", "", boolPtr(true), nil, "", "", "ws://h:8080/ws?headless=true"},
+		{"headless false", "", boolPtr(false), nil, "", "", "ws://h:8080/ws?headless=false"},
+		{"viewport", "", nil, &protocol.Viewport{Width: 800, Height: 600}, "", "", "ws://h:8080/ws?viewport=800x600"},
+		{"proxy", "", nil, nil, "http://proxy:3128", "", "ws://h:8080/ws?proxy=http%3A%2F%2Fproxy%3A3128"},
+		{"device preset", "", nil, nil, "", "iPhone 14", "ws://h:8080/ws?device=iPhone+14"},
+		{"android headless device", "android", boolPtr(true), nil, "", "Pixel 7", "ws://h:8080/ws/android?device=Pixel+7&headless=true"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := sessionRouteURL("ws://h:8080/ws", tc.platform, tc.headless, tc.viewport, tc.proxy)
+			got := sessionRouteURL("ws://h:8080/ws", tc.platform, tc.headless, tc.viewport, tc.proxy, tc.device)
 			if got != tc.want {
 				t.Errorf("sessionRouteURL() = %q, want %q", got, tc.want)
 			}
@@ -90,7 +92,7 @@ func TestCreateSessionConn(t *testing.T) {
 		engineURL: "ws" + strings.TrimPrefix(srv.URL, "http"),
 		conns:     map[string]*sessionConn{},
 	}
-	sc, err := server.createSessionConn("", nil, nil, "")
+	sc, err := server.createSessionConn("", nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("createSessionConn: %v", err)
 	}

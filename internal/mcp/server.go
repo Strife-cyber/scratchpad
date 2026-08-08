@@ -465,11 +465,11 @@ func topElements(tree []protocol.SpatialNode) string {
 
 // sessionRouteURL builds the WS route for a platform. base is the bridge's
 // configured engine URL (e.g. ws://host:8080/ws); android platforms dial
-// /ws/android, everything else dials the default /ws route. headless,
+// /ws/android, everything else dials the default /ws route. headless, device,
 // viewport and proxy become query parameters the server reads at session
-// creation (headless is honored today; viewport/proxy are recorded for the
-// upcoming session_configure work and ignored by older engines).
-func sessionRouteURL(base, platform string, headless *bool, viewport *protocol.Viewport, proxy string) string {
+// creation (headless and device are honored today; viewport/proxy are recorded
+// for the upcoming session_configure work and ignored by older engines).
+func sessionRouteURL(base, platform string, headless *bool, viewport *protocol.Viewport, proxy, device string) string {
 	u := base
 	if platform == "android" {
 		u = strings.TrimSuffix(u, "/ws") + "/ws/android"
@@ -477,6 +477,9 @@ func sessionRouteURL(base, platform string, headless *bool, viewport *protocol.V
 	q := url.Values{}
 	if headless != nil {
 		q.Set("headless", fmt.Sprintf("%v", *headless))
+	}
+	if device != "" {
+		q.Set("device", device)
 	}
 	if viewport != nil && viewport.Width > 0 && viewport.Height > 0 {
 		q.Set("viewport", fmt.Sprintf("%dx%d", viewport.Width, viewport.Height))
@@ -495,13 +498,13 @@ func sessionRouteURL(base, platform string, headless *bool, viewport *protocol.V
 }
 
 // createSessionConn dials a fresh session connection (creating a new session
-// server-side) for the given platform/headless/viewport/proxy settings.
-func (s *Server) createSessionConn(platform string, headless *bool, viewport *protocol.Viewport, proxy string) (*sessionConn, error) {
-	sc, err := dial(sessionRouteURL(s.engineURL, platform, headless, viewport, proxy), "")
+// server-side) for the given platform/headless/viewport/proxy/device settings.
+func (s *Server) createSessionConn(platform string, headless *bool, viewport *protocol.Viewport, proxy, device string) (*sessionConn, error) {
+	sc, err := dial(sessionRouteURL(s.engineURL, platform, headless, viewport, proxy, device), "")
 	if err != nil {
 		return nil, err
 	}
-	slog.Info("mcp: session created", "session_id", sc.id, "platform", platform)
+	slog.Info("mcp: session created", "session_id", sc.id, "platform", platform, "device", device)
 	return sc, nil
 }
 

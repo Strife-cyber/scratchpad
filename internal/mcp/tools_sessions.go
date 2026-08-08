@@ -23,13 +23,16 @@ import (
 
 // SessionCreateArgs creates a new isolated engine session.
 // platform is "web" (default) or "android". headless only matters for browser
-// sessions. viewport and proxy are recorded in the session URL for upcoming
-// configure work and ignored by older engines.
+// sessions. device applies a built-in device-emulation preset by name (see
+// browser_list_devices, e.g. "iPhone 14") at session start. viewport and proxy
+// are recorded in the session URL for upcoming configure work and ignored by
+// older engines.
 type SessionCreateArgs struct {
 	Platform string             `json:"platform,omitempty"`
 	Headless *bool              `json:"headless,omitempty"`
 	Viewport *protocol.Viewport `json:"viewport,omitempty"`
 	Proxy    string             `json:"proxy,omitempty"`
+	Device   string             `json:"device,omitempty"`
 }
 
 type SessionListArgs struct{}
@@ -96,7 +99,7 @@ func (s *Server) sessionToolDefs() []toolDef {
 			description: "Create a new isolated engine session and make it the active session for subsequent browser_* tools. Use when a task needs a second, independent page context.\n\nExample: session_create with {\"platform\":\"web\",\"headless\":true} creates a fresh headless browser session and returns its session_id.",
 			register: func(srv *mcp.Server) error {
 				return srv.RegisterTool("session_create", "Create a new isolated engine session and make it the active session.", func(_ context.Context, args SessionCreateArgs) (*mcp.ToolResponse, error) {
-					sc, err := s.createSessionConn(args.Platform, args.Headless, args.Viewport, args.Proxy)
+					sc, err := s.createSessionConn(args.Platform, args.Headless, args.Viewport, args.Proxy, args.Device)
 					if err != nil {
 						return nil, err
 					}

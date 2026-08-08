@@ -318,9 +318,8 @@ func listTabsTool(s *Server) toolDef {
 }
 
 // supportedActions lists every protocol action the browser engine actually
-// implements (internal/browser/actions.go). mock_network_response is excluded
-// because it returns a typed unsupported error until item 14 lands. A test
-// enforces that each action has at least one dedicated MCP tool.
+// implements (internal/browser/actions.go). A test enforces that each action has
+// at least one dedicated MCP tool.
 var supportedActions = []string{
 	protocol.ActionWait,
 	protocol.ActionClick,
@@ -349,13 +348,15 @@ var supportedActions = []string{
 	protocol.ActionUploadFile,
 	protocol.ActionSetGeolocation,
 	protocol.ActionAssert,
+	protocol.ActionMockNetworkResp,
+	protocol.ActionBlockRequest,
 }
 
 // toolDefs returns the descriptor table RegisterTools iterates. Descriptions
 // follow the "Example: browser_xxx with {...}" pattern because concrete
 // examples measurably improve LLM tool selection.
 func (s *Server) toolDefs() []toolDef {
-	return append([]toolDef{
+	return append(append([]toolDef{
 		// ---- Navigation & observation ----------------------------------------
 		tool(s, "browser_navigate", "Load a URL into the browser.\n\nExample: browser_navigate with {\"url\":\"https://example.com\"} navigates to the URL.", func(a NavigateArgs) protocol.Envelope {
 			return protocol.Envelope{
@@ -471,5 +472,5 @@ func (s *Server) toolDefs() []toolDef {
 		}),
 
 		// ---- Session lifecycle (appended; see tools_sessions.go) --------------
-	}, s.sessionToolDefs()...)
+	}, s.sessionToolDefs()...), s.networkToolDefs()...)
 }
