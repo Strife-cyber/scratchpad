@@ -19,6 +19,7 @@ const (
 	MsgTypeAction       = "action"
 	MsgTypeResize       = "resize"
 	MsgTypeCancel       = "cancel"
+	MsgTypeListTabs     = "list_tabs"
 	MsgTypeListSessions = "session_list"
 	MsgTypeCloseSession = "session_close"
 )
@@ -56,6 +57,13 @@ type SessionInfo struct {
 // SessionListResponse is the reply to MsgTypeListSessions.
 type SessionListResponse struct {
 	Sessions []SessionInfo `json:"sessions"`
+}
+
+// TabListResponse is the reply to MsgTypeListTabs: a lightweight listing of the
+// session's open browser tabs without a full observation.
+type TabListResponse struct {
+	Type string    `json:"type"`
+	Tabs []TabInfo `json:"tabs"`
 }
 
 // =============================================================================
@@ -180,32 +188,34 @@ type FormField struct {
 // =============================================================================
 
 const (
-	ActionClick           = "click"
-	ActionType            = "type"
-	ActionScroll          = "scroll"
-	ActionWait            = "wait"
-	ActionSwitchTab       = "switch_tab"
-	ActionCloseTab        = "close_tab"
-	ActionCheck           = "check"
-	ActionUncheck         = "uncheck"
-	ActionSubmitForm      = "submit_form"
-	ActionFillForm        = "fill_form"
-	ActionDismissModal    = "dismiss_modal"
-	ActionHover           = "hover"
-	ActionDoubleClick     = "double_click"
-	ActionRightClick      = "right_click"
-	ActionDragDrop        = "drag_drop"
-	ActionSelectOption    = "select_option"
-	ActionPressKeyCombo   = "press_key_combo"
-	ActionExecuteJS       = "execute_js"
-	ActionScrollIntoView  = "scroll_into_view"
-	ActionSwitchToIframe  = "switch_to_iframe"
-	ActionAcceptDialog    = "accept_dialog"
-	ActionDismissDialog   = "dismiss_dialog"
-	ActionUploadFile      = "upload_file"
-	ActionSetGeolocation  = "set_geolocation"
-	ActionMockNetworkResp = "mock_network_response"
-	ActionAssert          = "assert"
+	ActionClick             = "click"
+	ActionType              = "type"
+	ActionScroll            = "scroll"
+	ActionWait              = "wait"
+	ActionSwitchTab         = "switch_tab"
+	ActionCloseTab          = "close_tab"
+	ActionListTabs          = "list_tabs"
+	ActionCheck             = "check"
+	ActionUncheck           = "uncheck"
+	ActionSubmitForm        = "submit_form"
+	ActionFillForm          = "fill_form"
+	ActionDismissModal      = "dismiss_modal"
+	ActionHover             = "hover"
+	ActionDoubleClick       = "double_click"
+	ActionRightClick        = "right_click"
+	ActionDragDrop          = "drag_drop"
+	ActionSelectOption      = "select_option"
+	ActionPressKeyCombo     = "press_key_combo"
+	ActionExecuteJS         = "execute_js"
+	ActionScrollIntoView    = "scroll_into_view"
+	ActionSwitchToIframe    = "switch_to_iframe"
+	ActionSwitchToMainFrame = "switch_to_main_frame"
+	ActionAcceptDialog      = "accept_dialog"
+	ActionDismissDialog     = "dismiss_dialog"
+	ActionUploadFile        = "upload_file"
+	ActionSetGeolocation    = "set_geolocation"
+	ActionMockNetworkResp   = "mock_network_response"
+	ActionAssert            = "assert"
 )
 
 // ActionRequest represents a command from the AI agent.
