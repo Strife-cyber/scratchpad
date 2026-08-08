@@ -1,0 +1,27 @@
+# Hybrid web + Android suite (improvement-plan item 31).
+#
+# Each step may carry a `platform: web|android` tag naming the context it runs
+# on. A session created with platforms [web, android] owns both engines; the
+# runner switches the active context before each step (set_context /
+# session_switch_context) so browser and app actions share one session.
+#
+# NOTE: step-level platform tags are the intended future format. The current
+# runner validates platform only at the suite level, so this file is
+# documentation-forward: keep the tags for the runner's next evolution, but do
+# not feed it to `scratchpad-cli run` yet.
+- platform: web
+  navigate: https://example.com/login
+- platform: web
+  wait: {selector: "#username", timeout: 5000}
+- platform: web
+  type: {selector: "#username", text: "admin"}
+- platform: web
+  type: {selector: "#password", text: "password"}
+- platform: web
+  click: {selector: "#login-button"}
+- platform: web
+  assert: {selector: ".welcome", text: "Hello", contains: true}
+- platform: android
+  wait: {selector: "//android.widget.TextView[@text='Home']", timeout: 8000}
+- platform: android
+  assert: {selector: "//android.widget.Button[@resource-id='cta']", visible: true}
