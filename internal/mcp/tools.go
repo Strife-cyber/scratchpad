@@ -379,7 +379,7 @@ var supportedActions = []string{
 // follow the "Example: browser_xxx with {...}" pattern because concrete
 // examples measurably improve LLM tool selection.
 func (s *Server) toolDefs() []toolDef {
-	return append(append(append(append(append([]toolDef{
+	return append(append(append(append(append(append([]toolDef{
 		// ---- Navigation & observation ----------------------------------------
 		tool(s, "browser_navigate", "Load a URL into the browser.\n\nExample: browser_navigate with {\"url\":\"https://example.com\"} navigates to the URL.", func(a NavigateArgs) protocol.Envelope {
 			return protocol.Envelope{
@@ -495,5 +495,5 @@ func (s *Server) toolDefs() []toolDef {
 		}),
 
 		// ---- Session lifecycle (appended; see tools_sessions.go) --------------
-	}, s.sessionToolDefs()...), s.networkToolDefs()...), s.clipboardToolDefs()...), s.downloadToolDefs()...), s.emulationToolDefs()...)
+	}, s.sessionToolDefs()...), s.networkToolDefs()...), s.clipboardToolDefs()...), s.downloadToolDefs()...), s.emulationToolDefs()...), s.androidToolDefs()...)
 }

@@ -39,6 +39,8 @@ func TestSessionRouteURL(t *testing.T) {
 			"ws://h:8080/ws?color_scheme=dark&locale=de-DE&timezone=Europe%2FBerlin&user_agent=agent%2F1.0"},
 		{"android headless device", sessionOptions{Platform: "android", Headless: boolPtr(true), Device: "Pixel 7"},
 			"ws://h:8080/ws/android?device=Pixel+7&headless=true"},
+		{"android serial", sessionOptions{Platform: "android", Serial: "emulator-5554"},
+			"ws://h:8080/ws/android?serial=emulator-5554"},
 	}
 
 	for _, tc := range cases {

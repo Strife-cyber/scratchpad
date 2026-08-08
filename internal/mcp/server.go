@@ -526,6 +526,7 @@ type sessionOptions struct {
 	ColorScheme string
 	ProxyURL    string // --proxy-server (fixed at session creation)
 	ProxyAuth   string // "user:pass" for authenticated proxies
+	Serial      string // Android device/emulator serial (item 26)
 }
 
 // sessionRouteURL builds the WS route for a platform. base is the bridge's
@@ -575,6 +576,9 @@ func sessionRouteURL(base string, o sessionOptions) string {
 	}
 	if o.ProxyAuth != "" {
 		q.Set("proxy_auth", o.ProxyAuth)
+	}
+	if o.Serial != "" {
+		q.Set("serial", o.Serial)
 	}
 	if len(q) > 0 {
 		sep := "?"

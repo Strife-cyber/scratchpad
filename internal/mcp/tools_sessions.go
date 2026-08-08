@@ -45,6 +45,10 @@ type SessionCreateArgs struct {
 	Timezone    string             `json:"timezone,omitempty"`
 	ColorScheme string             `json:"color_scheme,omitempty"`
 	ProxyAuth   string             `json:"proxy_auth,omitempty"`
+	// Serial targets a specific connected Android device/emulator (from
+	// android_list_devices) when platform is "android"; empty means adb picks
+	// its default (ANDROID_SERIAL env var or the single connected device).
+	Serial string `json:"serial,omitempty"`
 }
 
 type SessionListArgs struct{}
@@ -125,6 +129,7 @@ func (s *Server) sessionToolDefs() []toolDef {
 						Timezone:    args.Timezone,
 						ColorScheme: args.ColorScheme,
 						ProxyAuth:   args.ProxyAuth,
+						Serial:      args.Serial,
 					})
 					if err != nil {
 						return nil, err

@@ -134,6 +134,9 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind, opts Options) http.Handler
 		if q := r.URL.Query().Get("proxy_auth"); q != "" {
 			createOpts.ProxyAuth = q
 		}
+		if q := r.URL.Query().Get("serial"); q != "" {
+			createOpts.AndroidSerial = q
+		}
 
 		// Each WebSocket connection gets its own engine session. Sessions now
 		// survive the connection: on disconnect the session is left for the idle
