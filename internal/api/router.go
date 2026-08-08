@@ -55,6 +55,10 @@ func NewRouter(mgr *sandbox.Manager) http.Handler {
 			case len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "timeline":
 				h.GetTimeline(w, r, parts[1])
 				return
+			case len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "events":
+				// SSE stream of the session's typed events (improvement-plan item 34).
+				h.GetEvents(w, r, parts[1])
+				return
 			case len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "trace":
 				h.GetTrace(w, r, parts[1])
 				return

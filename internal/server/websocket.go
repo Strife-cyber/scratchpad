@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"scratchpad/internal/browser"
@@ -77,6 +78,12 @@ type wsSession struct {
 	// closed signals shutdown; reader and executor stop promptly.
 	closed    chan struct{}
 	closeOnce sync.Once
+
+	// pushEvents gates unsolicited event pushes (improvement-plan item 34).
+	// It is off by default so request/response clients (the MCP bridge) never
+	// see unsolicited frames; MsgTypeSubscribeEvents toggles it. Read by the
+	// eventPusher goroutine, written by the reader.
+	pushEvents atomic.Bool
 }
 
 // HandleWS returns an http.HandlerFunc that upgrades the connection to a
@@ -234,6 +241,11 @@ func (ws *wsSession) run(connStart time.Time) {
 	// Per-session executor: runs queued messages one at a time.
 	go ws.executor()
 
+	// Event pusher: forwards session events as unsolicited MsgTypeEvent frames
+	// once the client opts in via MsgTypeSubscribeEvents (improvement-plan item
+	// 34). Off by default so request/response clients see no extra frames.
+	go ws.eventPusher()
+
 	// Reader goroutine: this is the ONLY inline ReadMessage loop (per CLAUDE.md
 	// file-ownership rule 2 — never reintroduce a blocking handler here).
 	ws.reader()
@@ -294,6 +306,10 @@ func (ws *wsSession) reader() {
 			// Control: acknowledge immediately; the fresh observation is queued
 			// so it runs after any in-flight action rather than blocking the reader.
 			ws.handleResize(env.Data)
+
+		case protocol.MsgTypeSubscribeEvents:
+			// Control: toggle unsolicited event pushes (improvement-plan item 34).
+			ws.handleSubscribeEvents(env.Data)
 
 		default:
 			select {
@@ -771,6 +787,53 @@ func (ws *wsSession) handleResize(raw json.RawMessage) {
 	select {
 	case ws.queue <- queueItem{env: protocol.Envelope{Type: protocol.MsgTypeObserve}}:
 	case <-ws.closed:
+	}
+}
+
+// handleSubscribeEvents toggles unsolicited event pushes on this connection
+// (improvement-plan item 34). Off by default so the MCP bridge's strict
+// request/response reads never collide with an unsolicited frame.
+func (ws *wsSession) handleSubscribeEvents(raw json.RawMessage) {
+	var req protocol.SubscribeEventsRequest
+	if raw != nil {
+		_ = json.Unmarshal(raw, &req)
+	}
+	ws.pushEvents.Store(req.Subscribe)
+	slog.Debug("websocket: event push toggled",
+		"session_id", ws.session.ID, "request_id", ws.reqID, "enabled", req.Subscribe)
+	_ = ws.writeJSON(map[string]any{
+		"type": protocol.MsgTypeSubscribeEvents,
+		"data": map[string]any{"subscribe": req.Subscribe},
+	})
+}
+
+// eventPusher forwards session events to the client as unsolicited MsgTypeEvent
+// frames, but only while the client has enabled pushes. When disabled, events
+// are drained (skipped) so enabling later resumes from the newest event. It
+// stops when the connection closes, unsubscribing from the bus so the engine's
+// event loop never blocks on a dead connection.
+func (ws *wsSession) eventPusher() {
+	if ws.session.Events == nil {
+		return
+	}
+	sub := ws.session.Events.Subscribe(32)
+	defer sub.Cancel()
+	for {
+		select {
+		case ev := <-sub.C:
+			if !ws.pushEvents.Load() {
+				continue
+			}
+			data, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
+			if err := ws.writeJSON(protocol.Envelope{Type: protocol.MsgTypeEvent, Data: data}); err != nil {
+				return
+			}
+		case <-ws.closed:
+			return
+		}
 	}
 }
 

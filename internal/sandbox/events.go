@@ -136,3 +136,11 @@ func (b *EventBus) Len() int {
 	defer b.mu.Unlock()
 	return len(b.ring)
 }
+
+// SubscriberCount returns the number of live subscribers. Primarily useful in
+// tests (e.g. to wait until an SSE/WS consumer has attached) and metrics.
+func (b *EventBus) SubscriberCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subs)
+}
