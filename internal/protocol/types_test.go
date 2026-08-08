@@ -782,3 +782,161 @@ func TestActionConstants(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// Item 13/14 protocol fields (resize, device emulation, network interception)
+// =============================================================================
+
+func TestNetworkRouteRoundtrip(t *testing.T) {
+	original := protocol.NetworkRoute{
+		Pattern:    "*/api/*",
+		Method:     "GET",
+		Action:     protocol.NetworkRouteMock,
+		Status:     201,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		BodyBase64: "eyJva30iOnRydWV9",
+		DelayMS:    150,
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.NetworkRoute
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if decoded.Pattern != original.Pattern {
+		t.Errorf("Pattern: want %q, got %q", original.Pattern, decoded.Pattern)
+	}
+	if decoded.Method != original.Method {
+		t.Errorf("Method: want %q, got %q", original.Method, decoded.Method)
+	}
+	if decoded.Action != original.Action {
+		t.Errorf("Action: want %q, got %q", original.Action, decoded.Action)
+	}
+	if decoded.Status != original.Status {
+		t.Errorf("Status: want %d, got %d", original.Status, decoded.Status)
+	}
+	if len(decoded.Headers) != 1 || decoded.Headers["Content-Type"] != "application/json" {
+		t.Errorf("Headers: want %v, got %v", original.Headers, decoded.Headers)
+	}
+	if decoded.BodyBase64 != original.BodyBase64 {
+		t.Errorf("BodyBase64: want %q, got %q", original.BodyBase64, decoded.BodyBase64)
+	}
+	if decoded.DelayMS != original.DelayMS {
+		t.Errorf("DelayMS: want %d, got %d", original.DelayMS, decoded.DelayMS)
+	}
+}
+
+func TestDevicePresetRoundtrip(t *testing.T) {
+	original := protocol.DevicePreset{
+		Name:              "iPhone 14",
+		Width:             390,
+		Height:            844,
+		DeviceScaleFactor: 3,
+		Mobile:            true,
+		Touch:             true,
+		UserAgent:         "Mozilla/5.0 (iPhone; ...)",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.DevicePreset
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if decoded.Name != original.Name || decoded.Width != 390 || decoded.Height != 844 {
+		t.Errorf("identity/size mismatch: %+v", decoded)
+	}
+	if decoded.DeviceScaleFactor != 3 || !decoded.Mobile || !decoded.Touch {
+		t.Errorf("emulation flags mismatch: %+v", decoded)
+	}
+	if decoded.UserAgent != original.UserAgent {
+		t.Errorf("UserAgent: want %q, got %q", original.UserAgent, decoded.UserAgent)
+	}
+}
+
+func TestResizeRequestRoundtrip(t *testing.T) {
+	original := protocol.ResizeRequest{Width: 1024, Height: 768, Mobile: true, Touch: true}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.ResizeRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if decoded.Width != 1024 || decoded.Height != 768 || !decoded.Mobile || !decoded.Touch {
+		t.Errorf("roundtrip mismatch: %+v", decoded)
+	}
+}
+
+func TestNetworkRequestInfoRoundtrip(t *testing.T) {
+	original := protocol.NetworkRequestInfo{
+		URL:              "https://example.com/api",
+		Method:           "GET",
+		Status:           200,
+		DurationMS:       12,
+		StartedAtRFC3339: "2026-08-08T10:00:00Z",
+		ResponseBody:     `{"ok":true}`,
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.NetworkRequestInfo
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if decoded.URL != original.URL || decoded.Method != "GET" || decoded.Status != 200 {
+		t.Errorf("identity mismatch: %+v", decoded)
+	}
+	if decoded.DurationMS != 12 || decoded.StartedAtRFC3339 != original.StartedAtRFC3339 {
+		t.Errorf("timing mismatch: %+v", decoded)
+	}
+	if decoded.ResponseBody != original.ResponseBody {
+		t.Errorf("ResponseBody: want %q, got %q", original.ResponseBody, decoded.ResponseBody)
+	}
+}
+
+func TestPageInfo_DeviceContextRoundtrip(t *testing.T) {
+	original := protocol.PageInfo{
+		URL:          "https://example.com",
+		Title:        "Example",
+		Platform:     "web",
+		LoadStatus:   "complete",
+		NavigationID: 1,
+		Device:       "iPhone 14",
+		Viewport:     protocol.Viewport{Width: 390, Height: 844},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded protocol.PageInfo
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if decoded.Device != "iPhone 14" {
+		t.Errorf("Device: want %q, got %q", original.Device, decoded.Device)
+	}
+	if decoded.Viewport.Width != 390 || decoded.Viewport.Height != 844 {
+		t.Errorf("Viewport: want %+v, got %+v", original.Viewport, decoded.Viewport)
+	}
+}

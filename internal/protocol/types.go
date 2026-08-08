@@ -14,14 +14,18 @@ import (
 // MUST include a "type" field. This replaces the fragile field-sniffing
 // approach.
 const (
-	MsgTypeNavigate     = "navigate"
-	MsgTypeObserve      = "observe"
-	MsgTypeAction       = "action"
-	MsgTypeResize       = "resize"
-	MsgTypeCancel       = "cancel"
-	MsgTypeListTabs     = "list_tabs"
-	MsgTypeListSessions = "session_list"
-	MsgTypeCloseSession = "session_close"
+	MsgTypeNavigate       = "navigate"
+	MsgTypeObserve        = "observe"
+	MsgTypeAction         = "action"
+	MsgTypeResize         = "resize"
+	MsgTypeDevices        = "devices"
+	MsgTypeCancel         = "cancel"
+	MsgTypeListTabs       = "list_tabs"
+	MsgTypeListSessions   = "session_list"
+	MsgTypeCloseSession   = "session_close"
+	MsgTypeNetworkEnable  = "network_enable"
+	MsgTypeNetworkDisable = "network_disable"
+	MsgTypeNetworkList    = "network_list"
 )
 
 // Envelope wraps every message with an explicit type discriminator.
@@ -284,6 +288,7 @@ const (
 	ActionUploadFile        = "upload_file"
 	ActionSetGeolocation    = "set_geolocation"
 	ActionMockNetworkResp   = "mock_network_response"
+	ActionBlockRequest      = "block_request"
 	ActionAssert            = "assert"
 )
 
@@ -340,6 +345,15 @@ type ActionRequest struct {
 
 	// NetworkMock is used by "mock_network_response".
 	NetworkMock *NetworkMock `json:"network_mock,omitempty"`
+
+	// Route is used by "mock_network_response" / "block_request" to add a single
+	// interception rule (improvement-plan item 14). It is the modern replacement
+	// for NetworkMock; when both are set, Route wins.
+	Route *NetworkRoute `json:"route,omitempty"`
+
+	// Patterns is used by "block_request" to list URL patterns to abort. When
+	// empty, the engine applies its built-in annoyances (ads/trackers) list.
+	Patterns []string `json:"patterns,omitempty"`
 
 	// IframeSelector is used by "switch_to_iframe".
 	IframeSelector *Selector `json:"iframe_selector,omitempty"`
@@ -440,6 +454,84 @@ type NetworkMock struct {
 	Status     int               `json:"status,omitempty"`
 	Headers    map[string]string `json:"headers,omitempty"`
 	BodyBase64 string            `json:"body_base64,omitempty"`
+}
+
+// NetworkRouteAction is the action applied to requests matching a route
+// (improvement-plan item 14).
+type NetworkRouteAction string
+
+const (
+	// NetworkRouteMock fulfills the request with a synthetic response.
+	NetworkRouteMock NetworkRouteAction = "mock"
+	// NetworkRouteAbort fails the request (used for ad/tracker blocking).
+	NetworkRouteAbort NetworkRouteAction = "abort"
+	// NetworkRouteContinue lets the request proceed unchanged.
+	NetworkRouteContinue NetworkRouteAction = "continue"
+)
+
+// NetworkRoute is one interception rule: requests whose URL matches Pattern
+// (and optionally Method) are handled per Action. Routes are evaluated in
+// insertion order with first-match-wins semantics against the session's table.
+type NetworkRoute struct {
+	Pattern string             `json:"pattern"`
+	Method  string             `json:"method,omitempty"`
+	Action  NetworkRouteAction `json:"action"`
+
+	// Mock payload (Action == "mock").
+	Status  int               `json:"status,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// BodyBase64 is the base64-encoded response body for a mocked response.
+	BodyBase64 string `json:"body_base64,omitempty"`
+
+	// DelayMS delays the fulfill/fail/continue decision, simulating a slow
+	// upstream. 0 means no delay.
+	DelayMS int `json:"delay_ms,omitempty"`
+}
+
+// DevicePreset describes a named device-emulation preset (improvement-plan
+// item 13). Width/Height are the emulated viewport size, DeviceScaleFactor and
+// Mobile map onto emulation.SetDeviceMetricsOverride, and Touch toggles
+// emulation.SetTouchEmulationEnabled.
+type DevicePreset struct {
+	Name              string  `json:"name"`
+	Width             int     `json:"width"`
+	Height            int     `json:"height"`
+	DeviceScaleFactor float64 `json:"device_scale_factor,omitempty"`
+	Mobile            bool    `json:"mobile,omitempty"`
+	Touch             bool    `json:"touch,omitempty"`
+	UserAgent         string  `json:"user_agent,omitempty"`
+}
+
+// DeviceListResponse is the reply to MsgTypeDevices (and GET /api/v1/devices).
+type DeviceListResponse struct {
+	Devices []DevicePreset `json:"devices"`
+}
+
+// ResizeRequest resizes the browser viewport, optionally enabling mobile and/or
+// touch emulation (improvement-plan item 13). Width/Height are required.
+type ResizeRequest struct {
+	Width  int  `json:"width"`
+	Height int  `json:"height"`
+	Mobile bool `json:"mobile,omitempty"`
+	Touch  bool `json:"touch,omitempty"`
+}
+
+// NetworkRequestInfo is one recorded network request (improvement-plan item 14).
+// ResponseBody is populated when Fetch interception was active for the request.
+// Aborted (blocked) requests report Status == -1.
+type NetworkRequestInfo struct {
+	URL              string `json:"url"`
+	Method           string `json:"method"`
+	Status           int    `json:"status"`
+	DurationMS       int64  `json:"duration_ms"`
+	StartedAtRFC3339 string `json:"started_at"`
+	ResponseBody     string `json:"response_body,omitempty"`
+}
+
+// NetworkListResponse is the reply to MsgTypeNetworkList.
+type NetworkListResponse struct {
+	Requests []NetworkRequestInfo `json:"requests"`
 }
 
 // =============================================================================
@@ -623,6 +715,15 @@ type PageInfo struct {
 	DialogState  string            `json:"dialog_state,omitempty"`
 	TabCount     int               `json:"tab_count,omitempty"`
 	Extra        map[string]string `json:"extra,omitempty"`
+
+	// Device is the active device-emulation preset name (e.g. "iPhone 14"),
+	// "Desktop HD" for the default desktop viewport, or "" after a custom
+	// resize with no preset (improvement-plan item 13).
+	Device string `json:"device,omitempty"`
+
+	// Viewport is the current emulated viewport size. It updates after resize
+	// and device-preset changes so agents always see the real viewport.
+	Viewport Viewport `json:"viewport,omitempty"`
 }
 
 // =============================================================================
