@@ -778,10 +778,16 @@ type Viewport struct {
 
 // ObservationResponse is what the engine returns after an action or poll.
 type ObservationResponse struct {
-	Type        string        `json:"type"`
-	SystemState SystemState   `json:"system_state"`
-	Viewport    Viewport      `json:"viewport"`
-	Visual      string        `json:"visual_context,omitempty"`
+	Type        string      `json:"type"`
+	SystemState SystemState `json:"system_state"`
+	Viewport    Viewport    `json:"viewport"`
+	Visual      string      `json:"visual_context,omitempty"`
+
+	// ScreenshotMime is the media type of Visual when it is not image/jpeg
+	// (improvement-plan item 18: png/webp via screenshot_format). Transports
+	// use it to label the attached image correctly.
+	ScreenshotMime string `json:"screenshot_mime,omitempty"`
+
 	SpatialTree []SpatialNode `json:"spatial_tree,omitempty"`
 	Delta       *TreeDelta    `json:"delta,omitempty"`
 	Logs        []ConsoleLog  `json:"logs,omitempty"`

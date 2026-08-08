@@ -14,7 +14,6 @@ import (
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/network"
-	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
 
@@ -115,13 +114,12 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 
 	if req.WantScreenshot() {
 		actions = append(actions,
-			// Capture screenshot last (most expensive step).
+			// Capture screenshot last (most expensive step). Honors the item-18
+			// options: full_page, element_selector crop, format (jpeg/png/webp),
+			// quality.
 			chromedp.ActionFunc(func(ctx context.Context) error {
 				var err error
-				buf, err = page.CaptureScreenshot().
-					WithFormat(page.CaptureScreenshotFormatJpeg).
-					WithQuality(80).
-					Do(ctx)
+				buf, err = captureScreenshot(ctx, observeScreenshotOptions(req))
 				return err
 			}),
 		)
@@ -163,6 +161,11 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	}
 
 	obs.Visual = base64.StdEncoding.EncodeToString(buf)
+	// Label the attached image so transports can pick the right media type
+	// (jpeg by default; png/webp when a non-default screenshot_format was set).
+	if req.WantScreenshot() {
+		obs.ScreenshotMime = observeScreenshotMime(req)
+	}
 	obs.SpatialTree = spatialTree
 	if req.WantPageInfo() {
 		if pageInfo == nil {

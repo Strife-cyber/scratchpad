@@ -653,6 +653,34 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}
 		return nil
 
+	case protocol.ActionScreenshot:
+		// Capture a screenshot honoring the item-18 options (full_page,
+		// element_selector crop, format, quality). Bytes are attached to the
+		// action result as base64 with the correct media type in ScreenshotMime,
+		// so MCP/HTTP transports can label the image.
+		opts := protocol.ScreenshotOptions{}
+		if req.ScreenshotOptions != nil {
+			opts = *req.ScreenshotOptions
+		}
+		buf, err := captureScreenshot(ctx, opts)
+		if err != nil {
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   false,
+				Error:     fmt.Sprintf("screenshot: %v", err),
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+			return nil
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:         req.Action,
+			Success:        true,
+			ElapsedMS:      time.Since(start).Milliseconds(),
+			Screenshot:     base64.StdEncoding.EncodeToString(buf),
+			ScreenshotMime: screenshotMime(opts.Format),
+		}
+		return nil
+
 	case protocol.ActionExecuteJS:
 		if strings.TrimSpace(req.JS) == "" {
 			return fmt.Errorf("execute_js requires js")
