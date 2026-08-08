@@ -192,6 +192,10 @@ See [MCP Tools](docs/src/content/docs/api/mcp-tools.mdx) for full schemas and ex
 
 **Headful mode** — set `SCRATCHPAD_HEADLESS=false` or edit `internal/browser/engine.go` to watch the browser during debugging (default viewport 1280×720).
 
+**Race detector** — run `make test-race` (or `go test -race ./...`) to catch data races that only surface under concurrency. CI runs the unit suite with `-race` on every push.
+
+**Integration & fuzz** — `make test-integration` runs the build-tagged suites (`//go:build integration`) against a real headless Chrome — the fixture site loop plus MCP conformance; they skip gracefully when Chrome is absent (`SCRATCHPAD_SKIP_INTEGRATION`, `-short`, or a failed probe). Fuzz the parsers with e.g. `go test -fuzz FuzzComputeDiff ./internal/engine/`; malformed input must never panic.
+
 **Observation response shape** (abbreviated):
 
 ```json
