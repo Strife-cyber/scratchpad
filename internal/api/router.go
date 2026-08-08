@@ -55,6 +55,9 @@ func NewRouter(mgr *sandbox.Manager) http.Handler {
 			case len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "timeline":
 				h.GetTimeline(w, r, parts[1])
 				return
+			case len(parts) == 3 && r.Method == http.MethodGet && parts[2] == "trace":
+				h.GetTrace(w, r, parts[1])
+				return
 			case len(parts) == 4 && r.Method == http.MethodGet && parts[2] == "screenshot":
 				h.GetScreenshot(w, r, parts[1])
 				return

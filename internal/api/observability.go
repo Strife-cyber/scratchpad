@@ -334,6 +334,12 @@ func (h *handler) PostTracingStop(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
+	// Flush any buffered timeline lines before StopTracing bundles them into the
+	// .spz archive so the bundle reflects every step up to the stop.
+	if sess.Recorder != nil {
+		_ = sess.Recorder.Flush()
+	}
+
 	traceBytes, outPath, err := tr.StopTracing()
 	if err != nil {
 		writeError(w, r, fmt.Errorf("failed to stop tracing: %w", err))
