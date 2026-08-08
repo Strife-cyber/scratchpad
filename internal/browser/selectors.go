@@ -139,175 +139,33 @@ func jsStringLiteral(s string) string {
 func (e *ChromeEngine) querySelectorMatchesJSON(ctx context.Context, sel protocol.Selector) (string, error) {
 	// Pick the most specific selector definition.
 	// Phase 1 order: CSS > XPath > text > role > test_id > placeholder.
+	//
+	// Every strategy runs through the pierce helpers (pierce.go) so matches are
+	// collected across open shadow boundaries, not just the light DOM
+	// (improvement-plan item 19). The CSS strategy additionally honors the
+	// Playwright-style `>>` chain separator (e.g. "app-root >> button").
 	switch {
 	case sel.CSS != "":
-		// CSS selector.
-		js := fmt.Sprintf(`
-			(() => {
-				const nodes = Array.from(document.querySelectorAll(%s));
-				return nodes.map(el => {
-					const r = el.getBoundingClientRect();
-					const style = window.getComputedStyle(el);
-					const visible = r.width > 0 && r.height > 0 &&
-						style.display !== 'none' && style.visibility !== 'hidden' && (parseFloat(style.opacity || '1') !== 0);
-					const enabled = !(el.disabled === true) && el.getAttribute('aria-disabled') !== 'true';
-					return {
-						visible,
-						enabled,
-						center_x: r.left + r.width/2,
-						center_y: r.top + r.height/2,
-						width: r.width,
-						height: r.height,
-						text: (el.textContent || '').trim(),
-						checked: ('checked' in el) ? el.checked : null
-					};
-				});
-			})()
-		`, jsStringLiteral(sel.CSS))
-		return evalMatches(ctx, ctx, js)
+		segs := parsePierceChain(sel.CSS)
+		if len(segs) > 1 {
+			return evalMatches(ctx, ctx, buildPierceQuery("chain", chainArrayLiteral(segs)))
+		}
+		return evalMatches(ctx, ctx, buildPierceQuery("css", jsStringLiteral(segs[0])))
 
 	case sel.XPath != "":
-		js := fmt.Sprintf(`
-			(() => {
-				const xpath = %s;
-				const snap = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-				const nodes = [];
-				for (let i = 0; i < snap.snapshotLength; i++) nodes.push(snap.snapshotItem(i));
-				return nodes.map(el => {
-					const r = el.getBoundingClientRect();
-					const style = window.getComputedStyle(el);
-					const visible = r.width > 0 && r.height > 0 &&
-						style.display !== 'none' && style.visibility !== 'hidden' && (parseFloat(style.opacity || '1') !== 0);
-					const enabled = !(el.disabled === true) && el.getAttribute('aria-disabled') !== 'true';
-					return {
-						visible,
-						enabled,
-						center_x: r.left + r.width/2,
-						center_y: r.top + r.height/2,
-						width: r.width,
-						height: r.height,
-						text: (el.textContent || '').trim(),
-						checked: ('checked' in el) ? el.checked : null
-					};
-				});
-			})()
-		`, jsStringLiteral(sel.XPath))
-		return evalMatches(ctx, ctx, js)
+		return evalMatches(ctx, ctx, buildPierceQuery("xpath", jsStringLiteral(sel.XPath)))
 
 	case sel.Text != "":
-		js := fmt.Sprintf(`
-			(() => {
-				const needle = %s;
-				const nodes = Array.from(document.querySelectorAll('*')).filter(el => {
-					const t = (el.textContent || '').trim();
-					return t.length > 0 && t.includes(needle);
-				});
-				return nodes.map(el => {
-					const r = el.getBoundingClientRect();
-					const style = window.getComputedStyle(el);
-					const visible = r.width > 0 && r.height > 0 &&
-						style.display !== 'none' && style.visibility !== 'hidden' && (parseFloat(style.opacity || '1') !== 0);
-					const enabled = !(el.disabled === true) && el.getAttribute('aria-disabled') !== 'true';
-					return {
-						visible,
-						enabled,
-						center_x: r.left + r.width/2,
-						center_y: r.top + r.height/2,
-						width: r.width,
-						height: r.height,
-						text: (el.textContent || '').trim(),
-						checked: ('checked' in el) ? el.checked : null
-					};
-				});
-			})()
-		`, jsStringLiteral(sel.Text))
-		return evalMatches(ctx, ctx, js)
+		return evalMatches(ctx, ctx, buildPierceQuery("text", jsStringLiteral(sel.Text)))
 
 	case sel.Role != "":
-		js := fmt.Sprintf(`
-			(() => {
-				const role = %s;
-				const nodes = Array.from(document.querySelectorAll('[role], [aria-label], *')).filter(el => {
-					const r = el.getAttribute('role') || '';
-					const ariaRole = el.getAttribute('aria-role') || '';
-					return r === role || ariaRole === role;
-				});
-				return nodes.map(el => {
-					const rect = el.getBoundingClientRect();
-					const style = window.getComputedStyle(el);
-					const visible = rect.width > 0 && rect.height > 0 &&
-						style.display !== 'none' && style.visibility !== 'hidden' && (parseFloat(style.opacity || '1') !== 0);
-					const enabled = !(el.disabled === true) && el.getAttribute('aria-disabled') !== 'true';
-					return {
-						visible,
-						enabled,
-						center_x: rect.left + rect.width/2,
-						center_y: rect.top + rect.height/2,
-						width: rect.width,
-						height: rect.height,
-						text: (el.textContent || '').trim(),
-						checked: ('checked' in el) ? el.checked : null
-					};
-				});
-			})()
-		`, jsStringLiteral(sel.Role))
-		return evalMatches(ctx, ctx, js)
+		return evalMatches(ctx, ctx, buildPierceQuery("role", jsStringLiteral(sel.Role)))
 
 	case sel.TestID != "":
-		js := fmt.Sprintf(`
-			(() => {
-				const id = %s;
-				const nodes = Array.from(document.querySelectorAll('[data-testid], [data-test-id]')).filter(el => {
-					return el.getAttribute('data-testid') === id || el.getAttribute('data-test-id') === id;
-				});
-				return nodes.map(el => {
-					const r = el.getBoundingClientRect();
-					const style = window.getComputedStyle(el);
-					const visible = r.width > 0 && r.height > 0 &&
-						style.display !== 'none' && style.visibility !== 'hidden' && (parseFloat(style.opacity || '1') !== 0);
-					const enabled = !(el.disabled === true) && el.getAttribute('aria-disabled') !== 'true';
-					return {
-						visible,
-						enabled,
-						center_x: r.left + r.width/2,
-						center_y: r.top + r.height/2,
-						width: r.width,
-						height: r.height,
-						text: (el.textContent || '').trim(),
-						checked: ('checked' in el) ? el.checked : null
-					};
-				});
-			})()
-		`, jsStringLiteral(sel.TestID))
-		return evalMatches(ctx, ctx, js)
+		return evalMatches(ctx, ctx, buildPierceQuery("test_id", jsStringLiteral(sel.TestID)))
 
 	case sel.Placeholder != "":
-		js := fmt.Sprintf(`
-			(() => {
-				const ph = %s;
-				const nodes = Array.from(document.querySelectorAll('[placeholder]')).filter(el => {
-					return (el.getAttribute('placeholder') || '') === ph;
-				});
-				return nodes.map(el => {
-					const r = el.getBoundingClientRect();
-					const style = window.getComputedStyle(el);
-					const visible = r.width > 0 && r.height > 0 &&
-						style.display !== 'none' && style.visibility !== 'hidden' && (parseFloat(style.opacity || '1') !== 0);
-					const enabled = !(el.disabled === true) && el.getAttribute('aria-disabled') !== 'true';
-					return {
-						visible,
-						enabled,
-						center_x: r.left + r.width/2,
-						center_y: r.top + r.height/2,
-						width: r.width,
-						height: r.height,
-						text: (el.textContent || '').trim(),
-						checked: ('checked' in el) ? el.checked : null
-					};
-				});
-			})()
-		`, jsStringLiteral(sel.Placeholder))
-		return evalMatches(ctx, ctx, js)
+		return evalMatches(ctx, ctx, buildPierceQuery("placeholder", jsStringLiteral(sel.Placeholder)))
 
 	default:
 		return "[]", nil
