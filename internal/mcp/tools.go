@@ -87,14 +87,17 @@ type DismissModalArgs struct {
 
 type CheckArgs struct {
 	Selector protocol.Selector `json:"selector"`
+	HandleID string            `json:"handle_id,omitempty"`
 }
 
 type UncheckArgs struct {
 	Selector protocol.Selector `json:"selector"`
+	HandleID string            `json:"handle_id,omitempty"`
 }
 
 type SubmitFormArgs struct {
 	Selector protocol.Selector `json:"selector"`
+	HandleID string            `json:"handle_id,omitempty"`
 }
 
 type FillFormArgs struct {
@@ -116,6 +119,7 @@ type FillFormArgs struct {
 // coordinate fallback. The engine auto-waits up to timeout_ms for the element.
 type ClickArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
@@ -124,6 +128,7 @@ type ClickArgs struct {
 // HoverArgs targets an element to hover. Provide a selector, or x/y fallback.
 type HoverArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
@@ -133,6 +138,7 @@ type HoverArgs struct {
 // selector is given). The engine clicks the element to focus it first.
 type TypeArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty"`
 	Text      string             `json:"text"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
 }
@@ -142,6 +148,7 @@ type TypeArgs struct {
 // (defaults to viewport centre).
 type ScrollArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	DeltaX    int                `json:"delta_x"`
@@ -152,6 +159,7 @@ type ScrollArgs struct {
 // DoubleClickArgs targets an element to double-click. Selector, or x/y.
 type DoubleClickArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
@@ -160,6 +168,7 @@ type DoubleClickArgs struct {
 // RightClickArgs targets an element to right-click (context menu). Selector, or x/y.
 type RightClickArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
@@ -168,6 +177,7 @@ type RightClickArgs struct {
 // DragDropArgs drags the source element onto the target element.
 type DragDropArgs struct {
 	Selector       *protocol.Selector `json:"selector"`
+	HandleID       string             `json:"handle_id,omitempty"`
 	TargetSelector *protocol.Selector `json:"target_selector"`
 	TimeoutMS      int                `json:"timeout_ms,omitempty"`
 }
@@ -176,6 +186,7 @@ type DragDropArgs struct {
 // (by value) or option_text (by visible label).
 type SelectOptionArgs struct {
 	Selector    *protocol.Selector `json:"selector"`
+	HandleID    string             `json:"handle_id,omitempty"`
 	OptionValue string             `json:"option_value,omitempty"`
 	OptionText  string             `json:"option_text,omitempty"`
 	TimeoutMS   int                `json:"timeout_ms,omitempty"`
@@ -200,6 +211,7 @@ type ExecuteJSArgs struct {
 // ScrollIntoViewArgs scrolls an element into the centre of the viewport.
 type ScrollIntoViewArgs struct {
 	Selector  *protocol.Selector `json:"selector"`
+	HandleID  string             `json:"handle_id,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
 }
 
@@ -398,48 +410,48 @@ func (s *Server) toolDefs() []toolDef {
 			return protocol.ActionRequest{Action: protocol.ActionDismissModal, ModalStrategy: a.Strategy}
 		}),
 		actionTool(s, "browser_check", "Check a checkbox or radio button.\n\nExample: browser_check with {\"selector\":{\"css\":\"#agree\"}} checks the box.", func(a CheckArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionCheck, Selector: &a.Selector}
+			return protocol.ActionRequest{Action: protocol.ActionCheck, Selector: &a.Selector, HandleID: a.HandleID}
 		}),
 		actionTool(s, "browser_uncheck", "Uncheck a checkbox or radio button.\n\nExample: browser_uncheck with {\"selector\":{\"css\":\"#agree\"}} unchecks the box.", func(a UncheckArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionUncheck, Selector: &a.Selector}
+			return protocol.ActionRequest{Action: protocol.ActionUncheck, Selector: &a.Selector, HandleID: a.HandleID}
 		}),
 		actionTool(s, "browser_submit_form", "Submit a form by selector (CSS of the form or a child element).\n\nExample: browser_submit_form with {\"selector\":{\"css\":\"#login-form\"}} submits the form.", func(a SubmitFormArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionSubmitForm, Selector: &a.Selector}
+			return protocol.ActionRequest{Action: protocol.ActionSubmitForm, Selector: &a.Selector, HandleID: a.HandleID}
 		}),
 		actionTool(s, "browser_fill_form", "Fill multiple form fields at once.\n\nExample: browser_fill_form with {\"fields\":[{\"selector\":{\"css\":\"#email\"},\"value\":\"a@b.com\"}]} fills the field.", func(a FillFormArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionFillForm, FormFields: a.Fields}
 		}),
 
 		// ---- Per-action tools ------------------------------------------------
-		actionTool(s, "browser_click", "Click a page element. Provide a selector (auto-waits up to 10s), or x/y coordinates. Selectors pierce open shadow DOM; CSS selectors may chain across shadow roots with \">>\" (e.g. \"app-root >> button\").\n\nExample: browser_click with {\"selector\":{\"css\":\"#submit\"}} clicks the submit button and auto-waits up to 10s.", func(a ClickArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionClick, Selector: a.Selector, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
+		actionTool(s, "browser_click", "Click a page element. Provide a selector (auto-waits up to 10s), a node_ref handle_id from a prior observation, or x/y coordinates. Selectors pierce open shadow DOM; CSS selectors may chain across shadow roots with \">>\" (e.g. \"app-root >> button\").\n\nExample: browser_click with {\"selector\":{\"css\":\"#submit\"}} clicks the submit button and auto-waits up to 10s.", func(a ClickArgs) protocol.ActionRequest {
+			return protocol.ActionRequest{Action: protocol.ActionClick, Selector: a.Selector, HandleID: a.HandleID, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_hover", "Hover the mouse over an element.\n\nExample: browser_hover with {\"selector\":{\"css\":\"#menu\"}} hovers over the menu.", func(a HoverArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionHover, Selector: a.Selector, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionHover, Selector: a.Selector, HandleID: a.HandleID, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_type", "Type text into an element (clicking it to focus first), or the focused element when no selector is given.\n\nExample: browser_type with {\"selector\":{\"css\":\"#search\"},\"text\":\"cats\"} types \"cats\" into the search box.", func(a TypeArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, Text: a.Text, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, HandleID: a.HandleID, Text: a.Text, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_fill", "Alias for browser_type: fill a field with text.\n\nExample: browser_fill with {\"selector\":{\"css\":\"#email\"},\"text\":\"a@b.com\"} fills the email field.", func(a TypeArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, Text: a.Text, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, HandleID: a.HandleID, Text: a.Text, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_press_sequentially", "Alias for browser_type: type text one character at a time.\n\nExample: browser_press_sequentially with {\"selector\":{\"css\":\"#otp\"},\"text\":\"123456\"} types the code.", func(a TypeArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, Text: a.Text, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, HandleID: a.HandleID, Text: a.Text, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_scroll", "Scroll the page or an element by delta_x/delta_y (positive scrolls down/right).\n\nExample: browser_scroll with {\"delta_x\":0,\"delta_y\":500} scrolls down 500px.", func(a ScrollArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionScroll, Selector: a.Selector, X: a.X, Y: a.Y, DeltaX: a.DeltaX, DeltaY: a.DeltaY, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionScroll, Selector: a.Selector, HandleID: a.HandleID, X: a.X, Y: a.Y, DeltaX: a.DeltaX, DeltaY: a.DeltaY, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_double_click", "Double-click an element.\n\nExample: browser_double_click with {\"selector\":{\"css\":\".word\"}} double-clicks the word.", func(a DoubleClickArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionDoubleClick, Selector: a.Selector, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionDoubleClick, Selector: a.Selector, HandleID: a.HandleID, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_right_click", "Right-click an element (context menu).\n\nExample: browser_right_click with {\"selector\":{\"css\":\"#row\"}} opens the row context menu.", func(a RightClickArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionRightClick, Selector: a.Selector, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionRightClick, Selector: a.Selector, HandleID: a.HandleID, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_drag_drop", "Drag the source element onto a target element.\n\nExample: browser_drag_drop with {\"selector\":{\"css\":\"#item1\"},\"target_selector\":{\"css\":\"#bin\"}} drags item1 into the bin.", func(a DragDropArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionDragDrop, Selector: a.Selector, TargetSelector: a.TargetSelector, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionDragDrop, Selector: a.Selector, HandleID: a.HandleID, TargetSelector: a.TargetSelector, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_select_option", "Select an option from a <select> by option_value or option_text.\n\nExample: browser_select_option with {\"selector\":{\"css\":\"#country\"},\"option_value\":\"US\"} selects the US option.", func(a SelectOptionArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionSelectOption, Selector: a.Selector, OptionValue: a.OptionValue, OptionText: a.OptionText, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionSelectOption, Selector: a.Selector, HandleID: a.HandleID, OptionValue: a.OptionValue, OptionText: a.OptionText, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_press_key_combo", "Dispatch a keyboard shortcut via real CDP Input key events (keyDown/char/keyUp with proper key codes and modifier bits). Works with React and other SPAs that ignore synthetic JS KeyboardEvents, and triggers browser-native shortcuts (Ctrl+L, paste, tab navigation). key accepts a named key (\"Enter\", \"Tab\", \"Escape\", \"ArrowDown\", \"PageDown\", ...) or a single character.\n\nExample: browser_press_key_combo with {\"key\":\"s\",\"ctrl\":true} presses Ctrl+S (save).", func(a PressKeyComboArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{
@@ -454,7 +466,7 @@ func (s *Server) toolDefs() []toolDef {
 			return protocol.ActionRequest{Action: protocol.ActionExecuteJS, JS: a.JS}
 		}),
 		actionTool(s, "browser_scroll_into_view", "Scroll an element into the centre of the viewport.\n\nExample: browser_scroll_into_view with {\"selector\":{\"css\":\"#footer\"}} scrolls the footer into view.", func(a ScrollIntoViewArgs) protocol.ActionRequest {
-			return protocol.ActionRequest{Action: protocol.ActionScrollIntoView, Selector: a.Selector, TimeoutMS: a.TimeoutMS}
+			return protocol.ActionRequest{Action: protocol.ActionScrollIntoView, Selector: a.Selector, HandleID: a.HandleID, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_upload_file", "Upload files to an <input type=\"file\">. Each file is base64 content (or a data: URL) with an optional name.\n\nExample: browser_upload_file with {\"selector\":{\"css\":\"input[type=file]\"},\"upload_files\":[{\"name\":\"a.csv\",\"content_base64\":\"MSwyLDMK\"}]} uploads the CSV.", func(a UploadFileArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionUploadFile, Selector: a.Selector, UploadFiles: a.UploadFiles}

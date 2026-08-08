@@ -257,6 +257,8 @@ func (e *ChromeEngine) setupObserveCaching() {
 				e.navMu.Lock()
 				e.navigationID++
 				e.navMu.Unlock()
+				// A document switch invalidates every persistent node handle.
+				e.invalidateHandles()
 				cache.invalidateAll()
 			}
 		case *page.EventNavigatedWithinDocument:
@@ -264,6 +266,8 @@ func (e *ChromeEngine) setupObserveCaching() {
 			e.navMu.Lock()
 			e.navigationID++
 			e.navMu.Unlock()
+			// A document switch invalidates every persistent node handle.
+			e.invalidateHandles()
 			cache.invalidateAll()
 		case *dom.EventDocumentUpdated:
 			cache.invalidateAll()

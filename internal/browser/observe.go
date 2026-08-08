@@ -241,6 +241,8 @@ func (e *ChromeEngine) capturePageInfo(ctx context.Context) (*protocol.PageInfo,
 	e.navMu.Lock()
 	if url != "" && url != e.lastSeenURL && e.lastSeenURL != "" {
 		e.navigationID++
+		// A document switch invalidates every persistent node handle.
+		e.invalidateHandles()
 	}
 	if url != "" {
 		e.lastSeenURL = url

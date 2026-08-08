@@ -254,8 +254,16 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 
 	case protocol.ActionClick:
 
-		// Phase 1: selector-driven click with auto-wait and highlighting.
-		if req.Selector != nil {
+		// Phase 1: click a persistent node handle (item 20) or a selector with
+		// auto-wait and highlighting. A handle wins over a selector and is
+		// resolved fresh on each use.
+		if req.HandleID != "" {
+			cx, cy, err := e.resolveHandlePoint(ctx, req.HandleID)
+			if err != nil {
+				return err
+			}
+			req.X, req.Y = int(cx), int(cy)
+		} else if req.Selector != nil {
 			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
 				return err
@@ -292,35 +300,46 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}))
 
 	case protocol.ActionType:
-		// Phase 1: selector-driven typing with auto-wait and highlighting.
-		if req.Selector != nil {
-			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
-			if err != nil {
-				return err
-			}
+		// Phase 1: focus a persistent node handle (item 20) or a selector with
+		// auto-wait and highlighting, then type.
+		if req.HandleID != "" || req.Selector != nil {
+			var focusX, focusY float64
+			if req.HandleID != "" {
+				cx, cy, err := e.resolveHandlePoint(ctx, req.HandleID)
+				if err != nil {
+					return err
+				}
+				focusX, focusY = cx, cy
+			} else {
+				handle, err := e.waitForElement(ctx, *req.Selector, timeout)
+				if err != nil {
+					return err
+				}
+				focusX, focusY = handle.CenterX, handle.CenterY
 
-			// Highlight the element before typing.
-			if req.Selector.CSS != "" {
-				highlight, hErr := e.highlightElement(ctx, req.Selector.CSS)
-				if hErr == nil && highlight != "" {
-					e.lastActionResult = &protocol.ActionResult{
-						Action:           req.Action,
-						Success:          true,
-						ElapsedMS:        time.Since(start).Milliseconds(),
-						ElementHighlight: highlight,
+				// Highlight the element before typing.
+				if req.Selector.CSS != "" {
+					highlight, hErr := e.highlightElement(ctx, req.Selector.CSS)
+					if hErr == nil && highlight != "" {
+						e.lastActionResult = &protocol.ActionResult{
+							Action:           req.Action,
+							Success:          true,
+							ElapsedMS:        time.Since(start).Milliseconds(),
+							ElementHighlight: highlight,
+						}
 					}
 				}
 			}
 
 			if err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-				press := input.DispatchMouseEvent(input.MousePressed, handle.CenterX, handle.CenterY).
+				press := input.DispatchMouseEvent(input.MousePressed, focusX, focusY).
 					WithButton(input.Left).
 					WithClickCount(1)
 				if err := press.Do(ctx); err != nil {
 					return err
 				}
 				time.Sleep(50 * time.Millisecond)
-				release := input.DispatchMouseEvent(input.MouseReleased, handle.CenterX, handle.CenterY).
+				release := input.DispatchMouseEvent(input.MouseReleased, focusX, focusY).
 					WithButton(input.Left).
 					WithClickCount(1)
 				return release.Do(ctx)
@@ -345,8 +364,15 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		return chromedp.Run(ctx, chromedp.KeyEvent(req.Text))
 
 	case protocol.ActionHover:
-		// Phase 1: selector-driven hover with auto-wait and highlighting.
-		if req.Selector != nil {
+		// Phase 1: hover a persistent node handle (item 20) or a selector with
+		// auto-wait and highlighting.
+		if req.HandleID != "" {
+			cx, cy, err := e.resolveHandlePoint(ctx, req.HandleID)
+			if err != nil {
+				return err
+			}
+			req.X, req.Y = int(cx), int(cy)
+		} else if req.Selector != nil {
 			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
 				return err
@@ -374,15 +400,22 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 	case protocol.ActionScroll:
 		return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 			x, y := float64(req.X), float64(req.Y)
-			if x == 0 && y == 0 {
-				x, y = 640, 360 // default to viewport centre
-			}
-			if req.Selector != nil {
+			if req.HandleID != "" {
+				// Scroll origin at a persistent node handle (item 20).
+				cx, cy, err := e.resolveHandlePoint(ctx, req.HandleID)
+				if err != nil {
+					return err
+				}
+				x, y = cx, cy
+			} else if req.Selector != nil {
 				handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 				if err != nil {
 					return err
 				}
 				x, y = handle.CenterX, handle.CenterY
+			}
+			if x == 0 && y == 0 {
+				x, y = 640, 360 // default to viewport centre
 			}
 			return input.DispatchMouseEvent(input.MouseWheel, x, y).
 				WithDeltaX(float64(req.DeltaX)).
@@ -391,7 +424,13 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}))
 
 	case protocol.ActionDoubleClick:
-		if req.Selector != nil {
+		if req.HandleID != "" {
+			cx, cy, err := e.resolveHandlePoint(ctx, req.HandleID)
+			if err != nil {
+				return err
+			}
+			req.X, req.Y = int(cx), int(cy)
+		} else if req.Selector != nil {
 			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
 				return err
@@ -414,7 +453,13 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}))
 
 	case protocol.ActionRightClick:
-		if req.Selector != nil {
+		if req.HandleID != "" {
+			cx, cy, err := e.resolveHandlePoint(ctx, req.HandleID)
+			if err != nil {
+				return err
+			}
+			req.X, req.Y = int(cx), int(cy)
+		} else if req.Selector != nil {
 			handle, err := e.waitForElement(ctx, *req.Selector, timeout)
 			if err != nil {
 				return err
@@ -437,19 +482,34 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}))
 
 	case protocol.ActionDragDrop:
-		if req.Selector == nil || req.TargetSelector == nil {
-			return fmt.Errorf("drag_drop requires selector and target_selector")
+		// The source is either a persistent node handle (item 20) or a selector;
+		// the destination is always a target_selector.
+		if req.HandleID == "" && req.Selector == nil {
+			return fmt.Errorf("drag_drop requires selector (or handle_id) and target_selector")
 		}
-		src, err := e.waitForElement(ctx, *req.Selector, timeout)
-		if err != nil {
-			return err
+		var srcX, srcY float64
+		if req.HandleID != "" {
+			cx, cy, err := e.resolveHandlePoint(ctx, req.HandleID)
+			if err != nil {
+				return err
+			}
+			srcX, srcY = cx, cy
+		} else {
+			src, err := e.waitForElement(ctx, *req.Selector, timeout)
+			if err != nil {
+				return err
+			}
+			srcX, srcY = src.CenterX, src.CenterY
+		}
+		if req.TargetSelector == nil {
+			return fmt.Errorf("drag_drop requires target_selector")
 		}
 		dst, err := e.waitForElement(ctx, *req.TargetSelector, timeout)
 		if err != nil {
 			return err
 		}
 		return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-			press := input.DispatchMouseEvent(input.MousePressed, src.CenterX, src.CenterY).
+			press := input.DispatchMouseEvent(input.MousePressed, srcX, srcY).
 				WithButton(input.Left).
 				WithClickCount(1)
 			if err := press.Do(ctx); err != nil {
@@ -468,8 +528,8 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}))
 
 	case protocol.ActionSelectOption:
-		if req.Selector == nil || req.Selector.CSS == "" {
-			return fmt.Errorf("select_option requires selector.css")
+		if req.HandleID == "" && (req.Selector == nil || req.Selector.CSS == "") {
+			return fmt.Errorf("select_option requires selector.css or handle_id")
 		}
 		if req.OptionValue == "" && req.OptionText == "" {
 			return fmt.Errorf("select_option requires option_value or option_text")
@@ -491,6 +551,9 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 				return true;`, jsStringLiteral(req.OptionText))
 		}
 		actionBody := "if (el.tagName !== 'SELECT') return false;\nlet select = el;\n" + body
+		if req.HandleID != "" {
+			return e.runRetryHandleAction(ctx, "select_option", timeout, req.HandleID, actionBody)
+		}
 		return runRetryJSAction(ctx, "select_option", timeout, buildPierceActionJS(req.Selector.CSS, actionBody))
 
 	case protocol.ActionPressKeyCombo:
@@ -719,10 +782,13 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		return nil
 
 	case protocol.ActionScrollIntoView:
-		if req.Selector == nil || req.Selector.CSS == "" {
-			return fmt.Errorf("scroll_into_view requires selector.css")
+		if req.HandleID == "" && (req.Selector == nil || req.Selector.CSS == "") {
+			return fmt.Errorf("scroll_into_view requires selector.css or handle_id")
 		}
 		body := "el.scrollIntoView({block:'center', inline:'center'}); return true;"
+		if req.HandleID != "" {
+			return e.runRetryHandleAction(ctx, "scroll_into_view", timeout, req.HandleID, body)
+		}
 		return runRetryJSAction(ctx, "scroll_into_view", timeout, buildPierceActionJS(req.Selector.CSS, body))
 
 	case protocol.ActionSwitchToIframe:
@@ -834,35 +900,44 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		return nil
 
 	case protocol.ActionCheck:
-		if req.Selector == nil || req.Selector.CSS == "" {
-			return fmt.Errorf("check requires selector.css")
+		if req.HandleID == "" && (req.Selector == nil || req.Selector.CSS == "") {
+			return fmt.Errorf("check requires selector.css or handle_id")
 		}
 		body := `if (el.type !== 'checkbox' && el.type !== 'radio') return false;
 			el.checked = true;
 			el.dispatchEvent(new Event('change', {bubbles:true}));
 			el.dispatchEvent(new Event('input', {bubbles:true}));
 			return true;`
+		if req.HandleID != "" {
+			return e.runRetryHandleAction(ctx, "check", timeout, req.HandleID, body)
+		}
 		return runRetryJSAction(ctx, "check", timeout, buildPierceActionJS(req.Selector.CSS, body))
 
 	case protocol.ActionUncheck:
-		if req.Selector == nil || req.Selector.CSS == "" {
-			return fmt.Errorf("uncheck requires selector.css")
+		if req.HandleID == "" && (req.Selector == nil || req.Selector.CSS == "") {
+			return fmt.Errorf("uncheck requires selector.css or handle_id")
 		}
 		body := `if (el.type !== 'checkbox' && el.type !== 'radio') return false;
 			el.checked = false;
 			el.dispatchEvent(new Event('change', {bubbles:true}));
 			el.dispatchEvent(new Event('input', {bubbles:true}));
 			return true;`
+		if req.HandleID != "" {
+			return e.runRetryHandleAction(ctx, "uncheck", timeout, req.HandleID, body)
+		}
 		return runRetryJSAction(ctx, "uncheck", timeout, buildPierceActionJS(req.Selector.CSS, body))
 
 	case protocol.ActionSubmitForm:
-		if req.Selector == nil || req.Selector.CSS == "" {
-			return fmt.Errorf("submit_form requires selector.css (form or child element)")
+		if req.HandleID == "" && (req.Selector == nil || req.Selector.CSS == "") {
+			return fmt.Errorf("submit_form requires selector.css (form or child element) or handle_id")
 		}
 		body := `if (el.tagName !== 'FORM') el = el.closest('form');
 			if (!el) return false;
 			el.requestSubmit ? el.requestSubmit() : el.submit();
 			return true;`
+		if req.HandleID != "" {
+			return e.runRetryHandleAction(ctx, "submit_form", timeout, req.HandleID, body)
+		}
 		return runRetryJSAction(ctx, "submit_form", timeout, buildPierceActionJS(req.Selector.CSS, body))
 
 	case protocol.ActionFillForm:

@@ -119,6 +119,13 @@ type ChromeEngine struct {
 	navigationID int64
 	lastSeenURL  string
 
+	// Persistent node handles (improvement-plan item 20): backendNodeId -> handle
+	// bound to the navigation counter. Cleared (invalidateHandles) whenever
+	// navigationID bumps, because backend node ids do not survive a document
+	// switch. See handles.go.
+	handleMu sync.Mutex
+	handles  map[string]nodeHandle
+
 	// obsCache memoizes the last AX snapshot + resolved spatial tree so
 	// consecutive Observe() calls skip the expensive CDP work on unchanged
 	// pages. Owned by observe_caching.go.
@@ -221,6 +228,7 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 		downloadBeginCh:     make(chan struct{}),
 		downloadDir:         resolveDownloadDir(),
 		artifacts:           make(map[string]string),
+		handles:             make(map[string]nodeHandle),
 	}
 
 	// Wire up internal listeners before any external code can add its own.

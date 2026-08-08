@@ -31,6 +31,12 @@ type ElementHandle struct {
 
 	// Checked is present for form controls when applicable.
 	Checked *bool `json:"checked,omitempty"`
+
+	// NodeRef is the stable backend node id for this match (decimal string), or
+	// "" when it could not be resolved. Agents can pass it back as
+	// ActionRequest.HandleID to target this element across actions without
+	// re-resolving by selector (improvement-plan item 20).
+	NodeRef string `json:"node_ref,omitempty"`
 }
 
 type elementQueryResult struct {
@@ -105,10 +111,23 @@ func (e *ChromeEngine) findElementsOnce(ctx context.Context, sel protocol.Select
 	}
 
 	handles := make([]ElementHandle, 0, len(raw))
+	// Resolving the backend node id is one CDP call per match
+	// (DOM.getNodeForLocation); cap it so huge match sets stay cheap while the
+	// common few-element case always gets its node_ref.
+	const maxRefs = 20
+	refsResolved := 0
 	for _, m := range raw {
 		// Ignore NaN or weird rects.
 		if math.IsNaN(m.CenterX) || math.IsNaN(m.CenterY) || m.Width <= 0 || m.Height <= 0 {
 			continue
+		}
+		ref := ""
+		if refsResolved < maxRefs {
+			if r := nodeRefForPoint(ctx, m.CenterX, m.CenterY); r != "" {
+				ref = r
+				e.registerHandle(ref)
+				refsResolved++
+			}
 		}
 		handles = append(handles, ElementHandle{
 			Bounds: protocol.Bounds{
@@ -123,6 +142,7 @@ func (e *ChromeEngine) findElementsOnce(ctx context.Context, sel protocol.Select
 			Enabled: m.Enabled,
 			Text:    m.Text,
 			Checked: m.Checked,
+			NodeRef: ref,
 		})
 	}
 
