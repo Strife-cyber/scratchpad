@@ -198,12 +198,11 @@ func (m *Manager) CreateSession(kind engine.Kind, opts engine.Options) (*Session
 		Limits:           m.limits,
 	}
 
-	// Android sessions learn their session id so screen recording / logcat
-	// artifacts default to <trace>/sessions/<session>/ (improvement-plan item 30).
-	if kind == engine.KindAndroid {
-		if s, ok := eng.(interface{ SetSession(string) }); ok {
-			s.SetSession(id)
-		}
+	// Engines that implement SetSession learn their sandbox session id: Android
+	// screenshots/logcat land under <trace>/sessions/<session>/ (item 30), and
+	// Chrome names its bundled trace archive <trace>/<session>.spz (item 24).
+	if s, ok := eng.(interface{ SetSession(string) }); ok {
+		s.SetSession(id)
 	}
 
 	// Browser sessions get an action timeline recorder so every step is

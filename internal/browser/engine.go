@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,6 +124,13 @@ type ChromeEngine struct {
 	tracingDoneCh   chan struct{}
 	tracingStream   cdio.StreamHandle
 	tracingStreamOK bool
+
+	// sessionID is set by SetSession (wired from the sandbox) so StopTracing can
+	// bundle the trace + timeline + screenshots into traces/<session_id>.spz
+	// (improvement-plan item 24). tracingBundlePath records the last bundle path
+	// produced, served by GET /api/v1/sessions/{id}/trace.
+	sessionID         string
+	tracingBundlePath string
 
 	// navigationID bumps on every detected navigation (frame navigated, SPA
 	// pushState, or hashchange). Used to populate PageInfo.NavigationID.
@@ -1201,6 +1209,24 @@ func (e *ChromeEngine) StopRecording() ([]byte, string, error) {
 	return videoBytes, outputPath, nil
 }
 
+// SetSession binds the engine to its sandbox session id so StopTracing can name
+// the bundled .spz archive traces/<session_id>.spz. Mirrors the Android engine's
+// same-named hook; the sandbox calls it on every session kind that implements it.
+func (e *ChromeEngine) SetSession(id string) {
+	e.tracingMu.Lock()
+	e.sessionID = id
+	e.tracingMu.Unlock()
+}
+
+// TraceBundlePath returns the .spz bundle path produced by the last StopTracing,
+// or "" when no bundle exists (tracing never ran, or the engine has no session
+// id). It is served by GET /api/v1/sessions/{id}/trace.
+func (e *ChromeEngine) TraceBundlePath() string {
+	e.tracingMu.Lock()
+	defer e.tracingMu.Unlock()
+	return e.tracingBundlePath
+}
+
 // StartTracing starts CDP tracing in return-as-stream mode.
 // It writes the trace to a .json.gz file on Stop.
 func (e *ChromeEngine) StartTracing(traceDir string) (string, error) {
@@ -1330,6 +1356,27 @@ func (e *ChromeEngine) StopTracing() ([]byte, string, error) {
 	// Persist to output path (bytes are expected to already be gzipped).
 	if err := os.WriteFile(outPath, buf, 0o644); err != nil {
 		return nil, outPath, fmt.Errorf("write trace file: %w", err)
+	}
+
+	// Bundle the trace with the session timeline and screenshots into a single
+	// .spz archive (improvement-plan item 24). This is additive: the raw trace
+	// bytes and path are still returned unchanged. The sandbox wires the session
+	// id via SetSession; without one (e.g. engines created outside the sandbox)
+	// the bundle is skipped rather than failing the stop.
+	e.tracingMu.Lock()
+	sessionID := e.sessionID
+	e.tracingMu.Unlock()
+	if sessionID != "" {
+		bundlePath, berr := BuildTraceBundle(e.tracingDir, sessionID, buf)
+		if berr != nil {
+			slog.Warn("trace: bundle failed",
+				"session_id", sessionID, "err", berr)
+		} else {
+			e.tracingMu.Lock()
+			e.tracingBundlePath = bundlePath
+			e.tracingMu.Unlock()
+			slog.Info("trace: bundled", "session_id", sessionID, "bundle", bundlePath)
+		}
 	}
 
 	return buf, outPath, nil
