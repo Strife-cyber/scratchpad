@@ -2,10 +2,12 @@ package browser
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -306,9 +308,19 @@ func ParseTimeline(path string) ([]TimelineEvent, error) {
 		return nil, err
 	}
 	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTimelineBytes(data)
+}
 
+// ParseTimelineBytes parses JSONL timeline data (as carried inside a .spz
+// bundle) into its events in recorded order. It shares the line-reading logic
+// with ParseTimeline so file- and in-memory replays behave identically.
+func ParseTimelineBytes(data []byte) ([]TimelineEvent, error) {
 	var events []TimelineEvent
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())

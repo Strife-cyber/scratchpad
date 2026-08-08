@@ -29,6 +29,8 @@ func main() {
 		lintCmd(os.Args[2:])
 	case "timeline":
 		timelineCmd(os.Args[2:])
+	case "trace":
+		traceCmd(os.Args[2:])
 	case "init":
 		initCmd(os.Args[2:])
 	case "resume":
@@ -48,6 +50,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli init [--dir DIR] [--force]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli doctor [--fix] [--json] [--server URL] [--port N]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli timeline <session_id> [--server URL] [--trace-dir DIR] [--json]")
+	fmt.Fprintln(os.Stderr, "  scratchpad-cli trace <session_id> [--server URL] [--trace-dir DIR] [--json]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli resume --profile <dir> [--server URL]")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli mcp [flags]")
 	fmt.Fprintln(os.Stderr, "")
@@ -130,6 +133,35 @@ func timelineCmd(args []string) {
 		TraceDir:  *traceDir,
 	}
 	if err := testrunner.RunTimeline(opts); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+// traceCmd prints a textual summary of a session's bundled .spz trace:
+// recorded steps, errors, and the slowest network requests (item 24).
+func traceCmd(args []string) {
+	fs := flag.NewFlagSet("trace", flag.ExitOnError)
+	var (
+		serverURL = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		traceDir  = fs.String("trace-dir", "", "read the bundle from a local trace dir instead of the server")
+		jsonOut   = fs.Bool("json", false, "emit machine-readable JSON for AI consumption")
+	)
+	_ = fs.Parse(args)
+
+	sessionID := fs.Arg(0)
+	if strings.TrimSpace(sessionID) == "" {
+		fmt.Fprintln(os.Stderr, "trace: missing <session_id>")
+		os.Exit(1)
+	}
+
+	opts := testrunner.TraceOptions{
+		SessionID: sessionID,
+		ServerURL: strings.TrimRight(*serverURL, "/"),
+		TraceDir:  *traceDir,
+		JSON:      *jsonOut,
+	}
+	if err := testrunner.RunTrace(opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
