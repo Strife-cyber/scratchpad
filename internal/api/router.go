@@ -21,6 +21,13 @@ func NewRouter(mgr *sandbox.Manager) http.Handler {
 		}
 
 		parts := strings.Split(path, "/")
+
+		// Device-emulation presets (item 13).
+		if len(parts) == 1 && parts[0] == "devices" && r.Method == http.MethodGet {
+			h.GetDevices(w, r)
+			return
+		}
+
 		if len(parts) >= 1 && parts[0] == "sessions" {
 			switch {
 			case len(parts) == 1 && r.Method == http.MethodPost:
@@ -61,6 +68,12 @@ func NewRouter(mgr *sandbox.Manager) http.Handler {
 				return
 			case len(parts) == 3 && r.Method == http.MethodPost && parts[2] == "actions":
 				h.Actions(w, r, parts[1])
+				return
+			case len(parts) == 3 && r.Method == http.MethodPost && parts[2] == "network":
+				h.PostNetwork(w, r, parts[1])
+				return
+			case len(parts) == 4 && r.Method == http.MethodGet && parts[2] == "network" && parts[3] == "requests":
+				h.GetNetworkRequests(w, r, parts[1])
 				return
 			}
 		}

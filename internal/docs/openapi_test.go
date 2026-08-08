@@ -20,8 +20,13 @@ var requiredPaths = []string{
 	// Session lifecycle.
 	"/api/v1/sessions",
 	"/api/v1/sessions/{id}",
+	// Device emulation presets.
+	"/api/v1/devices",
 	// Actions.
 	"/api/v1/sessions/{id}/actions",
+	// Network interception.
+	"/api/v1/sessions/{id}/network",
+	"/api/v1/sessions/{id}/network/requests",
 	// Per-session data endpoints.
 	"/api/v1/sessions/{id}/har",
 	"/api/v1/sessions/{id}/dom",

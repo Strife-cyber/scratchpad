@@ -280,6 +280,137 @@
         }
       }
     },
+    "/api/v1/devices": {
+      "get": {
+        "tags": ["Sessions"],
+        "summary": "List device-emulation presets",
+        "description": "Lists the built-in device-emulation presets (name, viewport, pixel ratio, mobile/touch flags). Pass a name as `device` when creating a session to start it pre-emulated as that device.",
+        "operationId": "getDevices",
+        "responses": {
+          "200": {
+            "description": "Device presets",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeviceListResponse" },
+                "example": {
+                  "devices": [
+                    { "name": "Desktop HD", "width": 1280, "height": 720 },
+                    { "name": "iPhone 14", "width": 390, "height": 844, "device_scale_factor": 3, "mobile": true, "touch": true }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/network": {
+      "post": {
+        "tags": ["Session Data"],
+        "summary": "Configure network interception",
+        "description": "Turns network interception on/off and installs mock/abort/continue routes for a Chrome session (item 14). Adding a route implicitly enables interception; response bodies of intercepted requests are captured for network_response_body assertions.",
+        "operationId": "configureNetwork",
+        "parameters": [{ "$ref": "#/components/parameters/SessionID" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NetworkConfigureRequest" },
+              "examples": {
+                "enable": {
+                  "summary": "Start capturing traffic",
+                  "value": { "enable": true }
+                },
+                "mock": {
+                  "summary": "Fulfill /api/users with canned JSON",
+                  "value": {
+                    "routes": [
+                      { "pattern": "*/api/users*", "action": "mock", "status": 200, "body_base64": "eyJvayI6dHJ1ZX0=" }
+                    ]
+                  }
+                },
+                "block": {
+                  "summary": "Abort ad/tracker requests",
+                  "value": {
+                    "routes": [
+                      { "pattern": "*google-analytics.com*", "action": "abort" }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Interception configured",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NetworkConfigureResponse" },
+                "example": { "ok": true }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body or route",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/network/requests": {
+      "get": {
+        "tags": ["Session Data"],
+        "summary": "Drain recorded network requests",
+        "description": "Returns and clears the requests recorded since the last call (url, method, status, duration, response body when interception captured it). Aborted (blocked) requests report status -1.",
+        "operationId": "getNetworkRequests",
+        "parameters": [{ "$ref": "#/components/parameters/SessionID" }],
+        "responses": {
+          "200": {
+            "description": "Recorded network requests",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NetworkListResponse" },
+                "example": {
+                  "requests": [
+                    { "url": "https://x.com/api/users", "method": "GET", "status": 200, "duration_ms": 12, "response_body": "{\"ok\":true}" },
+                    { "url": "https://x.com/ads.js", "method": "GET", "status": -1 }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Engine does not support network interception (e.g. Android)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions/{id}/har": {
       "get": {
         "tags": ["Session Data"],
@@ -1101,17 +1232,82 @@
           "outputPath": { "type": "string" }
         }
       },
+      "DevicePreset": {
+        "type": "object",
+        "description": "A named device-emulation preset (item 13).",
+        "properties": {
+          "name": { "type": "string" },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "device_scale_factor": { "type": "number" },
+          "mobile": { "type": "boolean" },
+          "touch": { "type": "boolean" },
+          "user_agent": { "type": "string" }
+        },
+        "required": ["name", "width", "height"]
+      },
+      "DeviceListResponse": {
+        "type": "object",
+        "properties": {
+          "devices": { "type": "array", "items": { "$ref": "#/components/schemas/DevicePreset" } }
+        }
+      },
+      "NetworkRoute": {
+        "type": "object",
+        "description": "A mock/abort/continue interception rule. pattern is a CDP-style glob (\"*\" any sequence, \"?\" any one char); add a trailing \"*\" to also match query strings.",
+        "properties": {
+          "pattern": { "type": "string" },
+          "method": { "type": "string" },
+          "action": { "type": "string", "enum": ["mock", "abort", "continue"] },
+          "status": { "type": "integer", "description": "HTTP status for a mocked response." },
+          "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+          "body_base64": { "type": "string", "description": "Base64-encoded body for a mocked response." },
+          "delay_ms": { "type": "integer", "description": "Simulate a slow upstream." }
+        },
+        "required": ["pattern", "action"]
+      },
+      "NetworkConfigureRequest": {
+        "type": "object",
+        "properties": {
+          "enable": { "type": "boolean", "description": "Explicit toggle: true enables interception, false disables it and clears routes/bodies." },
+          "routes": { "type": "array", "items": { "$ref": "#/components/schemas/NetworkRoute" } }
+        }
+      },
+      "NetworkConfigureResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" }
+        }
+      },
+      "NetworkRequestInfo": {
+        "type": "object",
+        "description": "One recorded network request. Aborted (blocked) requests report status -1.",
+        "properties": {
+          "url": { "type": "string" },
+          "method": { "type": "string" },
+          "status": { "type": "integer" },
+          "duration_ms": { "type": "integer" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "response_body": { "type": "string", "description": "Captured body when interception was active for the request." }
+        }
+      },
+      "NetworkListResponse": {
+        "type": "object",
+        "properties": {
+          "requests": { "type": "array", "items": { "$ref": "#/components/schemas/NetworkRequestInfo" } }
+        }
+      },
       "WebSocketEnvelope": {
         "type": "object",
         "description": "Typed envelope for agent-to-engine WebSocket messages.",
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["navigate", "observe", "action", "resize"]
+            "enum": ["navigate", "observe", "action", "resize", "devices", "network_enable", "network_disable", "network_list"]
           },
           "data": {
             "type": "object",
-            "description": "Payload; shape depends on type: InitializeRequest for navigate, ActionRequest for action, Viewport for resize, absent for observe."
+            "description": "Payload; shape depends on type: InitializeRequest for navigate, ActionRequest for action, ResizeRequest for resize, DeviceListResponse for devices, NetworkListResponse for network_list, absent for observe and network_enable/network_disable."
           }
         },
         "required": ["type"]

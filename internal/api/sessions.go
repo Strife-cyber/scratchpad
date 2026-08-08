@@ -19,12 +19,16 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	// {
 	//   "headless": false,
 	//   "platform": "web"|"android",
-	//   "kind": "chrome"|"android"
+	//   "kind": "chrome"|"android",
+	//   "device": "iPhone 14"
 	// }
+	// device names a device-emulation preset (see GET /api/v1/devices) to apply
+	// at session creation (item 13).
 	type createSessionReq struct {
 		Headless *bool  `json:"headless,omitempty"`
 		Platform string `json:"platform,omitempty"`
 		Kind     string `json:"kind,omitempty"`
+		Device   string `json:"device,omitempty"`
 	}
 
 	var reqBody createSessionReq
@@ -47,6 +51,7 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 
 	opts := engine.Options{
 		Headless: reqBody.Headless,
+		Device:   reqBody.Device,
 	}
 
 	kind := engine.KindChrome

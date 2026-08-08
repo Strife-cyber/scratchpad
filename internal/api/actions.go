@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"scratchpad/internal/browser"
 	"scratchpad/internal/engine"
 	"scratchpad/internal/protocol"
 	"scratchpad/internal/sandbox"
@@ -15,13 +16,14 @@ import (
 
 type ActionPayload struct {
 	// type controls what the engine should do.
-	// Supported values (Phase 0):
+	// Supported values:
 	// - navigate
 	// - observe
 	// - click
 	// - type
 	// - scroll
 	// - wait
+	// - resize  (real viewport + device-emulation change; item 13)
 	Type string `json:"type"`
 
 	URL string `json:"url,omitempty"`
@@ -35,6 +37,12 @@ type ActionPayload struct {
 	DeltaY int `json:"delta_y,omitempty"`
 
 	TimeoutMS int `json:"timeout_ms,omitempty"`
+
+	// Resize (type "resize"): the new viewport dimensions and emulation toggles.
+	Width  int  `json:"width,omitempty"`
+	Height int  `json:"height,omitempty"`
+	Mobile bool `json:"mobile,omitempty"`
+	Touch  bool `json:"touch,omitempty"`
 }
 
 type actionEnvelope struct {
@@ -159,6 +167,21 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess
 			Action:    protocol.ActionWait,
 			TimeoutMS: p.TimeoutMS,
 		}) {
+			return
+		}
+		h.writeObservation(w, r, sess)
+	case "resize":
+		be, ok := sess.Engine.(*browser.ChromeEngine)
+		if !ok {
+			writeError(w, r, fmt.Errorf("%w: resize requires a Chrome engine session", protocol.ErrUnsupported))
+			return
+		}
+		if p.Width <= 0 || p.Height <= 0 {
+			writeError(w, r, fmt.Errorf("resize requires positive width and height"))
+			return
+		}
+		if err := be.Resize(p.Width, p.Height, p.Mobile, p.Touch); err != nil {
+			writeError(w, r, err)
 			return
 		}
 		h.writeObservation(w, r, sess)
