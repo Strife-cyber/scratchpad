@@ -40,7 +40,14 @@ func init() {
 		if opts.Headless != nil {
 			headless = *opts.Headless
 		}
-		return NewChromeEngine(headless), nil
+		e := NewChromeEngine(headless)
+		if opts.Device != "" {
+			if err := e.ApplyDeviceByName(opts.Device); err != nil {
+				e.Close()
+				return nil, err
+			}
+		}
+		return e, nil
 	})
 }
 

@@ -94,11 +94,14 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind, opts Options) http.Handler
 		}
 
 		// Resolve creation options from the query string so MCP session_create
-		// can pass headless (and later viewport/proxy) when dialling a route.
+		// can pass headless / device when dialling a route (item 13).
 		createOpts := engine.Options{}
 		if q := r.URL.Query().Get("headless"); q != "" {
 			headless := q == "true" || q == "1"
 			createOpts.Headless = &headless
+		}
+		if q := r.URL.Query().Get("device"); q != "" {
+			createOpts.Device = q
 		}
 
 		// Each WebSocket connection gets its own engine session. Sessions now
@@ -329,6 +332,9 @@ func (ws *wsSession) handle(env protocol.Envelope) {
 	case protocol.MsgTypeCloseSession:
 		ws.handleCloseSession(env.Data)
 
+	case protocol.MsgTypeDevices:
+		ws.handleDevices()
+
 	default:
 		// Also handle legacy messages with no type field (empty object {}).
 		// This keeps older clients' bare observe working.
@@ -528,6 +534,13 @@ func (ws *wsSession) handleListSessions() {
 // handleListTabs returns a lightweight listing of the session's open browser
 // tabs (id/url/title/active) without a full observation. Only Chrome sessions
 // support tab listing; other engines get a typed unsupported error.
+// handleDevices replies with the built-in device-emulation presets (item 13),
+// shared with the HTTP and MCP transports via browser.DevicePresets().
+func (ws *wsSession) handleDevices() {
+	data, _ := json.Marshal(protocol.DeviceListResponse{Devices: browser.DevicePresets()})
+	_ = ws.writeJSON(protocol.Envelope{Type: protocol.MsgTypeDevices, Data: data})
+}
+
 func (ws *wsSession) handleListTabs() {
 	be, ok := ws.session.Engine.(*browser.ChromeEngine)
 	if !ok {

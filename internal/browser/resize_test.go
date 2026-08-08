@@ -38,3 +38,49 @@ func TestCurrentViewportDevice_Defaults(t *testing.T) {
 		t.Errorf("default device = %q, want %q", d, "Desktop HD")
 	}
 }
+
+// TestDevicePresets_Lookup covers the built-in preset table: every preset is
+// resolvable by name, has sane dimensions, and unknown names fail cleanly.
+func TestDevicePresets_Lookup(t *testing.T) {
+	presets := DevicePresets()
+	if len(presets) == 0 {
+		t.Fatal("expected at least one device preset")
+	}
+	for _, p := range presets {
+		got, ok := LookupDevicePreset(p.Name)
+		if !ok {
+			t.Errorf("LookupDevicePreset(%q) not found", p.Name)
+			continue
+		}
+		if got.Width <= 0 || got.Height <= 0 {
+			t.Errorf("preset %q has invalid dimensions %dx%d", p.Name, got.Width, got.Height)
+		}
+		if got.Width != p.Width || got.Height != p.Height {
+			t.Errorf("preset %q lookup mismatch: %dx%d vs %dx%d", p.Name, got.Width, got.Height, p.Width, p.Height)
+		}
+	}
+	if _, ok := LookupDevicePreset("does-not-exist"); ok {
+		t.Error("expected unknown preset to fail lookup")
+	}
+}
+
+// TestApplyDevice_RejectsInvalidPresets verifies ApplyDevice validates
+// dimensions before any CDP work.
+func TestApplyDevice_RejectsInvalidPresets(t *testing.T) {
+	e := &ChromeEngine{}
+	if err := e.ApplyDevice(protocol.DevicePreset{Name: "Bad", Width: 0, Height: 100}); err == nil {
+		t.Fatal("expected error for zero-width preset")
+	}
+	if err := e.ApplyDeviceByName("does-not-exist"); err == nil {
+		t.Fatal("expected error for unknown preset name")
+	}
+}
+
+// TestApplyDevice_NotConnectedCleanError pins that applying a valid preset
+// without a live Chrome fails cleanly (no panic on nil context).
+func TestApplyDevice_NotConnectedCleanError(t *testing.T) {
+	e := &ChromeEngine{}
+	if err := e.ApplyDeviceByName("iPhone 14"); err == nil || !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("expected a clean not-connected error, got %v", err)
+	}
+}

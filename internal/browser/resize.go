@@ -63,3 +63,71 @@ func (e *ChromeEngine) currentDevice() string {
 	defer e.emulMu.Unlock()
 	return e.devicePreset
 }
+
+// devicePresets is the built-in device-emulation table (improvement-plan item
+// 13). It is exposed via DevicePresets() and reused by the HTTP, WebSocket, and
+// MCP transports so every surface offers the same presets.
+var devicePresets = []protocol.DevicePreset{
+	{Name: "Desktop HD", Width: 1280, Height: 720, DeviceScaleFactor: 1, Mobile: false, Touch: false},
+	{Name: "iPhone SE", Width: 375, Height: 667, DeviceScaleFactor: 2, Mobile: true, Touch: true,
+		UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"},
+	{Name: "iPhone 13", Width: 390, Height: 844, DeviceScaleFactor: 3, Mobile: true, Touch: true,
+		UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"},
+	{Name: "iPhone 14", Width: 390, Height: 844, DeviceScaleFactor: 3, Mobile: true, Touch: true,
+		UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"},
+	{Name: "Pixel 7", Width: 412, Height: 915, DeviceScaleFactor: 2.625, Mobile: true, Touch: true,
+		UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36"},
+	{Name: "Galaxy S24", Width: 360, Height: 780, DeviceScaleFactor: 3, Mobile: true, Touch: true,
+		UserAgent: "Mozilla/5.0 (Linux; Android 14; SM-S921B Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36"},
+	{Name: "iPad Mini", Width: 768, Height: 1024, DeviceScaleFactor: 2, Mobile: true, Touch: true,
+		UserAgent: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"},
+	{Name: "iPad Pro 11", Width: 834, Height: 1194, DeviceScaleFactor: 2, Mobile: true, Touch: true,
+		UserAgent: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"},
+}
+
+// DevicePresets returns a copy of the built-in device-emulation presets.
+func DevicePresets() []protocol.DevicePreset {
+	out := make([]protocol.DevicePreset, len(devicePresets))
+	copy(out, devicePresets)
+	return out
+}
+
+// LookupDevicePreset returns the named preset, if it exists.
+func LookupDevicePreset(name string) (protocol.DevicePreset, bool) {
+	for _, p := range devicePresets {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return protocol.DevicePreset{}, false
+}
+
+// ApplyDevice emulates the given preset: device metrics, touch emulation, and a
+// mobile user agent when the preset specifies one. It records the preset name
+// so PageInfo.Device reports the active device context.
+func (e *ChromeEngine) ApplyDevice(preset protocol.DevicePreset) error {
+	if preset.Width <= 0 || preset.Height <= 0 {
+		return fmt.Errorf("device %q has invalid dimensions %dx%d", preset.Name, preset.Width, preset.Height)
+	}
+	if err := e.setEmulation(preset.Width, preset.Height, preset.DeviceScaleFactor, preset.Mobile, preset.Touch, preset.Name); err != nil {
+		return err
+	}
+	if preset.UserAgent != "" {
+		if e.ctx == nil {
+			return fmt.Errorf("device %q: engine not connected", preset.Name)
+		}
+		if err := chromedp.Run(e.ctx, emulation.SetUserAgentOverride(preset.UserAgent)); err != nil {
+			return fmt.Errorf("device %q: user-agent override failed: %w", preset.Name, err)
+		}
+	}
+	return nil
+}
+
+// ApplyDeviceByName emulates the named preset, or fails when it is unknown.
+func (e *ChromeEngine) ApplyDeviceByName(name string) error {
+	preset, ok := LookupDevicePreset(name)
+	if !ok {
+		return fmt.Errorf("device %q not found", name)
+	}
+	return e.ApplyDevice(preset)
+}

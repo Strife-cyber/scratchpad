@@ -10,6 +10,10 @@ type Options struct {
 	// Headless controls whether the Chrome browser runs headless.
 	// When nil, the default is resolved from SCRATCHPAD_HEADLESS.
 	Headless *bool `json:"headless,omitempty"`
+
+	// Device names a device-emulation preset to apply at engine creation
+	// (improvement-plan item 13). Empty means the default desktop viewport.
+	Device string `json:"device,omitempty"`
 }
 
 // New creates a new Engine of the requested kind.
