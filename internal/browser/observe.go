@@ -50,7 +50,7 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	)
 	obs := &protocol.ObservationResponse{
 		Type:     "observation",
-		Viewport: protocol.Viewport{Width: 1280, Height: 720},
+		Viewport: e.currentViewport(),
 		SystemState: protocol.SystemState{
 			DocumentStatus:   "interactive",
 			InflightRequests: int(atomic.LoadInt32(&e.inFlightCount)),
@@ -268,6 +268,8 @@ func (e *ChromeEngine) capturePageInfo(ctx context.Context) (*protocol.PageInfo,
 		LoadStatus:   loadStatus,
 		NavigationID: navID,
 		DialogState:  dlgState,
+		Device:       e.currentDevice(),
+		Viewport:     e.currentViewport(),
 	}, nil
 }
 

@@ -128,6 +128,13 @@ type ChromeEngine struct {
 	dialogMu     sync.Mutex
 	dialogActive bool
 	dialogType   string // "alert", "confirm", "prompt", "beforeunload"
+
+	// Device-emulation state (improvement-plan item 13): the last viewport and
+	// device preset applied via emulation.SetDeviceMetricsOverride. "Desktop HD"
+	// is the default device context for the initial 1280x720 viewport.
+	emulMu       sync.Mutex
+	lastViewport protocol.Viewport
+	devicePreset string
 }
 
 // targetInfo holds metadata about a browser tab/window target.
@@ -163,6 +170,8 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 		}),
 		targets:           make(map[string]*targetInfo),
 		maxConsoleEntries: consoleCapFromEnv(),
+		lastViewport:      protocol.Viewport{Width: 1280, Height: 720},
+		devicePreset:      "Desktop HD",
 	}
 
 	// Wire up internal listeners before any external code can add its own.

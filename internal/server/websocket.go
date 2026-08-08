@@ -563,17 +563,42 @@ func (ws *wsSession) handleCloseSession(raw json.RawMessage) {
 }
 
 func (ws *wsSession) handleResize(raw json.RawMessage) {
-	var vp protocol.Viewport
+	var req protocol.ResizeRequest
 	if raw != nil {
-		_ = json.Unmarshal(raw, &vp)
+		_ = json.Unmarshal(raw, &req)
+	}
+	if req.Width <= 0 || req.Height <= 0 {
+		slog.Warn("websocket: resize with missing dimensions",
+			"session_id", ws.session.ID, "request_id", ws.reqID)
+		ws.writeError(errorResponse(fmt.Errorf("resize: width and height are required (got %dx%d)", req.Width, req.Height),
+			ws.reqID, protocol.ErrorLevelWarning, "resize", nil))
+		return
+	}
+	be, ok := ws.session.Engine.(*browser.ChromeEngine)
+	if !ok {
+		ws.writeError(errorResponse(fmt.Errorf("%w: resize requires a Chrome engine session", protocol.ErrUnsupported),
+			ws.reqID, protocol.ErrorLevelWarning, "resize", nil))
+		return
+	}
+	if err := be.Resize(req.Width, req.Height, req.Mobile, req.Touch); err != nil {
+		slog.Warn("websocket: resize failed",
+			"session_id", ws.session.ID, "request_id", ws.reqID, "err", err)
+		ws.writeError(errorResponse(err, ws.reqID, protocol.ErrorLevelAction, "resize", nil))
+		return
 	}
 	slog.Debug("websocket: resize",
-		"session_id", ws.session.ID, "request_id", ws.reqID, "width", vp.Width, "height", vp.Height)
-	// Resize is not implemented yet (improvement-plan item 13). Fail loudly with a
-	// typed unsupported error instead of acking a no-op as success, so agents
-	// never trust the old fake-ok path.
-	ws.writeError(errorResponse(fmt.Errorf("%w: resize is not implemented yet (improvement-plan item 13)", protocol.ErrUnsupported),
-		ws.reqID, protocol.ErrorLevelWarning, "resize", nil))
+		"session_id", ws.session.ID, "request_id", ws.reqID,
+		"width", req.Width, "height", req.Height, "mobile", req.Mobile, "touch", req.Touch)
+	// Control: acknowledge immediately; the fresh observation is queued so it
+	// runs after any in-flight action rather than blocking the reader.
+	_ = ws.writeJSON(map[string]any{
+		"type": protocol.MsgTypeResize,
+		"data": map[string]any{"ok": true, "width": req.Width, "height": req.Height},
+	})
+	select {
+	case ws.queue <- queueItem{env: protocol.Envelope{Type: protocol.MsgTypeObserve}}:
+	case <-ws.closed:
+	}
 }
 
 // ---------------------------------------------------------------------------
