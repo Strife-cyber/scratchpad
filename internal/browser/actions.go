@@ -681,6 +681,34 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		}
 		return nil
 
+	case protocol.ActionCapturePDF:
+		// Print the current page to a PDF file under <trace root>/pdfs (item 18)
+		// and return its on-disk path + size. The file is served via
+		// GET /sessions/{id}/artifacts/{name}.
+		pdfOpts := protocol.PDFOptions{}
+		if req.PDFOptions != nil {
+			pdfOpts = *req.PDFOptions
+		}
+		path, size, err := e.capturePDF(ctx, pdfOpts)
+		if err != nil {
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   false,
+				Error:     fmt.Sprintf("capture_pdf: %v", err),
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+			return nil
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:         req.Action,
+			Success:        true,
+			ElapsedMS:      time.Since(start).Milliseconds(),
+			FilePath:       path,
+			FileSize:       size,
+			ActionMetadata: artifactMetadata(filepath.Base(path), path, size),
+		}
+		return nil
+
 	case protocol.ActionExecuteJS:
 		if strings.TrimSpace(req.JS) == "" {
 			return fmt.Errorf("execute_js requires js")

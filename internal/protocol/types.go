@@ -459,6 +459,10 @@ type ActionRequest struct {
 	// ScreenshotOptions is used by "screenshot" (full_page, element_selector,
 	// format, quality — improvement-plan item 18). Ignored by other actions.
 	ScreenshotOptions *ScreenshotOptions `json:"screenshot_options,omitempty"`
+
+	// PDFOptions is used by "capture_pdf" (improvement-plan item 18). Ignored by
+	// other actions.
+	PDFOptions *PDFOptions `json:"pdf_options,omitempty"`
 }
 
 // ResolveTimeout returns the action timeout, defaulting to 10s when unset.
@@ -704,6 +708,29 @@ type DownloadInfo struct {
 // DownloadListResponse is the reply to ActionListDownloads.
 type DownloadListResponse struct {
 	Downloads []DownloadInfo `json:"downloads"`
+}
+
+// =============================================================================
+// PDF capture (improvement-plan item 18)
+// =============================================================================
+
+// PDFOptions controls ActionCapturePDF. All fields are optional; zero values use
+// Chrome's defaults. The produced file is written under
+// <SCRATCHPAD_TRACE_DIR>/pdfs and served by GET /sessions/{id}/artifacts/{name}.
+type PDFOptions struct {
+	// Name is the artifact file name (e.g. "receipt"). When empty, the engine
+	// derives a timestamped default. The final name gets a ".pdf" extension.
+	Name string `json:"name,omitempty"`
+
+	// Landscape selects landscape paper orientation.
+	Landscape bool `json:"landscape,omitempty"`
+
+	// PrintBackground renders background graphics (defaults to false).
+	PrintBackground bool `json:"print_background,omitempty"`
+
+	// PreferCSSPageSize honors the document's @page size instead of the
+	// engine default paper format.
+	PreferCSSPageSize bool `json:"prefer_css_page_size,omitempty"`
 }
 
 // =============================================================================

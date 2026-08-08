@@ -3,7 +3,10 @@ package browser
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"scratchpad/internal/protocol"
 
@@ -102,4 +105,79 @@ func observeScreenshotOptions(req *protocol.ObserveRequest) protocol.ScreenshotO
 // have given the request's screenshot_format (defaults to image/jpeg).
 func observeScreenshotMime(req *protocol.ObserveRequest) string {
 	return screenshotMime(req.ScreenshotFormat)
+}
+
+// resolveTraceDir returns the configured trace root (SCRATCHPAD_TRACE_DIR),
+// falling back to DefaultTraceDir. Shared by capturePDF and the recorder.
+func resolveTraceDir() string {
+	if d := os.Getenv(TraceDirEnv); d != "" {
+		return d
+	}
+	return DefaultTraceDir
+}
+
+// pdfsDir returns the directory where capture_pdf artifacts are written:
+// <trace root>/pdfs. The directory is created lazily on first capture.
+func pdfsDir() string {
+	return filepath.Join(resolveTraceDir(), "pdfs")
+}
+
+// capturePDF prints the current page to a PDF file under <trace root>/pdfs and
+// registers it in the session's artifact table so the HTTP API can serve it via
+// GET /sessions/{id}/artifacts/{name} (improvement-plan item 18). It returns
+// the on-disk path and the byte size of the written file.
+func (e *ChromeEngine) capturePDF(ctx context.Context, opts protocol.PDFOptions) (string, int64, error) {
+	dir := pdfsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", 0, fmt.Errorf("pdf dir: %w", err)
+	}
+
+	name := opts.Name
+	if name == "" {
+		name = fmt.Sprintf("scratchpad-%d", time.Now().UnixNano())
+	}
+	// Guard against path traversal / odd names: only the base name is used.
+	name = filepath.Base(name)
+	if !strings.HasSuffix(strings.ToLower(name), ".pdf") {
+		name += ".pdf"
+	}
+	path := filepath.Join(dir, name)
+
+	params := page.PrintToPDF().
+		WithPrintBackground(opts.PrintBackground).
+		WithLandscape(opts.Landscape).
+		WithPreferCSSPageSize(opts.PreferCSSPageSize)
+
+	buf, _, err := params.Do(ctx)
+	if err != nil {
+		return "", 0, fmt.Errorf("print to pdf: %w", err)
+	}
+	if err := os.WriteFile(path, buf, 0o644); err != nil {
+		return "", 0, fmt.Errorf("write pdf: %w", err)
+	}
+
+	e.artifactMu.Lock()
+	e.artifacts[name] = path
+	e.artifactMu.Unlock()
+
+	return path, int64(len(buf)), nil
+}
+
+// ArtifactPath returns the on-disk path of a captured artifact (e.g. a PDF)
+// by base name, and whether it exists in the session's artifact table.
+func (e *ChromeEngine) ArtifactPath(name string) (string, bool) {
+	e.artifactMu.Lock()
+	defer e.artifactMu.Unlock()
+	p, ok := e.artifacts[filepath.Base(name)]
+	return p, ok
+}
+
+// artifactMetadata flattens a captured artifact into an ActionResult metadata
+// map so capture_pdf can surface name/path/size to the agent.
+func artifactMetadata(name, path string, size int64) map[string]any {
+	return map[string]any{
+		"name": name,
+		"path": path,
+		"size": size,
+	}
 }

@@ -153,6 +153,12 @@ type ChromeEngine struct {
 	downloads       map[string]*protocol.DownloadInfo
 	downloadQueue   []string
 	downloadBeginCh chan struct{}
+
+	// Artifact registry (improvement-plan item 18): name -> on-disk path for
+	// files produced by capture_pdf. The HTTP API serves them via
+	// GET /sessions/{id}/artifacts/{name}.
+	artifactMu sync.Mutex
+	artifacts  map[string]string
 }
 
 // targetInfo holds metadata about a browser tab/window target.
@@ -214,6 +220,7 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 		downloads:           make(map[string]*protocol.DownloadInfo),
 		downloadBeginCh:     make(chan struct{}),
 		downloadDir:         resolveDownloadDir(),
+		artifacts:           make(map[string]string),
 	}
 
 	// Wire up internal listeners before any external code can add its own.
