@@ -863,6 +863,12 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 			WithLongitude(req.Geolocation.Longitude).
 			WithAccuracy(acc))
 
+	case protocol.ActionUpdateEmulation:
+		if req.Emulation == nil {
+			return fmt.Errorf("session_update_emulation requires emulation")
+		}
+		return e.ApplyEmulation(*req.Emulation)
+
 	case protocol.ActionMockNetworkResp:
 		// The modern Route field wins over the legacy NetworkMock shorthand.
 		if req.Route != nil {

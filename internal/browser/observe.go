@@ -188,9 +188,14 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 			}
 			// Expose current buffer usage so agents/operators can see how close
 			// to the console/network caps the page is (item 36.3), plus the
-			// download dir so agents know where exports land (item 17).
+			// download dir so agents know where exports land (item 17), and the
+			// active emulation overrides so agents know what's simulated (item
+			// 23).
 			cp.Extra = e.usageCounts(len(spatialTree))
 			cp.Extra["download_dir"] = e.DownloadDir()
+			for k, v := range e.emulationExtra() {
+				cp.Extra[k] = v
+			}
 			pageInfo = &cp
 		}
 		obs.PageInfo = pageInfo

@@ -46,6 +46,12 @@ func init() {
 				return nil, err
 			}
 		}
+		if em := opts.Emulation(); em != nil {
+			if err := e.ApplyEmulation(*em); err != nil {
+				e.Close()
+				return nil, err
+			}
+		}
 		return e, nil
 	})
 }
@@ -154,6 +160,18 @@ type ChromeEngine struct {
 	emulMu       sync.Mutex
 	lastViewport protocol.Viewport
 	devicePreset string
+
+	// emulationOverrides records the active user-agent/locale/timezone/
+	// color-scheme (and proxy) overrides applied via ApplyEmulation
+	// (improvement-plan item 23); surfaced in PageInfo.Extra.
+	emulationOverrides protocol.EmulationOptions
+
+	// Proxy-auth state (improvement-plan item 23): Fetch-domain auth-challenge
+	// handling. proxyAuthCtx tracks which tab context the EventAuthRequired
+	// listener is registered on so it is registered exactly once per context.
+	proxyAuthMu  sync.Mutex
+	proxyAuth    string // "user:pass"; empty means no authenticated proxy
+	proxyAuthCtx context.Context
 
 	// Download tracking (improvement-plan item 17): CDP Browser.downloadWillBegin
 	// and Browser.downloadProgress events are folded into a per-session table
@@ -577,6 +595,7 @@ func (e *ChromeEngine) SwitchTab(tabID string) error {
 	e.setupEventDispatcher()
 	e.setupNetworkListener()
 	e.reattachNetworkIfEnabled()
+	e.reattachProxyAuth()
 	e.setupDownloadBehavior()
 	e.setupDownloadListener()
 
