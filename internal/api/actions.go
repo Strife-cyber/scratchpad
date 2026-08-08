@@ -38,11 +38,28 @@ type ActionPayload struct {
 
 	TimeoutMS int `json:"timeout_ms,omitempty"`
 
+	// Intent carries Android deep-link extras for type "navigate"
+	// (improvement-plan item 29): {"url":"myapp://open","intent":{"k":"v"}}.
+	Intent map[string]string `json:"intent,omitempty"`
+
 	// Resize (type "resize"): the new viewport dimensions and emulation toggles.
 	Width  int  `json:"width,omitempty"`
 	Height int  `json:"height,omitempty"`
 	Mobile bool `json:"mobile,omitempty"`
 	Touch  bool `json:"touch,omitempty"`
+}
+
+// navigateWithIntent dispatches a navigate to the session engine, passing
+// Android intent extras through the optional engine.Intenter refinement when
+// present (item 29). Web engines reject intent extras with a clear error.
+func navigateWithIntent(eng engine.Engine, url string, intent map[string]string) error {
+	if len(intent) > 0 {
+		if n, ok := eng.(engine.Intenter); ok {
+			return n.NavigateWithIntent(url, intent)
+		}
+		return fmt.Errorf("navigate: intent extras are only supported on android sessions")
+	}
+	return eng.Navigate(url)
 }
 
 type actionEnvelope struct {
@@ -73,7 +90,7 @@ func (h *handler) Actions(w http.ResponseWriter, r *http.Request, id string) {
 	// {"url": "...", "viewport": {...}}
 	var initReq protocol.InitializeRequest
 	if err := json.Unmarshal(body, &initReq); err == nil && strings.TrimSpace(initReq.URL) != "" {
-		if err := sess.Engine.Navigate(initReq.URL); err != nil {
+		if err := navigateWithIntent(sess.Engine, initReq.URL, initReq.Intent); err != nil {
 			writeError(w, r, err)
 			return
 		}
@@ -124,7 +141,7 @@ func (h *handler) handleTypedAction(w http.ResponseWriter, r *http.Request, sess
 			writeError(w, r, fmt.Errorf("navigate requires url"))
 			return
 		}
-		if err := sess.Engine.Navigate(p.URL); err != nil {
+		if err := navigateWithIntent(sess.Engine, p.URL, p.Intent); err != nil {
 			writeError(w, r, err)
 			return
 		}

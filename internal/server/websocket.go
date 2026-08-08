@@ -411,7 +411,19 @@ func (ws *wsSession) handleNavigate(raw json.RawMessage) {
 		"session_id", ws.session.ID, "request_id", ws.reqID, "url", req.URL)
 
 	start := time.Now()
-	err := ws.session.Engine.Navigate(req.URL)
+	var err error
+	if len(req.Intent) > 0 {
+		// Android deep links with intent extras (item 29) go through the optional
+		// engine.Intenter refinement; web engines (which don't implement it) fail
+		// with a clear error instead of silently dropping the extras.
+		if n, ok := ws.session.Engine.(engine.Intenter); ok {
+			err = n.NavigateWithIntent(req.URL, req.Intent)
+		} else {
+			err = fmt.Errorf("navigate: intent extras are only supported on android sessions")
+		}
+	} else {
+		err = ws.session.Engine.Navigate(req.URL)
+	}
 	dur := time.Since(start)
 	if ws.session.Recorder != nil {
 		_ = ws.session.Recorder.RecordNavigate(req.URL, ws.reqID, dur.Milliseconds(), err)

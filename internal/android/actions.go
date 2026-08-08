@@ -220,6 +220,106 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 		}
 		return nil
 
+	case protocol.ActionAppInstall:
+		if req.Path == "" {
+			return fmt.Errorf("android app_install: path or URL is required")
+		}
+		if err := e.installApp(req.Path); err != nil {
+			return err
+		}
+		e.treeCache.invalidate() // install can pop a system dialog (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionAppUninstall:
+		if req.Package == "" {
+			return fmt.Errorf("android app_uninstall: package is required")
+		}
+		if err := e.uninstallApp(req.Package); err != nil {
+			return err
+		}
+		e.treeCache.invalidate()
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionAppClearData:
+		if req.Package == "" {
+			return fmt.Errorf("android app_clear_data: package is required")
+		}
+		if err := e.clearAppData(req.Package); err != nil {
+			return err
+		}
+		e.treeCache.invalidate() // clearing data resets the app to first-launch (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionAppForceStop:
+		if req.Package == "" {
+			return fmt.Errorf("android app_force_stop: package is required")
+		}
+		if err := e.forceStopApp(req.Package); err != nil {
+			return err
+		}
+		e.treeCache.invalidate() // force-stop leaves the launcher or recents (item 27)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		return nil
+
+	case protocol.ActionAppList:
+		pkgs, err := e.listInstalledApps()
+		if err != nil {
+			return err
+		}
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   true,
+			ElapsedMS: time.Since(start).Milliseconds(),
+			ActionMetadata: map[string]any{
+				"count":    len(pkgs),
+				"packages": pkgs,
+			},
+		}
+		return nil
+
+	case protocol.ActionWaitApp:
+		if req.Package == "" {
+			return fmt.Errorf("android wait_app: package is required")
+		}
+		// The polling loop is cancellable so a cancel returns cleanly (item 36).
+		stop := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				close(stop)
+			case <-stop:
+			}
+		}()
+		err := e.waitForForeground(req.Package, req.TimeoutMS, stop)
+		e.lastActionResult = &protocol.ActionResult{
+			Action:    req.Action,
+			Success:   err == nil,
+			ElapsedMS: time.Since(start).Milliseconds(),
+		}
+		if err != nil {
+			e.lastActionResult.Error = err.Error()
+		}
+		return err
+
 	case protocol.ActionWait:
 		// Selector waits (best-effort based on UIAutomator dump).
 		if req.Condition == "selector_visible" || req.Condition == "selector_hidden" || req.Condition == "selector_enabled" {
