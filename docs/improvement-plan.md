@@ -1058,6 +1058,8 @@ Real workflows cross platforms: "log in on the web, verify the push notification
 
 **A genuinely differentiated capability** — no mainstream tool (Playwright included) orchestrates web + Android in one session. QR-code, push-notification, and "desktop sets up mobile" flows become single-suite automations.
 
+- [x] DONE (wave W7, E4 — 15b9f47 protocol `MsgTypeSetContext`/`ActionSwitchContext`/`platforms` field, 95996d5 engine `WithEngines` option, d920791 sandbox multi-engine `Session` + context switching + platforms creation path, dbfb5e7 WS/HTTP/MCP route actions by context + `session_switch_context` MCP tool, ad02311 `examples/hybrid.yml` step-level platform tags. Caveat: the testrunner validator still accepts `platform` only at the suite level, so `hybrid.yml` is documentation-forward.)
+
 ---
 
 ## 32. Android Clipboard, Text-Input Fixes & IME Handling
