@@ -23,6 +23,7 @@ type createSessionReq struct {
 	Platform    string `json:"platform,omitempty"`
 	Kind        string `json:"kind,omitempty"`
 	Device      string `json:"device,omitempty"`
+	Serial      string `json:"serial,omitempty"`
 	ProfileDir  string `json:"profile_dir,omitempty"`
 	AttachPort  int    `json:"attach_port,omitempty"`
 	Persistent  bool   `json:"session_persist,omitempty"`
@@ -84,17 +85,18 @@ func (h *handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 // through to engine creation.
 func (r createSessionReq) toOptions() engine.Options {
 	return engine.Options{
-		Headless:    r.Headless,
-		Device:      r.Device,
-		ProfileDir:  r.ProfileDir,
-		AttachPort:  r.AttachPort,
-		Persistent:  r.Persistent,
-		UserAgent:   r.UserAgent,
-		Locale:      r.Locale,
-		Timezone:    r.Timezone,
-		ColorScheme: r.ColorScheme,
-		ProxyURL:    r.ProxyURL,
-		ProxyAuth:   r.ProxyAuth,
+		Headless:      r.Headless,
+		Device:        r.Device,
+		AndroidSerial: r.Serial,
+		ProfileDir:    r.ProfileDir,
+		AttachPort:    r.AttachPort,
+		Persistent:    r.Persistent,
+		UserAgent:     r.UserAgent,
+		Locale:        r.Locale,
+		Timezone:      r.Timezone,
+		ColorScheme:   r.ColorScheme,
+		ProxyURL:      r.ProxyURL,
+		ProxyAuth:     r.ProxyAuth,
 	}
 }
 

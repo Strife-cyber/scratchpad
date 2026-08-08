@@ -22,6 +22,8 @@ var requiredPaths = []string{
 	"/api/v1/sessions/{id}",
 	// Device emulation presets.
 	"/api/v1/devices",
+	// Android device enumeration (item 26).
+	"/api/v1/devices/android",
 	// Actions.
 	"/api/v1/sessions/{id}/actions",
 	// Network interception.

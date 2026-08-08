@@ -18,10 +18,14 @@ func TestCreateSessionReqToOptions(t *testing.T) {
 		ColorScheme: "dark",
 		ProxyURL:    "http://proxy:3128",
 		ProxyAuth:   "u:p",
+		Serial:      "emulator-5554",
 	}
 
 	opts := req.toOptions()
 
+	if opts.AndroidSerial != "emulator-5554" {
+		t.Errorf("AndroidSerial = %q, want %q", opts.AndroidSerial, "emulator-5554")
+	}
 	if opts.ProfileDir != "/tmp/scratchpad-profile" {
 		t.Errorf("ProfileDir = %q, want %q", opts.ProfileDir, "/tmp/scratchpad-profile")
 	}

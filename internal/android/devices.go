@@ -43,7 +43,9 @@ func ListDevices() ([]DeviceInfo, error) {
 func listDevices(runner commandRunner) ([]DeviceInfo, error) {
 	out, err := runner.run("", "devices", "-l")
 	if err != nil {
-		return nil, fmt.Errorf("android: adb devices failed: %w", err)
+		// adb missing or the server down means no device is reachable; surface the
+		// typed device_unavailable so transports (HTTP/MCP/WS) classify it cleanly.
+		return nil, fmt.Errorf("%w: adb devices failed: %v", protocol.ErrDeviceUnavailable, err)
 	}
 	return parseDevices(out), nil
 }

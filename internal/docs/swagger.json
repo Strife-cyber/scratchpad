@@ -304,6 +304,41 @@
         }
       }
     },
+    "/api/v1/devices/android": {
+      "get": {
+        "tags": ["Sessions"],
+        "summary": "List connected Android devices/emulators",
+        "description": "Lists every Android device/emulator visible to adb via `adb devices -l` (serial, state, product/model, friendly status + hint). Pass a serial as the `serial` field of session creation for platform `android` to pin the session to that device.",
+        "operationId": "getAndroidDevices",
+        "responses": {
+          "200": {
+            "description": "Connected Android devices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "devices": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/AndroidDeviceInfo" }
+                    }
+                  }
+                },
+                "example": {
+                  "devices": [
+                    { "serial": "emulator-5554", "state": "device", "status": "ready", "model": "sdk_gphone64_x86_64" },
+                    { "serial": "R5CT1ABC123", "state": "offline", "status": "offline" }
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/sessions/{id}/network": {
       "post": {
         "tags": ["Session Data"],
@@ -1312,6 +1347,22 @@
         "properties": {
           "devices": { "type": "array", "items": { "$ref": "#/components/schemas/DevicePreset" } }
         }
+      },
+      "AndroidDeviceInfo": {
+        "type": "object",
+        "description": "One connected Android device/emulator as reported by `adb devices -l`. status is a friendly summary of state; hint is a remediation for non-ready states.",
+        "properties": {
+          "serial": { "type": "string" },
+          "state": { "type": "string" },
+          "status": { "type": "string" },
+          "hint": { "type": "string" },
+          "product": { "type": "string" },
+          "model": { "type": "string" },
+          "device": { "type": "string" },
+          "transport_id": { "type": "string" },
+          "usb": { "type": "string" }
+        },
+        "required": ["serial", "state", "status", "hint"]
       },
       "NetworkRoute": {
         "type": "object",

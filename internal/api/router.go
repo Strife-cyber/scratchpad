@@ -28,6 +28,13 @@ func NewRouter(mgr *sandbox.Manager) http.Handler {
 			return
 		}
 
+		// Connected Android devices/emulators via `adb devices -l` (item 26).
+		// Distinct from the browser device-emulation presets at /devices.
+		if len(parts) == 2 && parts[0] == "devices" && parts[1] == "android" && r.Method == http.MethodGet {
+			h.GetAndroidDevices(w, r)
+			return
+		}
+
 		if len(parts) >= 1 && parts[0] == "sessions" {
 			switch {
 			case len(parts) == 1 && r.Method == http.MethodPost:
