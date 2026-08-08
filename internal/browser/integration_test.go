@@ -391,6 +391,69 @@ func TestIntegration_EveryAction(t *testing.T) {
 	action(t, e, protocol.ActionRequest{Action: protocol.ActionScreenshot})
 }
 
+// TestIntegration_TraceBundle exercises the full StartTracing -> activity ->
+// StopTracing round-trip against real Chrome. Regression guard for two defects
+// that made tracing/stop unusable: StopTracing hung into its 60s timeout
+// (tracingActive cleared before the completion event arrived, so the listener
+// dropped it) and the stream read failed with ErrInvalidContext (raw .Do on a
+// context without the executor). Both previously left no trace on disk.
+func TestIntegration_TraceBundle(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+	if err := e.Navigate(srv.URL); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	rawPath, err := e.StartTracing(t.TempDir())
+	if err != nil {
+		t.Fatalf("start tracing: %v", err)
+	}
+
+	// A little activity inside the trace window.
+	action(t, e, protocol.ActionRequest{Action: protocol.ActionExecuteJS, JS: "document.title"})
+	action(t, e, protocol.ActionRequest{Action: protocol.ActionScroll, DeltaY: 50})
+
+	// StopTracing must complete promptly (it used to hang 60s and then error).
+	type stopResult struct {
+		bytes []byte
+		path  string
+		err   error
+	}
+	stopCh := make(chan stopResult, 1)
+	go func() {
+		b, p, err := e.StopTracing()
+		stopCh <- stopResult{b, p, err}
+	}()
+	var stop stopResult
+	select {
+	case stop = <-stopCh:
+	case <-time.After(15 * time.Second):
+		t.Fatal("stop tracing did not complete within 15s (hang regression)")
+	}
+	if stop.err != nil {
+		t.Fatalf("stop tracing: %v", stop.err)
+	}
+	if len(stop.bytes) == 0 {
+		t.Error("stop tracing returned empty trace bytes")
+	}
+	if stop.path == "" {
+		t.Fatal("stop tracing returned empty output path")
+	}
+	if _, err := os.Stat(stop.path); err != nil {
+		t.Fatalf("trace file %q not written: %v", stop.path, err)
+	}
+	if info, err := os.Stat(stop.path); err == nil && info.Size() == 0 {
+		t.Errorf("trace file %q is empty", stop.path)
+	}
+
+	// The engine writes the gzipped raw trace to rawPath; both must agree on
+	// the same output file.
+	if rawPath != "" && rawPath != stop.path {
+		t.Errorf("start tracing path %q != stop tracing path %q", rawPath, stop.path)
+	}
+}
+
 // treeContains reports whether any spatial node (recursively) carries name.
 func treeContains(nodes []protocol.SpatialNode, name string) bool {
 	for _, n := range nodes {
