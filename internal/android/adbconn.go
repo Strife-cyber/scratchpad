@@ -80,6 +80,15 @@ func newADBConn(serial string, runner commandRunner) *adbConn {
 	return &adbConn{serial: serial, runner: runner}
 }
 
+// warmServer ensures the adb server daemon is up once per session so the first
+// device command doesn't pay daemon-spawn latency and later concurrent commands
+// multiplex over the same server (improvement-plan item 27). It is a host-side
+// command (no device transport), so it runs without the serial prefix.
+// Best-effort: failures (adb missing) are ignored — per-command calls still work.
+func (c *adbConn) warmServer() {
+	_, _ = c.runner.run("", "start-server")
+}
+
 // run executes an adb command scoped to this session's device and returns
 // trimmed stdout.
 func (c *adbConn) run(args ...string) (string, error) {

@@ -39,6 +39,14 @@ type AndroidEngine struct {
 	// serial and routes every command through an injectable runner.
 	adb *adbConn
 
+	// treeCache caches the parsed spatial tree and refreshes it in the background
+	// (item 27) so Observe() is cheap unless the screen actually changed.
+	treeCache *treeCache
+
+	// dumpMu serialises uiautomator dumps: dump+cat to the same device path must
+	// not interleave between the background refresher and a synchronous Observe.
+	dumpMu sync.Mutex
+
 	// Phase 1 diagnostics/assertions (emitted via Observe()).
 	lastAssertionResult *protocol.AssertionResult
 	lastActionResult    *protocol.ActionResult
@@ -70,11 +78,34 @@ func NewAndroidEngineWithOptions(opts engine.Options) (*AndroidEngine, error) {
 			return nil, err
 		}
 	}
-	return &AndroidEngine{adb: conn}, nil
+	e := newAndroidEngineWithConn(conn)
+	// Warm the adb server once so the first command doesn't pay daemon-spawn
+	// latency and concurrent commands multiplex over one server (item 27).
+	// Best-effort: an adb-less environment leaves the engine functional, just
+	// slower. The background tree refresher starts lazily on first use (see
+	// treeCache.treeForObserve) so idle engines — and the pure-logic unit tests —
+	// never spawn a goroutine.
+	conn.warmServer()
+	return e, nil
 }
 
-// Close is a no-op for Android — ADB connections are stateless per-command.
-func (e *AndroidEngine) Close() {}
+// newAndroidEngineWithConn builds an engine bound to the given connection
+// WITHOUT starting the background refresher. Tests use it to drive the cache
+// deterministically via a fake runner; production goes through
+// NewAndroidEngineWithOptions which starts the refresher.
+func newAndroidEngineWithConn(conn *adbConn) *AndroidEngine {
+	e := &AndroidEngine{adb: conn}
+	e.treeCache = newTreeCache(e.dumpSpatialTree)
+	return e
+}
+
+// Close stops the background tree refresher. ADB commands are stateless
+// per-command, so there is nothing else to tear down.
+func (e *AndroidEngine) Close() {
+	if e.treeCache != nil {
+		e.treeCache.stopBackgroundRefresh()
+	}
+}
 
 // AddListener registers a handler that receives Android platform events.
 // Implements engine.Engine.
@@ -121,7 +152,10 @@ func (e *AndroidEngine) Navigate(url string) error {
 func (e *AndroidEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.ObservationResponse, error) {
 	req := engine.MergeObserveRequests(reqs)
 
-	spatialTree, err := e.dumpSpatialTree()
+	// Serve the cached tree when the screen hasn't changed (item 27); a read-only
+	// Observe then costs no adb round-trip and the response flags stale:true so
+	// clients know the snapshot wasn't freshly captured.
+	spatialTree, stale, err := e.treeCache.treeForObserve()
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +180,7 @@ func (e *AndroidEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obs
 		Visual:      b64Img,
 		SpatialTree: spatialTree,
 		PageInfo:    pageInfo,
+		Stale:       stale,
 
 		AssertionResult: e.lastAssertionResult,
 		ActionResult:    e.lastActionResult,
@@ -163,6 +198,12 @@ func (e *AndroidEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obs
 }
 
 func (e *AndroidEngine) dumpSpatialTree() ([]protocol.SpatialNode, error) {
+	// dumpMu serialises dump+cat to the shared device path: the background
+	// refresher and a synchronous Observe must not interleave their two commands
+	// (item 27).
+	e.dumpMu.Lock()
+	defer e.dumpMu.Unlock()
+
 	// Ask UIAutomator2 to dump the current view hierarchy to the device.
 	dumpOut, err := e.adb.run("shell", "uiautomator", "dump", "/data/local/tmp/window_dump.xml")
 	if err != nil {

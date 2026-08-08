@@ -35,6 +35,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 		if err != nil {
 			return fmt.Errorf("android: click at (%d,%d) failed: %w", x, y, err)
 		}
+		e.treeCache.invalidate() // the tap may have changed the screen (item 27)
 		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
@@ -64,6 +65,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			return fmt.Errorf("android: type %q failed: %w", req.Text, err)
 		}
 		_, _ = e.adb.run("shell", "input", "keyevent", "66") // ENTER
+		e.treeCache.invalidate()                             // typing changed the focused field (item 27)
 		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
@@ -107,6 +109,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 		if err != nil {
 			return fmt.Errorf("android: scroll failed: %w", err)
 		}
+		e.treeCache.invalidate() // scroll definitely changed the viewport (item 27)
 		e.lastActionResult = &protocol.ActionResult{
 			Action:    req.Action,
 			Success:   true,
@@ -287,6 +290,9 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 				code = named
 			}
 			_, err := e.adb.run("shell", "input", "keyevent", code)
+			if err == nil {
+				e.treeCache.invalidate() // keyevent may navigate/change the screen (item 27)
+			}
 			return err
 
 		case protocol.ActionPressKey:
@@ -299,6 +305,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			if _, err := e.adb.run("shell", "input", "keyevent", code); err != nil {
 				return fmt.Errorf("android press_key %q: %w", key, err)
 			}
+			e.treeCache.invalidate() // key may navigate or change focus (item 27)
 			e.lastActionResult = &protocol.ActionResult{
 				Action:    req.Action,
 				Success:   true,
@@ -335,6 +342,7 @@ func (e *AndroidEngine) ExecuteAction(ctx context.Context, req protocol.ActionRe
 			if err := e.focusAndPaste(req.Selector); err != nil {
 				return fmt.Errorf("android %s: %w", req.Action, err)
 			}
+			e.treeCache.invalidate() // paste changed the focused field (item 27)
 			e.lastActionResult = &protocol.ActionResult{
 				Action:    req.Action,
 				Success:   true,
@@ -358,7 +366,11 @@ func (e *AndroidEngine) findAndroidMatches(sel *protocol.Selector) ([]protocol.S
 		return nil, fmt.Errorf("android selector is nil")
 	}
 
-	spatial, err := e.dumpSpatialTree()
+	// Reuse the cached hierarchy when fresh so selector resolution (used by
+	// click/type/scroll/assert/wait) is cheap (item 27). A mutating action
+	// invalidated the cache right after running, so this path re-dumps exactly
+	// when the screen may have changed.
+	spatial, _, err := e.treeCache.treeForObserve()
 	if err != nil {
 		return nil, err
 	}

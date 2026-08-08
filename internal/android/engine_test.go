@@ -293,6 +293,82 @@ func TestClose_IsNoop(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Observe — stale flag threading (improvement-plan item 27)
+// ---------------------------------------------------------------------------
+
+// hierarchyXML is a minimal UIAutomator dump the fake adb returns for the
+// dump+cat pipeline, containing one clickable button so the flattened tree is
+// non-empty.
+const hierarchyXML = `<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0" width="1080" height="2400">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]">
+    <node index="1" text="OK" resource-id="" class="android.widget.Button" package="" content-desc="" checkable="false" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[400,1200][680,1320]"/>
+  </node>
+</hierarchy>`
+
+// fakeObserveADB returns canned output for every command an Observe triggers:
+// the dump+cat hierarchy pipeline, viewport, activity, and a PNG screenshot.
+func fakeObserveADB() *fakeADB {
+	return &fakeADB{out: map[string]string{
+		"shell uiautomator dump /data/local/tmp/window_dump.xml": "UI hierchary dumped to: /data/local/tmp/window_dump.xml",
+		"shell cat /data/local/tmp/window_dump.xml":              hierarchyXML,
+		"shell wm size":                 "Physical size: 1080x2400\n",
+		"shell dumpsys window displays": "mCurrentFocus=Window{abc u0 com.example/.MainActivity}",
+	}}
+}
+
+func TestObserve_StaleFlagThreading(t *testing.T) {
+	e := newAndroidEngineWithConn(newADBConn("", fakeObserveADB()))
+	t.Cleanup(e.Close)
+
+	// First observe: cold cache → synchronous dump → fresh (not stale).
+	first, err := e.Observe()
+	if err != nil {
+		t.Fatalf("first observe: %v", err)
+	}
+	if first.Stale {
+		t.Error("first observe should be stale=false (cold cache forces a dump)")
+	}
+	if len(first.SpatialTree) != 1 || first.SpatialTree[0].Name != "OK" {
+		t.Fatalf("first observe tree = %+v, want the dumped OK button", first.SpatialTree)
+	}
+
+	// Second observe within freshWindow: served from cache → stale=true.
+	second, err := e.Observe()
+	if err != nil {
+		t.Fatalf("second observe: %v", err)
+	}
+	if !second.Stale {
+		t.Error("read-only observe of a fresh cache should be stale=true")
+	}
+}
+
+func TestObserve_ActionInvalidatesCache(t *testing.T) {
+	e := newAndroidEngineWithConn(newADBConn("", fakeObserveADB()))
+	t.Cleanup(e.Close)
+
+	if _, err := e.Observe(); err != nil { // prime the cache
+		t.Fatalf("prime observe: %v", err)
+	}
+
+	// A mutating action invalidates the cache; the next observe must re-dump and
+	// report fresh (not stale).
+	if err := e.ExecuteAction(context.Background(), protocol.ActionRequest{
+		Action:   protocol.ActionClick,
+		Selector: &protocol.Selector{CSS: "#OK"},
+	}); err != nil {
+		t.Fatalf("click: %v", err)
+	}
+	after, err := e.Observe()
+	if err != nil {
+		t.Fatalf("observe after click: %v", err)
+	}
+	if after.Stale {
+		t.Error("observe after a mutating action should re-dump (stale=false)")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Scroll direction logic (pure arithmetic — no ADB required)
 // ---------------------------------------------------------------------------
 
