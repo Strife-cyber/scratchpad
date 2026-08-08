@@ -1,4 +1,4 @@
-.PHONY: build run tidy clean test test-short test-race test-verbose test-coverage bench test-all lint
+.PHONY: build run tidy clean test test-short test-race test-integration test-verbose test-coverage bench test-all lint
 
 BINARY_NAME=scratchpad.exe
 MCP_BINARY_NAME=scratchpad-mcp.exe
@@ -36,6 +36,13 @@ test-short:
 # All tests with race detector
 test-race:
 	go test -race -count=1 ./...
+
+# Integration tests against a real headless Chrome (fixture site + MCP
+# conformance). The suites skip gracefully when Chrome is unavailable
+# (SCRATCHPAD_SKIP_INTEGRATION, -short, or a failed probe), so this target is
+# safe on browser-less machines but exercises the full loop in CI.
+test-integration:
+	go test -tags integration -count=1 ./internal/browser/ ./internal/mcp/
 
 # Verbose test output
 test-verbose:
