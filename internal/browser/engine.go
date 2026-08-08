@@ -429,6 +429,14 @@ func (e *ChromeEngine) listTabs() []protocol.TabInfo {
 	return tabs
 }
 
+// ListTabs returns the current open tabs, refreshing the active-target marker
+// first so the active tab is flagged. It is the exported entry point used by
+// the MsgTypeListTabs transport handler; the list_tabs action shares listTabs().
+func (e *ChromeEngine) ListTabs() []protocol.TabInfo {
+	e.refreshTargetInfo()
+	return e.listTabs()
+}
+
 // SwitchTab switches the active Chrome context to a different tab.
 // It cancels the previous tab context (preventing goroutine and event listener leaks)
 // and re-wires event dispatchers for the new context.

@@ -578,6 +578,9 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		e.activeIframeSelector = req.IframeSelector
 		return nil
 
+	case protocol.ActionSwitchToMainFrame:
+		return e.switchToMainFrameAction(ctx)
+
 	case protocol.ActionAcceptDialog:
 		// Best-effort: accept the next JavaScript dialog (alert/confirm/prompt).
 		return chromedp.Run(ctx, page.HandleJavaScriptDialog(true))
@@ -811,6 +814,9 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 			}
 		}
 		return nil
+
+	case protocol.ActionListTabs:
+		return e.listTabsAction(ctx)
 
 	case protocol.ActionSwitchTab:
 		if req.TabID == "" {
