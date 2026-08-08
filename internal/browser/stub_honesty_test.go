@@ -16,7 +16,6 @@ func TestStubActions_ReturnTypedUnsupported(t *testing.T) {
 
 	cases := []protocol.ActionRequest{
 		{Action: protocol.ActionPressKeyCombo, KeyChord: protocol.KeyChord{Key: "s", Ctrl: true}},
-		{Action: protocol.ActionMockNetworkResp},
 	}
 	for _, req := range cases {
 		t.Run(req.Action, func(t *testing.T) {

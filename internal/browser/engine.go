@@ -78,17 +78,17 @@ type ChromeEngine struct {
 	// EventLoadingFinished / EventLoadingFailed to prevent unbounded map growth.
 	networkMu        sync.Mutex
 	networkReqStarts map[network.RequestID]time.Time
-	networkReqMeta   map[network.RequestID]struct {
-		URL    string
-		Method string
-	}
-	networkRequests []struct {
-		URL              string
-		Method           string
-		Status           int
-		DurationMS       int64
-		StartedAtRFC3339 string
-	}
+	networkReqMeta   map[network.RequestID]networkRequestMeta
+	networkRequests  []networkRequestRecord
+
+	// Network interception (improvement-plan item 14): the route table consulted
+	// by the Fetch request-paused handler, captured response bodies, and the set
+	// of network request ids already handled by the Fetch interceptor (so the
+	// Network listener does not double-record mocked/aborted requests).
+	networkEnabled        bool
+	networkRoutes         []protocol.NetworkRoute
+	networkFetchHandled   map[network.RequestID]bool
+	networkResponseBodies []responseBodyRecord
 
 	// activeIframeSelector scopes selector-driven actions to an iframe's
 	// document (Phase 1 primitive; currently only CSS-based iframe selection is
@@ -154,6 +154,29 @@ type targetInfo struct {
 	OpenerID   string
 }
 
+// networkRequestMeta is the per-request metadata captured when a request starts.
+type networkRequestMeta struct {
+	URL    string
+	Method string
+}
+
+// networkRequestRecord is one captured network request (URL/method/status + timing).
+type networkRequestRecord struct {
+	URL              string
+	Method           string
+	Status           int
+	DurationMS       int64
+	StartedAtRFC3339 string
+}
+
+// responseBodyRecord is one captured response body keyed by URL (item 14). Bodies
+// are captured separately from request records because Fetch delivers them at the
+// response stage, which may lag Network.responseReceived.
+type responseBodyRecord struct {
+	URL  string
+	Body string
+}
+
 // NewChromeEngine initialises a new headless Chrome instance.
 func NewChromeEngine(headless bool) *ChromeEngine {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -166,24 +189,23 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 	ctx, tabCancel := chromedp.NewContext(allocCtx)
 
 	e := &ChromeEngine{
-		allocCtx:         allocCtx,
-		ctx:              ctx,
-		cancel:           cancel,
-		tabCancel:        tabCancel,
-		networkReqStarts: make(map[network.RequestID]time.Time),
-		networkReqMeta: make(map[network.RequestID]struct {
-			URL    string
-			Method string
-		}),
-		targets:           make(map[string]*targetInfo),
-		maxConsoleEntries: consoleCapFromEnv(),
-		lastViewport:      protocol.Viewport{Width: 1280, Height: 720},
-		devicePreset:      "Desktop HD",
+		allocCtx:            allocCtx,
+		ctx:                 ctx,
+		cancel:              cancel,
+		tabCancel:           tabCancel,
+		networkReqStarts:    make(map[network.RequestID]time.Time),
+		networkReqMeta:      make(map[network.RequestID]networkRequestMeta),
+		networkFetchHandled: make(map[network.RequestID]bool),
+		targets:             make(map[string]*targetInfo),
+		maxConsoleEntries:   consoleCapFromEnv(),
+		lastViewport:        protocol.Viewport{Width: 1280, Height: 720},
+		devicePreset:        "Desktop HD",
 	}
 
 	// Wire up internal listeners before any external code can add its own.
 	e.setupEventDispatcher()
 	e.setupNetworkListener()
+	e.setupFetchInterceptor()
 	e.setupTargetListener()
 	e.setupObserveCaching()
 
@@ -300,10 +322,7 @@ func (e *ChromeEngine) setupNetworkListener() {
 			// Record start time + request metadata for Phase 1 network assertions.
 			e.networkMu.Lock()
 			e.networkReqStarts[ev2.RequestID] = time.Now()
-			e.networkReqMeta[ev2.RequestID] = struct {
-				URL    string
-				Method string
-			}{
+			e.networkReqMeta[ev2.RequestID] = networkRequestMeta{
 				URL:    ev2.Request.URL,
 				Method: ev2.Request.Method,
 			}
@@ -311,19 +330,19 @@ func (e *ChromeEngine) setupNetworkListener() {
 
 		case *network.EventResponseReceived:
 			e.networkMu.Lock()
+			if e.networkFetchHandled[ev2.RequestID] {
+				// The Fetch interceptor already recorded this request (mock/abort);
+				// avoid double-recording it here.
+				e.networkMu.Unlock()
+				return
+			}
 			start, ok := e.networkReqStarts[ev2.RequestID]
 			meta := e.networkReqMeta[ev2.RequestID]
 			if ok {
 				duration := time.Since(start).Milliseconds()
 				// ResponseReceived fires early; it's still useful for resilient
 				// assertions (status + approx duration).
-				e.networkRequests = append(e.networkRequests, struct {
-					URL              string
-					Method           string
-					Status           int
-					DurationMS       int64
-					StartedAtRFC3339 string
-				}{
+				e.networkRequests = append(e.networkRequests, networkRequestRecord{
 					URL:              meta.URL,
 					Method:           meta.Method,
 					Status:           int(ev2.Response.Status),
@@ -347,12 +366,14 @@ func (e *ChromeEngine) setupNetworkListener() {
 				e.networkMu.Lock()
 				delete(e.networkReqStarts, ev2.RequestID)
 				delete(e.networkReqMeta, ev2.RequestID)
+				delete(e.networkFetchHandled, ev2.RequestID)
 				e.networkMu.Unlock()
 			}
 			if ev2, ok := ev.(*network.EventLoadingFailed); ok {
 				e.networkMu.Lock()
 				delete(e.networkReqStarts, ev2.RequestID)
 				delete(e.networkReqMeta, ev2.RequestID)
+				delete(e.networkFetchHandled, ev2.RequestID)
 				e.networkMu.Unlock()
 			}
 		}
@@ -502,9 +523,11 @@ func (e *ChromeEngine) SwitchTab(tabID string) error {
 		t.Active = t.ID == tabID
 	}
 
-	// Re-setup event dispatcher and network listener for the new tab context.
+	// Re-setup event dispatcher, network listener, and Fetch interceptor for the
+	// new tab context (re-enabling interception when it was active).
 	e.setupEventDispatcher()
 	e.setupNetworkListener()
+	e.reattachNetworkIfEnabled()
 
 	return nil
 }

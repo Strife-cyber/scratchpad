@@ -612,7 +612,40 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 			WithAccuracy(acc))
 
 	case protocol.ActionMockNetworkResp:
-		return fmt.Errorf("%w: mock_network_response is not implemented (improvement-plan item 14)", protocol.ErrUnsupported)
+		// The modern Route field wins over the legacy NetworkMock shorthand.
+		if req.Route != nil {
+			route := *req.Route
+			if route.Action == "" {
+				route.Action = protocol.NetworkRouteMock
+			}
+			return e.AddNetworkRoute(route)
+		}
+		if req.NetworkMock == nil || req.NetworkMock.URLPattern == "" {
+			return fmt.Errorf("mock_network_response requires route (or network_mock with url_pattern)")
+		}
+		return e.AddNetworkRoute(protocol.NetworkRoute{
+			Pattern:    req.NetworkMock.URLPattern,
+			Method:     req.NetworkMock.Method,
+			Action:     protocol.NetworkRouteMock,
+			Status:     req.NetworkMock.Status,
+			Headers:    req.NetworkMock.Headers,
+			BodyBase64: req.NetworkMock.BodyBase64,
+		})
+
+	case protocol.ActionBlockRequest:
+		patterns := req.Patterns
+		if len(patterns) == 0 {
+			patterns = defaultAnnoyances
+		}
+		for _, p := range patterns {
+			if err := e.AddNetworkRoute(protocol.NetworkRoute{
+				Pattern: p,
+				Action:  protocol.NetworkRouteAbort,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
 
 	case protocol.ActionCheck:
 		if req.Selector == nil || req.Selector.CSS == "" {

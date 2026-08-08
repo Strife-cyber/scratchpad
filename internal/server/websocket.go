@@ -335,6 +335,15 @@ func (ws *wsSession) handle(env protocol.Envelope) {
 	case protocol.MsgTypeDevices:
 		ws.handleDevices()
 
+	case protocol.MsgTypeNetworkEnable:
+		ws.handleNetworkEnable()
+
+	case protocol.MsgTypeNetworkDisable:
+		ws.handleNetworkDisable()
+
+	case protocol.MsgTypeNetworkList:
+		ws.handleNetworkList()
+
 	default:
 		// Also handle legacy messages with no type field (empty object {}).
 		// This keeps older clients' bare observe working.
@@ -539,6 +548,57 @@ func (ws *wsSession) handleListSessions() {
 func (ws *wsSession) handleDevices() {
 	data, _ := json.Marshal(protocol.DeviceListResponse{Devices: browser.DevicePresets()})
 	_ = ws.writeJSON(protocol.Envelope{Type: protocol.MsgTypeDevices, Data: data})
+}
+
+// handleNetworkEnable turns on Fetch-based network interception for the session
+// (item 14): every request is routed through the mock/abort/continue table and
+// response bodies are captured for network_response_body assertions.
+func (ws *wsSession) handleNetworkEnable() {
+	be, ok := ws.session.Engine.(*browser.ChromeEngine)
+	if !ok {
+		ws.writeError(errorResponse(fmt.Errorf("%w: network_enable requires a Chrome engine session", protocol.ErrUnsupported),
+			ws.reqID, protocol.ErrorLevelWarning, protocol.ActionMockNetworkResp, nil))
+		return
+	}
+	if err := be.EnableNetwork(); err != nil {
+		slog.Warn("websocket: network enable failed",
+			"session_id", ws.session.ID, "request_id", ws.reqID, "err", err)
+		ws.writeError(errorResponse(err, ws.reqID, protocol.ErrorLevelAction, "", nil))
+		return
+	}
+	_ = ws.writeJSON(map[string]any{"type": protocol.MsgTypeNetworkEnable, "data": map[string]any{"ok": true}})
+}
+
+// handleNetworkDisable turns off network interception and clears the route table
+// and captured bodies.
+func (ws *wsSession) handleNetworkDisable() {
+	be, ok := ws.session.Engine.(*browser.ChromeEngine)
+	if !ok {
+		ws.writeError(errorResponse(fmt.Errorf("%w: network_disable requires a Chrome engine session", protocol.ErrUnsupported),
+			ws.reqID, protocol.ErrorLevelWarning, "", nil))
+		return
+	}
+	if err := be.DisableNetwork(); err != nil {
+		slog.Warn("websocket: network disable failed",
+			"session_id", ws.session.ID, "request_id", ws.reqID, "err", err)
+		ws.writeError(errorResponse(err, ws.reqID, protocol.ErrorLevelAction, "", nil))
+		return
+	}
+	_ = ws.writeJSON(map[string]any{"type": protocol.MsgTypeNetworkDisable, "data": map[string]any{"ok": true}})
+}
+
+// handleNetworkList drains the recorded network requests (with response bodies
+// merged in) and replies with them. Draining means each call returns exactly
+// the traffic since the last call.
+func (ws *wsSession) handleNetworkList() {
+	be, ok := ws.session.Engine.(*browser.ChromeEngine)
+	if !ok {
+		ws.writeError(errorResponse(fmt.Errorf("%w: network_list requires a Chrome engine session", protocol.ErrUnsupported),
+			ws.reqID, protocol.ErrorLevelWarning, "", nil))
+		return
+	}
+	data, _ := json.Marshal(protocol.NetworkListResponse{Requests: be.DrainNetworkRequests()})
+	_ = ws.writeJSON(protocol.Envelope{Type: protocol.MsgTypeNetworkList, Data: data})
 }
 
 func (ws *wsSession) handleListTabs() {
