@@ -493,44 +493,11 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		return nil
 
 	case protocol.ActionPressKeyCombo:
-		if req.KeyChord.Key == "" {
-			return fmt.Errorf("press_key_combo requires key_chord.key")
-		}
-		k := req.KeyChord.Key
-		js := fmt.Sprintf(`(() => {
-			const down = new KeyboardEvent('keydown', {
-				key: %s,
-				ctrlKey: %t,
-				altKey: %t,
-				shiftKey: %t,
-				metaKey: %t,
-				bubbles: true
-			});
-			const up = new KeyboardEvent('keyup', {
-				key: %s,
-				ctrlKey: %t,
-				altKey: %t,
-				shiftKey: %t,
-				metaKey: %t,
-				bubbles: true
-			});
-			window.dispatchEvent(down);
-			window.dispatchEvent(up);
-			return true;
-		})()`,
-			jsStringLiteral(k),
-			req.KeyChord.Ctrl, req.KeyChord.Alt, req.KeyChord.Shift, req.KeyChord.Meta,
-			jsStringLiteral(k),
-			req.KeyChord.Ctrl, req.KeyChord.Alt, req.KeyChord.Shift, req.KeyChord.Meta,
-		)
-		var ok bool
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &ok)); err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("press_key_combo failed")
-		}
-		return nil
+		// press_key_combo currently dispatches synthetic JS KeyboardEvents, which
+		// many SPAs ignore for shortcuts and native key handling never fires.
+		// Rather than report fake success, return a typed unsupported error that
+		// points at the real fix (item 15: CDP Input.dispatchKeyEvent).
+		return fmt.Errorf("%w: press_key_combo dispatches only synthetic JS KeyboardEvents; real key dispatch lands with improvement-plan item 15", protocol.ErrUnsupported)
 
 	case protocol.ActionExecuteJS:
 		if strings.TrimSpace(req.JS) == "" {
@@ -645,7 +612,7 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 			WithAccuracy(acc))
 
 	case protocol.ActionMockNetworkResp:
-		return fmt.Errorf("mock_network_response not implemented in Phase 1")
+		return fmt.Errorf("%w: mock_network_response is not implemented (improvement-plan item 14)", protocol.ErrUnsupported)
 
 	case protocol.ActionCheck:
 		if req.Selector == nil || req.Selector.CSS == "" {
