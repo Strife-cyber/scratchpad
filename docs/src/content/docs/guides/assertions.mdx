@@ -121,10 +121,14 @@ Send an assertion action — the response includes an `assertion_result` field:
 |------|-------------|
 | `console_error_count` | Number of console errors matches expected |
 | `network_request_status` | Network requests matching URL pattern have expected status |
+| `network_request_count` | Number of requests matching URL pattern equals expected |
+| `network_response_body` | Captured response body of matching request contains expected content |
 
 ```json
 {"type": "console_error_count", "value": "0"}
 {"type": "network_request_status", "pattern": "api/", "value": "200"}
+{"type": "network_request_count", "pattern": "api/", "expected_count": 3}
+{"type": "network_response_body", "pattern": "api/users", "value": "\"ok\":true"}
 ```
 
 ### Visual (Chrome only)

@@ -112,6 +112,22 @@ description: Complete reference of all assertion types
       <td class="platform-cell"><span class="cross-mark">✗</span></td>
     </tr>
     <tr>
+      <td><code>network_request_count</code></td>
+      <td>Number of requests matching URL pattern equals expected</td>
+      <td><code>expected_count</code> or <code>value</code></td>
+      <td><code>pattern</code>, <code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
+      <td><code>network_response_body</code></td>
+      <td>Captured response body of matching request contains expected content</td>
+      <td><code>value</code></td>
+      <td><code>pattern</code>, <code>timeout_ms</code></td>
+      <td class="platform-cell"><span class="check-mark">✓</span></td>
+      <td class="platform-cell"><span class="cross-mark">✗</span></td>
+    </tr>
+    <tr>
       <td><code>screenshot_matches</code></td>
       <td>Visual comparison via dHash</td>
       <td><code>screenshot_base64</code></td>
