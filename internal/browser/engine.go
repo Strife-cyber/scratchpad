@@ -108,6 +108,11 @@ type ChromeEngine struct {
 	navigationID int64
 	lastSeenURL  string
 
+	// obsCache memoizes the last AX snapshot + resolved spatial tree so
+	// consecutive Observe() calls skip the expensive CDP work on unchanged
+	// pages. Owned by observe_caching.go.
+	obsCache *observeCache
+
 	// Tab management: tracks all browser targets (tabs/windows) so the agent
 	// can list, switch, and close tabs opened by ads or links.
 	targetMu        sync.Mutex
@@ -159,6 +164,7 @@ func NewChromeEngine(headless bool) *ChromeEngine {
 	e.setupEventDispatcher()
 	e.setupNetworkListener()
 	e.setupTargetListener()
+	e.setupObserveCaching()
 
 	return e
 }
