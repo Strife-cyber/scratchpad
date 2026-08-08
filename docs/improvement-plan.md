@@ -435,7 +435,7 @@ Agents fail, and today the only record of what happened is a pile of stdout line
 
 ## 12. Fix the Known Misbehaving Tools
 
-- [~] PARTIAL (wave W4, C2 — c3c4a3a/87f2d51 real `list_tabs` + `switch_to_main_frame`, b8169ab/72346e6 honest `unsupported` stubs; real `resize`/`mock` land with items 13/14 in W5, iframe scoping still pending)
+- [~] PARTIAL (wave W4, C2 — c3c4a3a/87f2d51 real `list_tabs` + `switch_to_main_frame`, b8169ab/72346e6 honest `unsupported` stubs; real `resize`/`mock` landed with items 13/14 in W5/D1 — e09a72a real resize, c4b1e0a/af03d07 real mock; iframe scoping still pending)
 
 ### What & Why
 
@@ -497,6 +497,8 @@ While reading the code I found several shipped-but-broken surfaces that actively
 
 **Instant capability jump.** Mobile web testing — a whole category — becomes available for the cost of a CDP call. Also fixes the misleading "resize supported" API.
 
+- [x] DONE (wave D1 — 63456c8 protocol types, e09a72a real resize via `emulation.SetDeviceMetricsOverride`, d8d034e device presets + mobile/touch + `device` on session creation, 564c79f `GET /api/v1/devices` + HTTP resize + `device` in session body, af03d07 MCP `browser_list_devices`; emulation state persisted in `PageInfo.Device`/`Viewport`)
+
 ---
 
 ## 14. Full Network Interception
@@ -526,6 +528,8 @@ While reading the code I found several shipped-but-broken surfaces that actively
 ### Impact
 
 **Scrape superpowers.** Interception turns Scratchpad from "can drive a browser" into "can control what the browser sees" — a prerequisite for resilient scraping and testing against third-party APIs.
+
+- [x] DONE (wave D1 — 63456c8 `NetworkRoute` protocol type, c4b1e0a CDP Fetch intercept loop + `network_enable`/`network_disable` + `ActionBlockRequest` with annoyances list + body capture, af03d07 MCP tools, 564c79f `POST /sessions/{id}/network` + `GET .../network/requests`, e4766fa `network_request_count` + `network_response_body` assertions)
 
 ---
 
