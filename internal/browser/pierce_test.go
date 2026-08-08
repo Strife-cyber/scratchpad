@@ -81,6 +81,19 @@ func TestBuildPierceQuery_EscapesQuotesInValue(t *testing.T) {
 	}
 }
 
+// TestBuildPierceQuery_Chain mirrors the exact construction the CSS branch of
+// querySelectorMatchesJSON uses for a `>>` chain (kind "chain" + array literal).
+func TestBuildPierceQuery_Chain(t *testing.T) {
+	segs := parsePierceChain("app-root >> button")
+	js := buildPierceQuery("chain", chainArrayLiteral(segs))
+	if !strings.Contains(js, `queryFor(document, "chain", ["app-root", "button"])`) {
+		t.Errorf("buildPierceQuery chain = %s, want kind chain + segment array", js)
+	}
+	if !strings.Contains(js, pierceHelpersSource) {
+		t.Error("buildPierceQuery chain must embed the pierce helper source")
+	}
+}
+
 func TestPierceLookupExpr_SingleSegment(t *testing.T) {
 	expr := pierceLookupExpr("button")
 	if !strings.Contains(expr, `pierceQueryAll(document, "button")`) {

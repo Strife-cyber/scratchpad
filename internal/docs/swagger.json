@@ -971,7 +971,7 @@
         "type": "object",
         "description": "Structured locator. Resolution order: CSS > XPath > text > role > test_id > placeholder. Pass multiple strategies and the best match wins.",
         "properties": {
-          "css": { "type": "string", "example": "#submit" },
+          "css": { "type": "string", "description": "CSS selector. Chain across open shadow-DOM boundaries with \">>\" (e.g. \"app-root >> button\" matches button inside app-root's shadow root).", "example": "#submit" },
           "xpath": { "type": "string", "example": "//button[text()='Submit']" },
           "text": { "type": "string", "example": "Sign in" },
           "role": { "type": "string", "example": "button" },

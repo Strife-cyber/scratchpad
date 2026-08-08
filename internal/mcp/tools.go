@@ -380,7 +380,7 @@ func (s *Server) toolDefs() []toolDef {
 		// ---- Power-user fallback ---------------------------------------------
 		// Mega-tool that accepts the raw ~30-field protocol.ActionRequest. Keep
 		// for advanced users; prefer the narrow per-action tools below.
-		tool(s, "browser_action", "Low-level fallback: run any browser action by sending a raw protocol.ActionRequest envelope. Prefer the dedicated tools (browser_click, browser_type, ...) which have narrower schemas.\n\nExample: browser_action with {\"action\":\"click\",\"selector\":{\"css\":\"#submit\"}} clicks the submit button.", func(a protocol.ActionRequest) protocol.Envelope {
+		tool(s, "browser_action", "Low-level fallback: run any browser action by sending a raw protocol.ActionRequest envelope. Prefer the dedicated tools (browser_click, browser_type, ...) which have narrower schemas. Selectors pierce open shadow DOM; CSS selectors may chain across shadow roots with \">>\" (e.g. \"app-root >> button\").\n\nExample: browser_action with {\"action\":\"click\",\"selector\":{\"css\":\"#submit\"}} clicks the submit button.", func(a protocol.ActionRequest) protocol.Envelope {
 			return protocol.Envelope{Type: protocol.MsgTypeAction, Data: mustJSON(a)}
 		}),
 
@@ -411,7 +411,7 @@ func (s *Server) toolDefs() []toolDef {
 		}),
 
 		// ---- Per-action tools ------------------------------------------------
-		actionTool(s, "browser_click", "Click a page element. Provide a selector (auto-waits up to 10s), or x/y coordinates.\n\nExample: browser_click with {\"selector\":{\"css\":\"#submit\"}} clicks the submit button and auto-waits up to 10s.", func(a ClickArgs) protocol.ActionRequest {
+		actionTool(s, "browser_click", "Click a page element. Provide a selector (auto-waits up to 10s), or x/y coordinates. Selectors pierce open shadow DOM; CSS selectors may chain across shadow roots with \">>\" (e.g. \"app-root >> button\").\n\nExample: browser_click with {\"selector\":{\"css\":\"#submit\"}} clicks the submit button and auto-waits up to 10s.", func(a ClickArgs) protocol.ActionRequest {
 			return protocol.ActionRequest{Action: protocol.ActionClick, Selector: a.Selector, X: a.X, Y: a.Y, TimeoutMS: a.TimeoutMS}
 		}),
 		actionTool(s, "browser_hover", "Hover the mouse over an element.\n\nExample: browser_hover with {\"selector\":{\"css\":\"#menu\"}} hovers over the menu.", func(a HoverArgs) protocol.ActionRequest {

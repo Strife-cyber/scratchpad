@@ -481,6 +481,12 @@ func (a ActionRequest) ResolveTimeout() int {
 // Resolution order: CSS > XPath > text > role > test_id > placeholder.
 // Playwright-inspired: you can pass multiple strategies and the best match wins.
 type Selector struct {
+	// CSS is a CSS selector. It may be chained across open shadow-DOM
+	// boundaries with the Playwright-style ">>" separator:
+	// "app-root >> button" matches <button> elements inside app-root's shadow
+	// root, and "app-root >> panel >> .submit" chains two levels deep. A
+	// plain selector with no ">>" matches light DOM plus every open shadow
+	// root (improvement-plan item 19).
 	CSS         string `json:"css,omitempty"`
 	XPath       string `json:"xpath,omitempty"`
 	Text        string `json:"text,omitempty"`
