@@ -40,7 +40,7 @@
     },
     "step": {
       "type": "object",
-      "description": "A step has exactly one action key plus optional per-step options (timeout, retries, screenshot_on_failure, tag/tags).",
+      "description": "A step has exactly one action key plus optional per-step options (timeout, retries, screenshot_on_failure, tag/tags, heal).",
       "properties": {
         "navigate": { "type": "string", "minLength": 1 },
         "wait": { "$ref": "#/definitions/wait" },
@@ -58,6 +58,7 @@
         "timeout": { "type": "integer", "minimum": 0 },
         "retries": { "type": "integer", "minimum": 0 },
         "screenshot_on_failure": { "type": "boolean" },
+        "heal": { "type": "boolean", "description": "Self-heal the selector: if the primary selector misses, relocate the intended element by its role/name from a fresh accessibility snapshot and retry. Only applies to selector actions (click, type, select_option, check/uncheck, scroll, wait)." },
         "tag": { "type": "string" },
         "tags": { "$ref": "#/definitions/tags" }
       },

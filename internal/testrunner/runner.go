@@ -82,6 +82,7 @@ type Step struct {
 	ScreenshotOnFailureSet bool
 	Tag                    string
 	Tags                   []string
+	Heal                   bool
 }
 
 func RunSuites(opts RunOptions) error {
@@ -601,6 +602,8 @@ func parseSteps(stepsRaw []any) ([]Step, error) {
 				step.Tag = asString(v)
 			case "tags":
 				step.Tags = asStringSlice(v)
+			case "heal":
+				step.Heal = asBool(v)
 			default:
 				return nil, fmt.Errorf("step %d: unknown key %q (not a supported action or step option)", idx+1, k)
 			}
@@ -810,6 +813,7 @@ func handleWait(ctx context.Context, serverURL, sessionID string, step Step) err
 	req := protocol.ActionRequest{
 		Action:    protocol.ActionWait,
 		TimeoutMS: timeout,
+		Heal:      step.Heal,
 	}
 	if sel != nil {
 		req.Condition = condition
@@ -846,6 +850,7 @@ func handleType(ctx context.Context, serverURL, sessionID string, step Step) err
 		Text:      text,
 		TimeoutMS: timeout,
 		Selector:  sel,
+		Heal:      step.Heal,
 	}
 	obs := &protocol.ObservationResponse{}
 	return postAction(ctx, serverURL, sessionID, req, obs)
@@ -873,6 +878,7 @@ func handleClick(ctx context.Context, serverURL, sessionID string, step Step) er
 		Action:    protocol.ActionClick,
 		TimeoutMS: timeout,
 		Selector:  sel,
+		Heal:      step.Heal,
 	}
 	obs := &protocol.ObservationResponse{}
 	return postAction(ctx, serverURL, sessionID, req, obs)
@@ -1012,6 +1018,7 @@ func handleSelectOption(ctx context.Context, serverURL, sessionID string, step S
 		OptionValue: asString(m["option_value"]),
 		OptionText:  asString(m["option_text"]),
 		TimeoutMS:   resolveStepTimeout(m, step),
+		Heal:        step.Heal,
 	}
 	if req.OptionValue == "" && req.OptionText == "" {
 		return fmt.Errorf("select_option requires option_value or option_text")
@@ -1068,6 +1075,7 @@ func handleScroll(ctx context.Context, serverURL, sessionID string, step Step) e
 		Action:    protocol.ActionScroll,
 		Selector:  sel,
 		TimeoutMS: resolveStepTimeout(m, step),
+		Heal:      step.Heal,
 	}
 	// The engine dispatches a CDP MouseWheel event at the selector center (or
 	// viewport centre) with DeltaX/DeltaY as the wheel deltas: positive DeltaY
@@ -1151,6 +1159,7 @@ func handleCheckUncheck(ctx context.Context, serverURL, sessionID string, action
 		Action:    action,
 		Selector:  sel,
 		TimeoutMS: resolveStepTimeout(m, step),
+		Heal:      step.Heal,
 	}
 	obs := &protocol.ObservationResponse{}
 	return postAction(ctx, serverURL, sessionID, req, obs)

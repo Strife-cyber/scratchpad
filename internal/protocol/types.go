@@ -378,6 +378,25 @@ type ActionResult struct {
 
 	// FileSize is the size in bytes of the artifact at FilePath (capture_pdf).
 	FileSize int64 `json:"file_size,omitempty"`
+
+	// Heal reports the outcome of self-healing selector re-location (the
+	// ActionRequest.Heal flag). Present only when healing was requested.
+	Heal *SelectorHeal `json:"heal,omitempty"`
+}
+
+// SelectorHeal describes a self-healing selector outcome. Healed is true when
+// the primary selector missed and the engine re-located the element by
+// role+name and retried with it. Ambiguous marks a re-location that matched
+// more than one AX node — the original selector is left in place so the normal
+// error path wins (never a wrong-element click).
+type SelectorHeal struct {
+	Healed    bool   `json:"healed,omitempty"`
+	Ambiguous bool   `json:"ambiguous,omitempty"`
+	Original  string `json:"original,omitempty"`
+	HealedTo  string `json:"healed_to,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // =============================================================================
@@ -507,6 +526,15 @@ type ActionRequest struct {
 	DeltaY    int    `json:"delta_y,omitempty"`
 	Condition string `json:"condition,omitempty"`
 	TimeoutMS int    `json:"timeout_ms,omitempty"`
+
+	// Heal enables self-healing selectors (improvement-plan extension): when
+	// set and the primary selector misses, the engine re-locates the intended
+	// element by the selector's role+name (when present) from a fresh AX
+	// snapshot and retries with the healed locator before dispatch. The
+	// outcome is reported in ActionResult.Heal. Ambiguous re-locations never
+	// fall through to a wrong element — they leave the original selector to
+	// fail normally.
+	Heal bool `json:"heal,omitempty"`
 
 	// Context targets a specific context of a hybrid session
 	// (improvement-plan item 31). Only meaningful for the "switch_context"

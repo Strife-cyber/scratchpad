@@ -405,3 +405,34 @@ func TestHandleAssert_StateRejectsEmptyShape(t *testing.T) {
 		t.Fatalf("err = %v, want state requirement error", err)
 	}
 }
+
+func TestHandleClick_HealOptionThreadsThrough(t *testing.T) {
+	url, req := actionCaptureServer(t, "")
+	step := Step{
+		RawKey: "click",
+		RawValue: map[string]any{
+			"selector": map[string]any{"css": "#btn-change", "role": "button", "name": "Change Text"},
+		},
+		Heal: true,
+	}
+	if err := handleClick(context.Background(), url, "sess", step); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !req.Heal {
+		t.Error("Heal = false, want true (step heal option must thread through)")
+	}
+	if req.Selector == nil || req.Selector.Role != "button" || req.Selector.Name != "Change Text" {
+		t.Errorf("Selector = %+v, want role+name carried alongside css", req.Selector)
+	}
+}
+
+func TestHandleClick_HealOptionDefaultsFalse(t *testing.T) {
+	url, req := actionCaptureServer(t, "")
+	step := Step{RawKey: "click", RawValue: "#btn"}
+	if err := handleClick(context.Background(), url, "sess", step); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Heal {
+		t.Error("Heal = true, want false when the step omits the option")
+	}
+}

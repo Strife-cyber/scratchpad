@@ -225,6 +225,29 @@ steps:
 	}
 }
 
+func TestValidateSuite_ValidHealOption(t *testing.T) {
+	errs := mustValidate(t, `
+steps:
+  - click:
+      selector: {css: "#btn-change", role: button, name: "Change Text"}
+    heal: true
+`)
+	if len(errs) != 0 {
+		t.Fatalf("expected valid heal option, got %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidateSuite_HealOptionBadType(t *testing.T) {
+	errs := mustValidate(t, `
+steps:
+  - click: {selector: "#btn"}
+    heal: "yes"
+`)
+	if len(errs) == 0 || !strings.Contains(errs[0].Message, "boolean") {
+		t.Fatalf("expected boolean-type error for heal, got %v", errs)
+	}
+}
+
 func TestValidateSuite_LineNumbers(t *testing.T) {
 	errs := mustValidate(t, "steps:\n  - hover: x\n")
 	if len(errs) == 0 {

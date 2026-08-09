@@ -291,6 +291,123 @@ func TestIntegration_RoleAndNameAssertions(t *testing.T) {
 	}
 }
 
+// TestIntegration_HealRelocatesByRoleName proves the heal path: the primary
+// CSS selector is broken (the id is removed), the engine re-locates the
+// element by role+name from a fresh AX snapshot, and the healed click actually
+// lands (the mutable paragraph flips). ActionResult.Heal records the outcome.
+func TestIntegration_HealRelocatesByRoleName(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	if err := e.Navigate(srv.URL); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	// Break the primary selector: strip the id off the Change Text button.
+	action(t, e, protocol.ActionRequest{
+		Action: protocol.ActionExecuteJS,
+		JS:     "document.getElementById('btn-change').removeAttribute('id')",
+	})
+
+	// Click with healing. CSS #btn-change now misses; the engine must re-locate
+	// by role+name and land the click on the button, flipping #mutable.
+	action(t, e, protocol.ActionRequest{
+		Action:    protocol.ActionClick,
+		Selector:  &protocol.Selector{CSS: "#btn-change", Role: "button", Name: "Change Text"},
+		Heal:      true,
+		TimeoutMS: 5000,
+	})
+
+	// Capture the click's result before anything else observes (an observe
+	// consumes lastActionResult, so the heal record must be read here).
+	obs := observe(t, e)
+	if obs.ActionResult == nil || obs.ActionResult.Heal == nil {
+		t.Fatal("action_result.heal missing after a healed action")
+	}
+	if !obs.ActionResult.Heal.Healed {
+		t.Errorf("Heal = %+v, want Healed=true", obs.ActionResult.Heal)
+	}
+	if !strings.Contains(obs.ActionResult.Heal.Original, "#btn-change") {
+		t.Errorf("Heal.Original = %q, want it to mention the broken css", obs.ActionResult.Heal.Original)
+	}
+
+	// The healed click actually landed: #mutable flipped.
+	if got := str(evalJS(t, e, "document.getElementById('mutable').textContent")); got != "changed text" {
+		t.Errorf("after healed click mutable = %q, want %q", got, "changed text")
+	}
+}
+
+// TestIntegration_HealNotRequestedHasNilHeal proves the heal record stays
+// absent when the action does not ask for healing.
+func TestIntegration_HealNotRequestedHasNilHeal(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	if err := e.Navigate(srv.URL); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	action(t, e, protocol.ActionRequest{
+		Action: protocol.ActionExecuteJS,
+		JS:     "document.getElementById('btn-change').removeAttribute('id')",
+	})
+	// No Heal flag: the click fails normally (css misses) and no heal record
+	// is produced.
+	_ = e.ExecuteAction(context.Background(), protocol.ActionRequest{
+		Action:    protocol.ActionClick,
+		Selector:  &protocol.Selector{CSS: "#btn-change"},
+		TimeoutMS: 1000,
+	})
+	obs := observe(t, e)
+	if obs.ActionResult == nil {
+		t.Fatal("action_result missing")
+	}
+	if obs.ActionResult.Heal != nil {
+		t.Errorf("Heal = %+v, want nil when healing was not requested", obs.ActionResult.Heal)
+	}
+}
+
+// TestIntegration_HealAmbiguousLeavesOriginal proves an ambiguous re-location
+// (two elements share the role+name) never guesses: the original selector stays
+// in place, the action fails normally, and the record reports Ambiguous.
+func TestIntegration_HealAmbiguousLeavesOriginal(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	if err := e.Navigate(srv.URL); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	// Strip the id and duplicate the button so role+name "Change Text" is
+	// ambiguous (two elements).
+	action(t, e, protocol.ActionRequest{
+		Action: protocol.ActionExecuteJS,
+		JS: `const b = document.getElementById('btn-change');
+b.removeAttribute('id');
+const c = b.cloneNode(true);
+b.parentNode.appendChild(c);`,
+	})
+	observe(t, e) // settle the AX cache so the fresh snapshot reflects both buttons
+
+	err := e.ExecuteAction(context.Background(), protocol.ActionRequest{
+		Action:    protocol.ActionClick,
+		Selector:  &protocol.Selector{CSS: "#btn-change", Role: "button", Name: "Change Text"},
+		Heal:      true,
+		TimeoutMS: 1500,
+	})
+	if err == nil {
+		t.Error("expected the ambiguous heal to leave the original selector and fail")
+	}
+	obs := observe(t, e)
+	if obs.ActionResult == nil || obs.ActionResult.Heal == nil {
+		t.Fatal("action_result.heal missing after an ambiguous heal attempt")
+	}
+	if !obs.ActionResult.Heal.Ambiguous || obs.ActionResult.Heal.Healed {
+		t.Errorf("Heal = %+v, want Ambiguous=true and Healed=false", obs.ActionResult.Heal)
+	}
+}
+
 // TestIntegration_EverySelectorType exercises every selector strategy the
 // engine supports, each with a real effect on the fixture.
 func TestIntegration_EverySelectorType(t *testing.T) {

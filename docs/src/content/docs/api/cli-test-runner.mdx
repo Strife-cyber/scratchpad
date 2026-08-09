@@ -108,6 +108,22 @@ describes it.
 - click: "#btn"                                 # String shorthand (CSS)
 ```
 
+### heal
+
+`heal: true` is a step option on any selector action (`click`, `type`,
+`select_option`, `check`/`uncheck`, `scroll`, `wait`): when the primary selector
+misses, the engine re-locates the intended element by its `role` + `name` from a
+fresh accessibility snapshot and retries with the healed locator. The outcome is
+reported on the observation's `action_result.heal` (`healed`, `ambiguous`,
+`original`, `healed_to`, …). Ambiguous re-locations never fall through to a wrong
+element — the original selector is left to fail normally.
+
+```yaml
+- click:
+    selector: {css: "#save-btn", role: button, name: "Save"}
+  heal: true
+```
+
 ### assert
 
 ```yaml

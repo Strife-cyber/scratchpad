@@ -68,6 +68,7 @@ var stepOptionKeys = map[string]bool{
 	"screenshot_on_failure": true,
 	"tag":                   true,
 	"tags":                  true,
+	"heal":                  true,
 }
 
 // selectorKeys are allowed inside a structured selector mapping.
@@ -719,6 +720,8 @@ func validateStepOption(key, v *yaml.Node, errs *[]SchemaError, path string) {
 	case "timeout", "retries":
 		requireNonNegInt(key, v, errs, path)
 	case "screenshot_on_failure":
+		requireBool(key, v, errs, path)
+	case "heal":
 		requireBool(key, v, errs, path)
 	case "tag":
 		requireStringScalar(key, v, errs, path)

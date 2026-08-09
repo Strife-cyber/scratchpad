@@ -36,6 +36,7 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 
 	// Capture action result at the end of every action.
 	start := time.Now()
+	var heal *protocol.SelectorHeal
 	defer func() {
 		// Only set lastActionResult if it hasn't already been set by
 		// action-specific code (e.g. wait uses its own timing).
@@ -46,7 +47,20 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 				ElapsedMS: time.Since(start).Milliseconds(),
 			}
 		}
+		// Attach the self-healing outcome (when requested) to whatever result
+		// the action produced, so agents can see that the selector was healed.
+		if heal != nil {
+			e.lastActionResult.Heal = heal
+		}
 	}()
+
+	// Self-heal before dispatch: when the step asked for it, relocate the
+	// intended element by role+name from a fresh AX snapshot and swap
+	// req.Selector. The action cases read req.Selector at dispatch time, so
+	// this needs no case changes.
+	if req.Heal && req.Selector != nil {
+		heal, _ = e.maybeHealSelector(ctx, &req, timeout)
+	}
 
 	switch req.Action {
 	case protocol.ActionWait:
