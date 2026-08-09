@@ -76,6 +76,7 @@ var selectorKeys = map[string]bool{
 	"xpath":       true,
 	"text":        true,
 	"role":        true,
+	"name":        true,
 	"test_id":     true,
 	"placeholder": true,
 }
@@ -662,7 +663,7 @@ func validateSelector(key, v *yaml.Node, errs *[]SchemaError, path string) {
 		return
 	}
 	if !isMapping(v) {
-		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "selector must be a string or a mapping with one of css, xpath, text, role, test_id, placeholder"})
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "selector must be a string or a mapping with one of css, xpath, text, role, name, test_id, placeholder"})
 		return
 	}
 	filled := 0
@@ -670,7 +671,7 @@ func validateSelector(key, v *yaml.Node, errs *[]SchemaError, path string) {
 		skey := v.Content[i]
 		sval := v.Content[i+1]
 		if !selectorKeys[skey.Value] {
-			*errs = append(*errs, SchemaError{Line: skey.Line, Column: skey.Column, Path: path, Message: fmt.Sprintf("unknown selector key %q (allowed: css, xpath, text, role, test_id, placeholder)", skey.Value)})
+			*errs = append(*errs, SchemaError{Line: skey.Line, Column: skey.Column, Path: path, Message: fmt.Sprintf("unknown selector key %q (allowed: css, xpath, text, role, name, test_id, placeholder)", skey.Value)})
 			continue
 		}
 		requireStringScalar(skey, sval, errs, path+"."+skey.Value)
@@ -679,7 +680,7 @@ func validateSelector(key, v *yaml.Node, errs *[]SchemaError, path string) {
 		}
 	}
 	if filled == 0 {
-		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "selector mapping must set at least one strategy (css, xpath, text, role, test_id, placeholder)"})
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "selector mapping must set at least one strategy (css, xpath, text, role, name, test_id, placeholder)"})
 	}
 }
 

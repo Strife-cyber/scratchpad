@@ -770,6 +770,9 @@ func parseSelector(v any) *protocol.Selector {
 		if role, ok := val["role"].(string); ok {
 			s.Role = role
 		}
+		if name, ok := val["name"].(string); ok {
+			s.Name = name
+		}
 		if testID, ok := val["test_id"].(string); ok {
 			s.TestID = testID
 		}

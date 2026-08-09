@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"strings"
 	"testing"
 
 	"scratchpad/internal/protocol"
@@ -185,5 +186,28 @@ func TestSelectorPriority_XPathOverText(t *testing.T) {
 	}
 	if s.XPath == "" {
 		t.Error("XPath should take priority over Text")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// roleNameLiteral (pure JS literal assembly)
+// ---------------------------------------------------------------------------
+
+func TestRoleNameLiteral(t *testing.T) {
+	got := roleNameLiteral("button", "Save")
+	if got != `{"role": "button", "name": "Save"}` {
+		t.Errorf("roleNameLiteral = %s, want object literal", got)
+	}
+}
+
+func TestRoleNameLiteral_EscapesName(t *testing.T) {
+	got := roleNameLiteral("link", `He said "hi"`)
+	if got == "" {
+		t.Fatal("roleNameLiteral should not be empty")
+	}
+	// The name must be escaped so the injected expression stays valid JS even
+	// when the accessible name contains quotes.
+	if !strings.Contains(got, `\"`) && strings.Contains(got, `"hi"`) {
+		t.Errorf("roleNameLiteral = %s, want the embedded name escaped", got)
 	}
 }

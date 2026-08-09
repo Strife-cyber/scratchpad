@@ -25,7 +25,11 @@ import (
 //     open shadow root (relative/descendant paths resolve within the shadow
 //     tree; shadow roots are DocumentFragments).
 //   - queryFor(root, kind, value): dispatches a selector kind to the matching
-//     walker and serializes each match via describeNode.
+//     walker and serializes each match via describeNode. The `role` kind matches
+//     the computed role (explicit role/aria-role attribute or an implicit role
+//     from the tag), and `role_name` matches role plus the accessible name
+//     (aria-label, aria-labelledby, title, or visible text) — the strongest
+//     locator the engine offers.
 const pierceHelpersSource = `const pierceHelpers = (() => {
   function pierceQueryAll(root, selector) {
     const out = [];
@@ -114,6 +118,66 @@ const pierceHelpersSource = `const pierceHelpers = (() => {
     };
   }
 
+  function implicitRole(el) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'button') return 'button';
+    if (tag === 'a' && el.hasAttribute('href')) return 'link';
+    if (tag === 'select') return 'combobox';
+    if (tag === 'textarea') return 'textbox';
+    if (tag === 'h1' || tag === 'h2' || tag === 'h3' || tag === 'h4' || tag === 'h5' || tag === 'h6') return 'heading';
+    if (tag === 'img' && el.hasAttribute('alt')) return 'image';
+    if (tag === 'input') {
+      const type = (el.getAttribute('type') || 'text').toLowerCase();
+      if (type === 'checkbox') return 'checkbox';
+      if (type === 'radio') return 'radio';
+      if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image') return 'button';
+      return 'textbox';
+    }
+    return '';
+  }
+
+  function computedRole(el) {
+    const explicit = (el.getAttribute('role') || el.getAttribute('aria-role') || '').toLowerCase();
+    return explicit || implicitRole(el);
+  }
+
+  function accessibleName(el) {
+    const ariaLabel = el.getAttribute('aria-label');
+    if (ariaLabel) return ariaLabel.trim();
+    const labelledby = el.getAttribute('aria-labelledby');
+    if (labelledby) {
+      const ids = labelledby.split(/\s+/);
+      let text = '';
+      for (let i = 0; i < ids.length; i++) {
+        const ref = document.getElementById(ids[i]);
+        if (ref) text += (ref.textContent || '').trim() + ' ';
+      }
+      const resolved = text.trim();
+      if (resolved) return resolved;
+    }
+    const title = el.getAttribute('title');
+    if (title) return title.trim();
+    const role = computedRole(el);
+    if (role === 'button' || role === 'link' || role === 'heading' || role === 'menuitem' || role === 'option') {
+      const t = (el.textContent || '').trim();
+      if (t) return t;
+    }
+    if (el.tagName.toLowerCase() === 'img') {
+      const alt = el.getAttribute('alt');
+      if (alt) return alt.trim();
+    }
+    return '';
+  }
+
+  function roleMatches(el, role) {
+    return computedRole(el) === String(role).toLowerCase();
+  }
+
+  function roleNameMatches(el, role, name) {
+    if (role && !roleMatches(el, role)) return false;
+    return accessibleName(el) === String(name).trim();
+  }
+
   function queryFor(root, kind, value) {
     let nodes;
     switch (kind) {
@@ -134,9 +198,12 @@ const pierceHelpersSource = `const pierceHelpers = (() => {
         break;
       case 'role':
         nodes = pierceAllElements(root).filter(function (el) {
-          const r = el.getAttribute('role') || '';
-          const ariaRole = el.getAttribute('aria-role') || '';
-          return r === value || ariaRole === value;
+          return roleMatches(el, value);
+        });
+        break;
+      case 'role_name':
+        nodes = pierceAllElements(root).filter(function (el) {
+          return roleNameMatches(el, value.role, value.name);
         });
         break;
       case 'test_id':
@@ -203,6 +270,15 @@ func chainArrayLiteral(segs []string) string {
 		parts[i] = jsStringLiteral(s)
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// roleNameLiteral renders a role+name pair as a JS object literal for the
+// "role_name" pierce kind, e.g. `{"role": "button", "name": "Save"}`. Both
+// values are escaped via jsStringLiteral so arbitrary accessible names are safe
+// inside the injected expression.
+func roleNameLiteral(role, name string) string {
+	return "{" + jsStringLiteral("role") + ": " + jsStringLiteral(role) +
+		", " + jsStringLiteral("name") + ": " + jsStringLiteral(name) + "}"
 }
 
 // pierceLookupExpr renders a JS expression that resolves the first match for a

@@ -214,6 +214,17 @@ steps:
 	}
 }
 
+func TestValidateSuite_ValidRoleNameSelector(t *testing.T) {
+	errs := mustValidate(t, `
+steps:
+  - assert: {selector: {role: button, name: "Save"}, visible: true}
+  - click: {selector: {role: link, name: "Home Link"}}
+`)
+	if len(errs) != 0 {
+		t.Fatalf("expected valid role+name selectors, got %d errors: %v", len(errs), errs)
+	}
+}
+
 func TestValidateSuite_LineNumbers(t *testing.T) {
 	errs := mustValidate(t, "steps:\n  - hover: x\n")
 	if len(errs) == 0 {

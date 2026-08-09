@@ -158,7 +158,8 @@ func jsStringLiteral(s string) string {
 
 func (e *ChromeEngine) querySelectorMatchesJSON(ctx context.Context, sel protocol.Selector) (string, error) {
 	// Pick the most specific selector definition.
-	// Phase 1 order: CSS > XPath > text > role > test_id > placeholder.
+	// Phase 1 order: CSS > XPath > text > role+name > role > name > test_id >
+	// placeholder.
 	//
 	// Every strategy runs through the pierce helpers (pierce.go) so matches are
 	// collected across open shadow boundaries, not just the light DOM
@@ -178,8 +179,16 @@ func (e *ChromeEngine) querySelectorMatchesJSON(ctx context.Context, sel protoco
 	case sel.Text != "":
 		return evalMatches(ctx, ctx, buildPierceQuery("text", jsStringLiteral(sel.Text)))
 
+	case sel.Role != "" && sel.Name != "":
+		return evalMatches(ctx, ctx, buildPierceQuery("role_name", roleNameLiteral(sel.Role, sel.Name)))
+
 	case sel.Role != "":
 		return evalMatches(ctx, ctx, buildPierceQuery("role", jsStringLiteral(sel.Role)))
+
+	case sel.Name != "":
+		// Name-only locator: match any element whose accessible name is exactly
+		// the requested value (empty name matches nothing by design).
+		return evalMatches(ctx, ctx, buildPierceQuery("role_name", roleNameLiteral("", sel.Name)))
 
 	case sel.TestID != "":
 		return evalMatches(ctx, ctx, buildPierceQuery("test_id", jsStringLiteral(sel.TestID)))

@@ -88,6 +88,7 @@
             "xpath": { "type": "string" },
             "text": { "type": "string" },
             "role": { "type": "string" },
+            "name": { "type": "string", "description": "Accessible name (aria-label, aria-labelledby, title, or visible text). Composes with role for the strongest locator." },
             "test_id": { "type": "string" },
             "placeholder": { "type": "string" }
           },

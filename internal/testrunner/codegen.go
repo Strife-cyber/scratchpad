@@ -190,6 +190,9 @@ func selectorMap(sel *protocol.Selector) map[string]any {
 	if sel.Role != "" {
 		m["role"] = sel.Role
 	}
+	if sel.Name != "" {
+		m["name"] = sel.Name
+	}
 	if sel.TestID != "" {
 		m["test_id"] = sel.TestID
 	}

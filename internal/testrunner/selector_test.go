@@ -33,6 +33,7 @@ func TestParseSelector_StructuredMap(t *testing.T) {
 		"xpath":       "//button",
 		"text":        "Submit",
 		"role":        "button",
+		"name":        "Submit",
 		"test_id":     "submit-btn",
 		"placeholder": "Username",
 	})
@@ -44,11 +45,28 @@ func TestParseSelector_StructuredMap(t *testing.T) {
 		XPath:       "//button",
 		Text:        "Submit",
 		Role:        "button",
+		Name:        "Submit",
 		TestID:      "submit-btn",
 		Placeholder: "Username",
 	}
 	if *sel != *want {
 		t.Errorf("selector mismatch:\n got %+v\nwant %+v", *sel, *want)
+	}
+}
+
+func TestParseSelector_RoleName(t *testing.T) {
+	sel := parseSelector(map[string]any{"role": "button", "name": "Save"})
+	if sel == nil {
+		t.Fatal("expected a selector from role+name")
+	}
+	if sel.Role != "button" || sel.Name != "Save" {
+		t.Errorf("Role/Name = %q/%q, want button/Save", sel.Role, sel.Name)
+	}
+
+	// Name without role is a valid standalone strategy too.
+	sel = parseSelector(map[string]any{"name": "Save"})
+	if sel == nil || sel.Name != "Save" || sel.Role != "" {
+		t.Errorf("name-only selector: %+v", sel)
 	}
 }
 

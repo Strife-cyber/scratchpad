@@ -369,6 +369,18 @@ func TestSelectorMethods(t *testing.T) {
 			wantDescribe: "role=button",
 		},
 		{
+			name:         "role+name selector",
+			selector:     protocol.Selector{Role: "button", Name: "Save"},
+			wantEmpty:    false,
+			wantDescribe: "role=button, name=Save",
+		},
+		{
+			name:         "name selector",
+			selector:     protocol.Selector{Name: "Save"},
+			wantEmpty:    false,
+			wantDescribe: "name=Save",
+		},
+		{
 			name:         "test_id selector",
 			selector:     protocol.Selector{TestID: "login-btn"},
 			wantEmpty:    false,

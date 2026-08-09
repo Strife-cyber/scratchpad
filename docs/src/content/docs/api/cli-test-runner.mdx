@@ -57,6 +57,28 @@ steps:
   - click: {selector: {text: "Add to Cart"}}
 ```
 
+### Selectors
+
+A selector is either a CSS string shorthand or a structured mapping with one or
+more strategies. Resolution order: `css` > `xpath` > `text` > `role`+`name` >
+`role` > `name` > `test_id` > `placeholder`.
+
+```yaml
+- click: {selector: {css: "#save-btn"}}
+- click: {selector: {xpath: "//button[@id='save']"}}
+- click: {selector: {text: "Save"}}
+- click: {selector: {test_id: "save-btn"}}
+- click: {selector: {role: button, name: "Save"}}   # Strongest locator
+- assert: {selector: {role: link, name: "Home"}, visible: true}
+```
+
+`role` matches the computed role — an explicit `role`/`aria-role` attribute or
+the element's implicit role (`button`, `link` for `<a href>`, `combobox`,
+`textbox`, `heading`, `checkbox`, `radio`, `image`, …). `name` is the accessible
+name: `aria-label`, `aria-labelledby`, `title`, or visible text. Together,
+`role` + `name` locates an element exactly the way the engine's observation tree
+describes it.
+
 ## Step Types
 
 ### navigate

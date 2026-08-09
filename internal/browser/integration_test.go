@@ -247,6 +247,50 @@ func TestIntegration_StateAssertions(t *testing.T) {
 	}
 }
 
+// TestIntegration_RoleAndNameAssertions proves role+name selectors resolve
+// native elements: a <button> with no explicit role matches {role: button,
+// name: "Click Me"} via its implicit role, and clicking {role: button, name:
+// "Change Text"} lands on the right element (the mutable paragraph flips).
+func TestIntegration_RoleAndNameAssertions(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	if err := e.Navigate(srv.URL); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	// element_visible: the native button "Click Me" is found by implicit role
+	// + accessible name (no explicit role attribute anywhere on the fixture).
+	action(t, e, protocol.ActionRequest{
+		Action: protocol.ActionAssert,
+		Assertion: &protocol.AssertionRequest{
+			Type:     "element_visible",
+			Selector: &protocol.Selector{Role: "button", Name: "Click Me"},
+		},
+	})
+
+	// element_count: exactly one link named "Home Link" (native <a href>).
+	action(t, e, protocol.ActionRequest{
+		Action: protocol.ActionAssert,
+		Assertion: &protocol.AssertionRequest{
+			Type:          "element_count",
+			Selector:      &protocol.Selector{Role: "link", Name: "Home Link"},
+			ExpectedCount: 1,
+		},
+	})
+
+	// Click {role: button, name: "Change Text"} — the click must land on
+	// #btn-change and flip the #mutable paragraph.
+	action(t, e, protocol.ActionRequest{
+		Action:   protocol.ActionClick,
+		Selector: &protocol.Selector{Role: "button", Name: "Change Text"},
+	})
+	if got := str(evalJS(t, e, "document.getElementById('mutable').textContent")); got != "changed text" {
+		t.Errorf("after role+name click mutable = %q, want %q", got, "changed text")
+	}
+}
+
 // TestIntegration_EverySelectorType exercises every selector strategy the
 // engine supports, each with a real effect on the fixture.
 func TestIntegration_EverySelectorType(t *testing.T) {

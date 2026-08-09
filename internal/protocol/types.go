@@ -711,8 +711,9 @@ type RecordOptions struct {
 // =============================================================================
 
 // Selector represents a structured locator for stable automation/testing.
-// Resolution order: CSS > XPath > text > role > test_id > placeholder.
-// Playwright-inspired: you can pass multiple strategies and the best match wins.
+// Resolution order: CSS > XPath > text > role+name > role > name > test_id >
+// placeholder. Playwright-inspired: you can pass multiple strategies and the
+// best match wins.
 type Selector struct {
 	// CSS is a CSS selector. It may be chained across open shadow-DOM
 	// boundaries with the Playwright-style ">>" separator:
@@ -720,10 +721,16 @@ type Selector struct {
 	// root, and "app-root >> panel >> .submit" chains two levels deep. A
 	// plain selector with no ">>" matches light DOM plus every open shadow
 	// root (improvement-plan item 19).
-	CSS         string `json:"css,omitempty"`
-	XPath       string `json:"xpath,omitempty"`
-	Text        string `json:"text,omitempty"`
-	Role        string `json:"role,omitempty"`
+	CSS   string `json:"css,omitempty"`
+	XPath string `json:"xpath,omitempty"`
+	Text  string `json:"text,omitempty"`
+	Role  string `json:"role,omitempty"`
+	// Name is the accessible name (aria-label, aria-labelledby, title, or
+	// visible text) of the target element. It composes with Role — role+name
+	// is the strongest locator the engine offers, matching what a human or an
+	// agent reading the AX tree would point at. It also works standalone
+	// (match any element with that accessible name).
+	Name        string `json:"name,omitempty"`
 	TestID      string `json:"test_id,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
 }
@@ -731,7 +738,7 @@ type Selector struct {
 // IsEmpty returns true when no selector strategy is set.
 func (s Selector) IsEmpty() bool {
 	return s.CSS == "" && s.XPath == "" && s.Text == "" &&
-		s.Role == "" && s.TestID == "" && s.Placeholder == ""
+		s.Role == "" && s.Name == "" && s.TestID == "" && s.Placeholder == ""
 }
 
 // Describe returns a human-readable description of the selector for error messages.
@@ -743,8 +750,12 @@ func (s Selector) Describe() string {
 		return "xpath=" + s.XPath
 	case s.Text != "":
 		return "text=" + s.Text
+	case s.Role != "" && s.Name != "":
+		return "role=" + s.Role + ", name=" + s.Name
 	case s.Role != "":
 		return "role=" + s.Role
+	case s.Name != "":
+		return "name=" + s.Name
 	case s.TestID != "":
 		return "testid=" + s.TestID
 	case s.Placeholder != "":

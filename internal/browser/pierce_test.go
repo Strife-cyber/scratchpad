@@ -151,6 +151,21 @@ class MockElement {
     return t;
   }
   getAttribute(name) { return Object.prototype.hasOwnProperty.call(this._attrs, name) ? this._attrs[name] : null; }
+  hasAttribute(name) { return Object.prototype.hasOwnProperty.call(this._attrs, name); }
+  getElementById(id) {
+    // Walks children and shadow roots, mirroring the real document.getElementById
+    // as used by aria-labelledby resolution in the pierce helpers.
+    const walk = (n) => {
+      if (n._attrs.id === id) return n;
+      if (n.shadowRoot) { const hit = walk(n.shadowRoot); if (hit) return hit; }
+      for (const c of n.children) {
+        const hit = walk(c);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    return walk(this);
+  }
   getBoundingClientRect() { return { left: this._rect.left, top: this._rect.top, width: this._rect.width, height: this._rect.height }; }
   append(...kids) { for (const k of kids) { k.parent = this; this.children.push(k); } return this; }
   attachShadow() { this.shadowRoot = new MockElement('SHADOW-ROOT'); return this.shadowRoot; }
@@ -215,6 +230,8 @@ const appRoot = new MockElement('app-root');
 document.append(appRoot);
 const lightBtn = new MockElement('button', { class: 'light' });
 appRoot.append(lightBtn);
+const homeLink = new MockElement('a', { href: '#home', id: 'home-link', _text: 'Home' });
+appRoot.append(homeLink);
 
 const shadow = appRoot.attachShadow();
 const shadowBtn = new MockElement('button', { class: 'shadow', id: 'submit', 'data-testid': 'submit-btn' });
@@ -255,7 +272,15 @@ assert.ok(textMatches.length >= 1, 'text should find shadow label');
 assert.ok(textMatches.some(d => d.text.indexOf('Save') !== -1), 'text match should carry the label text');
 assert.strictEqual(pierceHelpers.queryFor(document, 'test_id', 'submit-btn').length, 1, 'test_id should find shadow button');
 assert.strictEqual(pierceHelpers.queryFor(document, 'placeholder', 'Email').length, 1, 'placeholder should find shadow input');
-assert.strictEqual(pierceHelpers.queryFor(document, 'role', 'button').length, 1, 'role should find shadow role=button');
+// role matches the computed role: the explicit role=button div plus the
+// implicit button role of every <button> (light, shadow, nested) = 4.
+assert.strictEqual(pierceHelpers.queryFor(document, 'role', 'button').length, 4, 'role should match computed roles (explicit + implicit button)');
+// role_name adds the accessible name: only the shadow button is named "Save".
+assert.strictEqual(pierceHelpers.queryFor(document, 'role_name', { role: 'button', name: 'Save' }).length, 1, 'role_name should match button named Save');
+assert.strictEqual(pierceHelpers.queryFor(document, 'role_name', { role: 'button', name: 'Submit' }).length, 0, 'role_name should reject wrong name');
+// implicit link role from <a href> plus visible-text accessible name.
+assert.strictEqual(pierceHelpers.queryFor(document, 'role', 'link').length, 1, 'role should find implicit link');
+assert.strictEqual(pierceHelpers.queryFor(document, 'role_name', { role: 'link', name: 'Home' }).length, 1, 'role_name should find link named Home');
 
 // xpath walker crosses shadow roots
 assert.strictEqual(pierceHelpers.queryFor(document, 'xpath', '//button').length, 3, 'xpath should pierce');
