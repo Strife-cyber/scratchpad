@@ -42,13 +42,24 @@ func (e SchemaError) Error() string {
 
 // suiteActions lists every step action the runner can execute.
 var suiteActions = map[string]bool{
-	"navigate": true,
-	"wait":     true,
-	"type":     true,
-	"click":    true,
-	"assert":   true,
-	"observe":  true,
+	"navigate":        true,
+	"wait":            true,
+	"type":            true,
+	"click":           true,
+	"assert":          true,
+	"observe":         true,
+	"select_option":   true,
+	"execute_js":      true,
+	"scroll":          true,
+	"press_key":       true,
+	"press_key_combo": true,
+	"check":           true,
+	"uncheck":         true,
 }
+
+// suiteActionNames is the human-readable list of supported step actions used
+// in validation/parse error messages. Keep it in sync with suiteActions.
+var suiteActionNames = "navigate, wait, type, click, assert, observe, select_option, execute_js, scroll, press_key, press_key_combo, check, uncheck"
 
 // stepOptionKeys are per-step modifiers that sit alongside the action key.
 var stepOptionKeys = map[string]bool{
@@ -215,7 +226,7 @@ func validateStep(n *yaml.Node, errs *[]SchemaError, path string) {
 		*errs = append(*errs, SchemaError{Line: key.Line, Column: key.Column, Path: path, Message: fmt.Sprintf("unknown step key %q (not a supported action or step option)", key.Value)})
 	}
 	if action == "" {
-		*errs = append(*errs, SchemaError{Line: n.Line, Column: n.Column, Path: path, Message: "step is missing an action key (one of: navigate, wait, type, click, assert, observe)"})
+		*errs = append(*errs, SchemaError{Line: n.Line, Column: n.Column, Path: path, Message: fmt.Sprintf("step is missing an action key (one of: %s)", suiteActionNames)})
 		return
 	}
 	validateAction(action, actionVal, errs, fmt.Sprintf("%s.%s", path, action))
@@ -243,6 +254,18 @@ func validateAction(action string, v *yaml.Node, errs *[]SchemaError, path strin
 		validateClick(v, errs, path)
 	case "assert":
 		validateAssert(v, errs, path)
+	case "select_option":
+		validateSelectOption(v, errs, path)
+	case "execute_js":
+		validateExecuteJS(v, errs, path)
+	case "scroll":
+		validateScroll(v, errs, path)
+	case "press_key":
+		validatePressKey(v, errs, path)
+	case "press_key_combo":
+		validatePressKeyCombo(v, errs, path)
+	case "check", "uncheck":
+		validateCheckUncheck(action, v, errs, path)
 	}
 }
 
@@ -338,6 +361,7 @@ func validateAssert(v *yaml.Node, errs *[]SchemaError, path string) {
 		return
 	}
 	conditions := 0
+	hasAttr, hasValue := false, false
 	for i := 0; i < len(v.Content); i += 2 {
 		key := v.Content[i]
 		val := v.Content[i+1]
@@ -348,6 +372,26 @@ func validateAssert(v *yaml.Node, errs *[]SchemaError, path string) {
 		case "text":
 			requireStringScalar(key, val, errs, kp)
 			conditions++
+		case "count":
+			requireNonNegInt(key, val, errs, kp)
+			conditions++
+		case "attr":
+			requireStringScalar(key, val, errs, kp)
+			if isStringScalar(val) && val.Value != "" {
+				hasAttr = true
+			}
+		case "value":
+			requireStringScalar(key, val, errs, kp)
+			hasValue = true
+		case "url":
+			requireStringScalar(key, val, errs, kp)
+			conditions++
+		case "title":
+			requireStringScalar(key, val, errs, kp)
+			conditions++
+		case "no_console_errors":
+			requireBool(key, val, errs, kp)
+			conditions++
 		case "visible", "exists", "checked", "contains", "matches", "equals":
 			requireBool(key, val, errs, kp)
 			conditions++
@@ -355,8 +399,222 @@ func validateAssert(v *yaml.Node, errs *[]SchemaError, path string) {
 			*errs = append(*errs, SchemaError{Line: key.Line, Column: key.Column, Path: path, Message: fmt.Sprintf("unknown assert key %q", key.Value)})
 		}
 	}
+	if hasAttr && !hasValue {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "attr assertion requires a value"})
+	}
+	if hasValue && !hasAttr {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "\"value\" requires an attr assertion"})
+	}
+	if hasAttr && hasValue {
+		conditions++
+	}
 	if conditions == 0 {
-		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "assert requires at least one condition (visible, exists, checked, contains, matches, equals, or text)"})
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "assert requires at least one condition (visible, exists, checked, contains, matches, equals, text, count, attr, url, title, or no_console_errors)"})
+	}
+}
+
+func validateSelectOption(v *yaml.Node, errs *[]SchemaError, path string) {
+	if !isMapping(v) {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "select_option expects a mapping with selector and option_value/option_text"})
+		return
+	}
+	hasSelector, hasOption := false, false
+	for i := 0; i < len(v.Content); i += 2 {
+		key := v.Content[i]
+		val := v.Content[i+1]
+		kp := path + "." + key.Value
+		switch key.Value {
+		case "selector":
+			validateSelector(key, val, errs, kp)
+			hasSelector = true
+		case "option_value":
+			requireStringScalar(key, val, errs, kp)
+			if isStringScalar(val) && val.Value != "" {
+				hasOption = true
+			}
+		case "option_text":
+			requireStringScalar(key, val, errs, kp)
+			if isStringScalar(val) && val.Value != "" {
+				hasOption = true
+			}
+		case "timeout":
+			requireNonNegInt(key, val, errs, kp)
+		default:
+			*errs = append(*errs, SchemaError{Line: key.Line, Column: key.Column, Path: path, Message: fmt.Sprintf("unknown select_option key %q", key.Value)})
+		}
+	}
+	if !hasSelector {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "select_option requires a selector"})
+	}
+	if !hasOption {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "select_option requires option_value or option_text"})
+	}
+}
+
+func validateExecuteJS(v *yaml.Node, errs *[]SchemaError, path string) {
+	if isStringScalar(v) {
+		if v.Value == "" {
+			*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "execute_js script must not be empty"})
+		}
+		return
+	}
+	if !isMapping(v) {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "execute_js expects a string script or a mapping with \"js\""})
+		return
+	}
+	hasJS := false
+	for i := 0; i < len(v.Content); i += 2 {
+		key := v.Content[i]
+		val := v.Content[i+1]
+		kp := path + "." + key.Value
+		switch key.Value {
+		case "js":
+			requireStringScalar(key, val, errs, kp)
+			if isStringScalar(val) && val.Value != "" {
+				hasJS = true
+			}
+		default:
+			*errs = append(*errs, SchemaError{Line: key.Line, Column: key.Column, Path: path, Message: fmt.Sprintf("unknown execute_js key %q", key.Value)})
+		}
+	}
+	if !hasJS {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "execute_js requires a \"js\" script"})
+	}
+}
+
+func validateScroll(v *yaml.Node, errs *[]SchemaError, path string) {
+	if !isMapping(v) {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "scroll expects a mapping with direction and optional selector/amount"})
+		return
+	}
+	hasDirection := false
+	for i := 0; i < len(v.Content); i += 2 {
+		key := v.Content[i]
+		val := v.Content[i+1]
+		kp := path + "." + key.Value
+		switch key.Value {
+		case "selector":
+			validateSelector(key, val, errs, kp)
+		case "direction":
+			requireStringScalar(key, val, errs, kp)
+			if isStringScalar(val) {
+				switch val.Value {
+				case "up", "down", "left", "right":
+					hasDirection = true
+				default:
+					*errs = append(*errs, SchemaError{Line: val.Line, Column: val.Column, Path: kp, Message: fmt.Sprintf("scroll direction %q is not supported (allowed: up, down, left, right)", val.Value)})
+				}
+			}
+		case "amount":
+			requireNonNegInt(key, val, errs, kp)
+		default:
+			*errs = append(*errs, SchemaError{Line: key.Line, Column: key.Column, Path: path, Message: fmt.Sprintf("unknown scroll key %q", key.Value)})
+		}
+	}
+	if !hasDirection {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "scroll requires a direction (up, down, left, or right)"})
+	}
+}
+
+// modifierKeys are the allowed flag names inside a press_key "modifiers"
+// mapping and a press_key_combo chord.
+var modifierKeys = map[string]bool{"ctrl": true, "alt": true, "shift": true, "meta": true}
+
+func validateModifiers(key, v *yaml.Node, errs *[]SchemaError, path string) {
+	if !isMapping(v) {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "\"modifiers\" expects a mapping of modifier flags (ctrl, alt, shift, meta)"})
+		return
+	}
+	for i := 0; i < len(v.Content); i += 2 {
+		mkey := v.Content[i]
+		mval := v.Content[i+1]
+		mkp := path + "." + mkey.Value
+		if !modifierKeys[mkey.Value] {
+			*errs = append(*errs, SchemaError{Line: mkey.Line, Column: mkey.Column, Path: path, Message: fmt.Sprintf("unknown modifier %q (allowed: ctrl, alt, shift, meta)", mkey.Value)})
+			continue
+		}
+		requireBool(mkey, mval, errs, mkp)
+	}
+}
+
+func validatePressKey(v *yaml.Node, errs *[]SchemaError, path string) {
+	if !isMapping(v) {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "press_key expects a mapping with key and optional modifiers"})
+		return
+	}
+	hasKey := false
+	for i := 0; i < len(v.Content); i += 2 {
+		key := v.Content[i]
+		val := v.Content[i+1]
+		kp := path + "." + key.Value
+		switch key.Value {
+		case "key":
+			requireStringScalar(key, val, errs, kp)
+			if isStringScalar(val) && val.Value != "" {
+				hasKey = true
+			}
+		case "modifiers":
+			validateModifiers(key, val, errs, kp)
+		case "timeout":
+			requireNonNegInt(key, val, errs, kp)
+		default:
+			*errs = append(*errs, SchemaError{Line: key.Line, Column: key.Column, Path: path, Message: fmt.Sprintf("unknown press_key key %q", key.Value)})
+		}
+	}
+	if !hasKey {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "press_key requires a key"})
+	}
+}
+
+func validatePressKeyCombo(v *yaml.Node, errs *[]SchemaError, path string) {
+	if !isMapping(v) {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "press_key_combo expects a mapping with key and optional ctrl/alt/shift/meta"})
+		return
+	}
+	hasKey := false
+	for i := 0; i < len(v.Content); i += 2 {
+		key := v.Content[i]
+		val := v.Content[i+1]
+		kp := path + "." + key.Value
+		switch key.Value {
+		case "key":
+			requireStringScalar(key, val, errs, kp)
+			if isStringScalar(val) && val.Value != "" {
+				hasKey = true
+			}
+		case "ctrl", "alt", "shift", "meta":
+			requireBool(key, val, errs, kp)
+		default:
+			*errs = append(*errs, SchemaError{Line: key.Line, Column: key.Column, Path: path, Message: fmt.Sprintf("unknown press_key_combo key %q", key.Value)})
+		}
+	}
+	if !hasKey {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "press_key_combo requires a key"})
+	}
+}
+
+func validateCheckUncheck(action string, v *yaml.Node, errs *[]SchemaError, path string) {
+	if !isMapping(v) {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: fmt.Sprintf("%s expects a mapping with selector", action)})
+		return
+	}
+	hasSelector := false
+	for i := 0; i < len(v.Content); i += 2 {
+		key := v.Content[i]
+		val := v.Content[i+1]
+		kp := path + "." + key.Value
+		switch key.Value {
+		case "selector":
+			validateSelector(key, val, errs, kp)
+			hasSelector = true
+		case "timeout":
+			requireNonNegInt(key, val, errs, kp)
+		default:
+			*errs = append(*errs, SchemaError{Line: key.Line, Column: key.Column, Path: path, Message: fmt.Sprintf("unknown %s key %q", action, key.Value)})
+		}
+	}
+	if !hasSelector {
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: fmt.Sprintf("%s requires a selector", action)})
 	}
 }
 

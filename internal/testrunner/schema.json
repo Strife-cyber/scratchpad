@@ -48,6 +48,13 @@
         "click": { "$ref": "#/definitions/click" },
         "assert": { "$ref": "#/definitions/assert" },
         "observe": { "type": ["null", "object"] },
+        "select_option": { "$ref": "#/definitions/select_option" },
+        "execute_js": { "$ref": "#/definitions/execute_js" },
+        "scroll": { "$ref": "#/definitions/scroll" },
+        "press_key": { "$ref": "#/definitions/press_key" },
+        "press_key_combo": { "$ref": "#/definitions/press_key_combo" },
+        "check": { "$ref": "#/definitions/check_uncheck" },
+        "uncheck": { "$ref": "#/definitions/check_uncheck" },
         "timeout": { "type": "integer", "minimum": 0 },
         "retries": { "type": "integer", "minimum": 0 },
         "screenshot_on_failure": { "type": "boolean" },
@@ -61,7 +68,14 @@
         { "required": ["type"] },
         { "required": ["click"] },
         { "required": ["assert"] },
-        { "required": ["observe"] }
+        { "required": ["observe"] },
+        { "required": ["select_option"] },
+        { "required": ["execute_js"] },
+        { "required": ["scroll"] },
+        { "required": ["press_key"] },
+        { "required": ["press_key_combo"] },
+        { "required": ["check"] },
+        { "required": ["uncheck"] }
       ]
     },
     "selector": {
@@ -124,7 +138,13 @@
         "equals": { "type": "boolean" },
         "visible": { "type": "boolean" },
         "exists": { "type": "boolean" },
-        "checked": { "type": "boolean" }
+        "checked": { "type": "boolean" },
+        "count": { "type": "integer", "minimum": 0 },
+        "attr": { "type": "string" },
+        "value": { "type": "string" },
+        "url": { "type": "string" },
+        "title": { "type": "string" },
+        "no_console_errors": { "type": "boolean" }
       },
       "additionalProperties": false,
       "anyOf": [
@@ -134,8 +154,94 @@
         { "required": ["visible"] },
         { "required": ["exists"] },
         { "required": ["checked"] },
-        { "required": ["text"] }
+        { "required": ["text"] },
+        { "required": ["count"] },
+        { "required": ["attr"] },
+        { "required": ["url"] },
+        { "required": ["title"] },
+        { "required": ["no_console_errors"] }
+      ],
+      "dependencies": {
+        "attr": ["value"],
+        "value": ["attr"]
+      }
+    },
+    "select_option": {
+      "type": "object",
+      "required": ["selector"],
+      "properties": {
+        "selector": { "$ref": "#/definitions/selector" },
+        "option_value": { "type": "string" },
+        "option_text": { "type": "string" },
+        "timeout": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["option_value"] },
+        { "required": ["option_text"] }
       ]
+    },
+    "execute_js": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "required": ["js"],
+          "properties": { "js": { "type": "string", "minLength": 1 } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "scroll": {
+      "type": "object",
+      "required": ["direction"],
+      "properties": {
+        "selector": { "$ref": "#/definitions/selector" },
+        "direction": { "enum": ["up", "down", "left", "right"] },
+        "amount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "press_key": {
+      "type": "object",
+      "required": ["key"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "modifiers": { "$ref": "#/definitions/modifiers" },
+        "timeout": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "press_key_combo": {
+      "type": "object",
+      "required": ["key"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "ctrl": { "type": "boolean" },
+        "alt": { "type": "boolean" },
+        "shift": { "type": "boolean" },
+        "meta": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "modifiers": {
+      "type": "object",
+      "properties": {
+        "ctrl": { "type": "boolean" },
+        "alt": { "type": "boolean" },
+        "shift": { "type": "boolean" },
+        "meta": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "check_uncheck": {
+      "type": "object",
+      "required": ["selector"],
+      "properties": {
+        "selector": { "$ref": "#/definitions/selector" },
+        "timeout": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
     },
     "tags": {
       "oneOf": [

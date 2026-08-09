@@ -606,7 +606,7 @@ func parseSteps(stepsRaw []any) ([]Step, error) {
 			}
 		}
 		if !actionFound {
-			return nil, fmt.Errorf("step %d: missing action key (one of: navigate, wait, type, click, assert, observe)", idx+1)
+			return nil, fmt.Errorf("step %d: missing action key (one of: %s)", idx+1, suiteActionNames)
 		}
 		steps = append(steps, step)
 	}
@@ -634,6 +634,20 @@ func execStep(ctx context.Context, serverURL, sessionID string, step Step) error
 		return handleClick(ctx, serverURL, sessionID, step)
 	case "assert":
 		return handleAssert(ctx, serverURL, sessionID, step.RawValue)
+	case "select_option":
+		return handleSelectOption(ctx, serverURL, sessionID, step)
+	case "execute_js":
+		return handleExecuteJS(ctx, serverURL, sessionID, step)
+	case "scroll":
+		return handleScroll(ctx, serverURL, sessionID, step)
+	case "press_key":
+		return handlePressKey(ctx, serverURL, sessionID, step)
+	case "press_key_combo":
+		return handlePressKeyCombo(ctx, serverURL, sessionID, step)
+	case "check":
+		return handleCheckUncheck(ctx, serverURL, sessionID, protocol.ActionCheck, step)
+	case "uncheck":
+		return handleCheckUncheck(ctx, serverURL, sessionID, protocol.ActionUncheck, step)
 	case "observe":
 		obs := &protocol.ObservationResponse{}
 		if err := postTypedObserve(ctx, serverURL, sessionID, obs); err != nil {
@@ -874,32 +888,68 @@ func handleAssert(ctx context.Context, serverURL, sessionID string, v any) error
 	matches := asBool(m["matches"])
 	visible := asBool(m["visible"])
 	exists := asBool(m["exists"])
-	checked := asBool(m["checked"])
 
 	a := &protocol.AssertionRequest{Selector: sel}
 
-	// Priority: element assertions when booleans are present; otherwise text assertions.
+	// Precompute the explicit condition keys so the switch below stays
+	// expression-only (Go switch cases do not allow an init statement).
+	_, hasCount := m["count"]
+	attr := asString(m["attr"])
+	url := asString(m["url"])
+	title := asString(m["title"])
+	_, hasNoConsoleErrors := m["no_console_errors"]
+
+	// Priority: the newer explicit condition keys first (count, attr, url,
+	// title, no_console_errors), then element assertions, then text assertions —
+	// matching the order the conditions are documented in the schema.
 	switch {
+	case hasCount:
+		if sel == nil || sel.IsEmpty() {
+			return fmt.Errorf("count assertion requires a selector")
+		}
+		a.Type = "element_count"
+		a.ExpectedCount = asInt(m["count"])
+	case attr != "":
+		if sel == nil || sel.IsEmpty() {
+			return fmt.Errorf("attr assertion requires a selector")
+		}
+		a.Type = "attr_equals"
+		if contains {
+			a.Type = "attr_contains"
+		}
+		a.Attribute = attr
+		a.Value = asString(m["value"])
+	case url != "":
+		if equals {
+			// Exact URL match. The engine has no "url_equals" type; page_url
+			// with Value performs an exact comparison against location.href.
+			a.Type = "page_url"
+			a.Value = url
+		} else {
+			a.Type = "url_matches"
+			a.Pattern = url
+		}
+	case title != "":
+		a.Type = "page_title"
+		a.Text = title
+	case hasNoConsoleErrors:
+		a.Type = "console_error_count"
+		a.Value = "0"
 	case visible:
 		a.Type = "element_visible"
 	case exists:
 		a.Type = "element_exists"
-	case m != nil && m["checked"] != nil:
+	case m["checked"] != nil:
 		a.Type = "element_checked"
-		if checked {
-			t := true
-			a.Checked = &t
-		} else {
-			f := false
-			a.Checked = &f
-		}
+		c := asBool(m["checked"])
+		a.Checked = &c
 	case contains:
 		a.Type = "text_contains"
 		a.Text = txt
 	case matches:
 		a.Type = "text_matches"
 		a.Pattern = txt
-	case equals || (!contains && !matches):
+	case equals || txt != "":
 		a.Type = "text_equals"
 		a.Text = txt
 	default:
@@ -907,7 +957,7 @@ func handleAssert(ctx context.Context, serverURL, sessionID string, v any) error
 	}
 
 	req := protocol.ActionRequest{
-		Action:    "assert",
+		Action:    protocol.ActionAssert,
 		Assertion: a,
 	}
 
@@ -922,6 +972,178 @@ func handleAssert(ctx context.Context, serverURL, sessionID string, v any) error
 		return fmt.Errorf("assertion failed: %s", obs.AssertionResult.Message)
 	}
 	return nil
+}
+
+func handleSelectOption(ctx context.Context, serverURL, sessionID string, step Step) error {
+	m, ok := step.RawValue.(map[string]any)
+	if !ok {
+		return fmt.Errorf("select_option expects object")
+	}
+	sel := parseSelector(m["selector"])
+	if sel == nil || sel.IsEmpty() {
+		return fmt.Errorf("select_option requires selector")
+	}
+	req := protocol.ActionRequest{
+		Action:      protocol.ActionSelectOption,
+		Selector:    sel,
+		OptionValue: asString(m["option_value"]),
+		OptionText:  asString(m["option_text"]),
+		TimeoutMS:   resolveStepTimeout(m, step),
+	}
+	if req.OptionValue == "" && req.OptionText == "" {
+		return fmt.Errorf("select_option requires option_value or option_text")
+	}
+	obs := &protocol.ObservationResponse{}
+	return postAction(ctx, serverURL, sessionID, req, obs)
+}
+
+func handleExecuteJS(ctx context.Context, serverURL, sessionID string, step Step) error {
+	js := ""
+	switch vv := step.RawValue.(type) {
+	case string:
+		js = vv
+	case map[string]any:
+		js = asString(vv["js"])
+	default:
+		return fmt.Errorf("execute_js expects a string or an object with \"js\"")
+	}
+	if strings.TrimSpace(js) == "" {
+		return fmt.Errorf("execute_js requires js")
+	}
+	req := protocol.ActionRequest{
+		Action: protocol.ActionExecuteJS,
+		JS:     js,
+	}
+	obs := &protocol.ObservationResponse{}
+	if err := postAction(ctx, serverURL, sessionID, req, obs); err != nil {
+		return err
+	}
+	// Surface the JS return value when the engine captured one
+	// (ActionMetadata["result"], see jsResultMetadata).
+	if obs.ActionResult != nil && obs.ActionResult.ActionMetadata != nil {
+		if raw, ok := obs.ActionResult.ActionMetadata["result"]; ok {
+			if v, err := json.Marshal(raw); err == nil {
+				fmt.Printf("execute_js result: %s\n", string(v))
+			}
+		}
+	}
+	return nil
+}
+
+func handleScroll(ctx context.Context, serverURL, sessionID string, step Step) error {
+	m, ok := step.RawValue.(map[string]any)
+	if !ok {
+		return fmt.Errorf("scroll expects object")
+	}
+	direction := asString(m["direction"])
+	amount := asInt(m["amount"])
+	if amount == 0 {
+		amount = 100 // default wheel tick
+	}
+	sel := parseSelector(m["selector"])
+	req := protocol.ActionRequest{
+		Action:    protocol.ActionScroll,
+		Selector:  sel,
+		TimeoutMS: resolveStepTimeout(m, step),
+	}
+	// The engine dispatches a CDP MouseWheel event at the selector center (or
+	// viewport centre) with DeltaX/DeltaY as the wheel deltas: positive DeltaY
+	// scrolls down, positive DeltaX scrolls right.
+	switch direction {
+	case "up":
+		req.DeltaY = -amount
+	case "down":
+		req.DeltaY = amount
+	case "left":
+		req.DeltaX = -amount
+	case "right":
+		req.DeltaX = amount
+	default:
+		return fmt.Errorf("scroll direction %q not supported (allowed: up, down, left, right)", direction)
+	}
+	obs := &protocol.ObservationResponse{}
+	return postAction(ctx, serverURL, sessionID, req, obs)
+}
+
+func handlePressKey(ctx context.Context, serverURL, sessionID string, step Step) error {
+	m, ok := step.RawValue.(map[string]any)
+	if !ok {
+		return fmt.Errorf("press_key expects object")
+	}
+	key := asString(m["key"])
+	if key == "" {
+		return fmt.Errorf("press_key requires key")
+	}
+	req := protocol.ActionRequest{
+		Action:    protocol.ActionPressKey,
+		Key:       key,
+		TimeoutMS: resolveStepTimeout(m, step),
+	}
+	if mods, ok := m["modifiers"].(map[string]any); ok && len(mods) > 0 {
+		req.Modifiers = &protocol.KeyboardModifiers{
+			Alt:   asBool(mods["alt"]),
+			Ctrl:  asBool(mods["ctrl"]),
+			Meta:  asBool(mods["meta"]),
+			Shift: asBool(mods["shift"]),
+		}
+	}
+	obs := &protocol.ObservationResponse{}
+	return postAction(ctx, serverURL, sessionID, req, obs)
+}
+
+func handlePressKeyCombo(ctx context.Context, serverURL, sessionID string, step Step) error {
+	m, ok := step.RawValue.(map[string]any)
+	if !ok {
+		return fmt.Errorf("press_key_combo expects object")
+	}
+	key := asString(m["key"])
+	if key == "" {
+		return fmt.Errorf("press_key_combo requires key")
+	}
+	req := protocol.ActionRequest{
+		Action: protocol.ActionPressKeyCombo,
+		KeyChord: protocol.KeyChord{
+			Key:   key,
+			Ctrl:  asBool(m["ctrl"]),
+			Alt:   asBool(m["alt"]),
+			Shift: asBool(m["shift"]),
+			Meta:  asBool(m["meta"]),
+		},
+		TimeoutMS: resolveStepTimeout(m, step),
+	}
+	obs := &protocol.ObservationResponse{}
+	return postAction(ctx, serverURL, sessionID, req, obs)
+}
+
+func handleCheckUncheck(ctx context.Context, serverURL, sessionID string, action string, step Step) error {
+	m, ok := step.RawValue.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s expects object", action)
+	}
+	sel := parseSelector(m["selector"])
+	if sel == nil || sel.IsEmpty() {
+		return fmt.Errorf("%s requires selector", action)
+	}
+	req := protocol.ActionRequest{
+		Action:    action,
+		Selector:  sel,
+		TimeoutMS: resolveStepTimeout(m, step),
+	}
+	obs := &protocol.ObservationResponse{}
+	return postAction(ctx, serverURL, sessionID, req, obs)
+}
+
+// resolveStepTimeout returns the verb-level timeout_ms/timeout override, falling
+// back to the step's (suite-inherited) timeout. Mirrors handleType/handleClick.
+func resolveStepTimeout(m map[string]any, step Step) int {
+	timeout := asInt(m["timeout_ms"])
+	if timeout == 0 {
+		timeout = asInt(m["timeout"])
+	}
+	if timeout == 0 {
+		timeout = step.TimeoutMS
+	}
+	return timeout
 }
 
 func asString(v any) string {
