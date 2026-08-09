@@ -1,7 +1,8 @@
-.PHONY: build run tidy clean test test-short test-race test-integration test-verbose test-coverage bench test-all lint
+.PHONY: build build-cli run tidy clean test test-short test-race test-integration test-verbose test-coverage bench test-all lint
 
 BINARY_NAME=scratchpad.exe
 MCP_BINARY_NAME=scratchpad-mcp.exe
+CLI_BINARY_NAME=scratchpad-cli.exe
 
 # Build the binary (whole package, not a single file — config.go is a sibling)
 build:
@@ -11,6 +12,13 @@ build:
 build-mcp:
 	go build -o $(MCP_BINARY_NAME) ./cmd/mcp
 
+# Build the CLI once, then drop the binary in another repo (no Go toolchain
+# needed there). internal/testrunner can't be imported as a Go library from
+# outside this module — the CLI, the REST/WS API, and sdk/ are the external
+# surfaces.
+build-cli:
+	go build -o $(CLI_BINARY_NAME) ./cmd/cli
+
 # Run the server (builds first)
 run: build
 	./$(BINARY_NAME)
@@ -18,6 +26,7 @@ run: build
 # Clean up binaries and debug screenshots
 clean:
 	rm -f $(BINARY_NAME)
+	rm -f $(CLI_BINARY_NAME)
 	rm -f *.jpg
 	rm -f *.png
 

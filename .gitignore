@@ -1,6 +1,7 @@
 # Ignore executables
 scratchpad.exe
 scratchpad-mcp.exe
+scratchpad-cli.exe
 
 # Docs site
 docs/node_modules/
