@@ -3,13 +3,13 @@
 BINARY_NAME=scratchpad.exe
 MCP_BINARY_NAME=scratchpad-mcp.exe
 
-# Build the binary
+# Build the binary (whole package, not a single file — config.go is a sibling)
 build:
-	go build -o $(BINARY_NAME) cmd/server/main.go
+	go build -o $(BINARY_NAME) ./cmd/server
 
 # Build the mcp binary
 build-mcp:
-	go build -o $(MCP_BINARY_NAME) cmd/mcp/main.go
+	go build -o $(MCP_BINARY_NAME) ./cmd/mcp
 
 # Run the server (builds first)
 run: build
