@@ -1003,6 +1003,7 @@ type AssertionRequest struct {
 	// - value_equals
 	// - page_title, page_url, url_matches
 	// - console_error_count
+	// - document_status, inflight_requests
 	// - network_request_status, network_request_count, network_no_errors,
 	//   network_response_body
 	// - screenshot_matches

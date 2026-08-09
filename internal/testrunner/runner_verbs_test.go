@@ -363,3 +363,45 @@ func TestHandleAssert_FailureSurfacesMessage(t *testing.T) {
 		t.Fatalf("err = %v, want assertion failure message", err)
 	}
 }
+
+func TestHandleAssert_DocumentStatus(t *testing.T) {
+	url, req := actionCaptureServer(t, assertResponse)
+	if err := handleAssert(context.Background(), url, "sess", map[string]any{
+		"state": map[string]any{"document_status": "complete"},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	a := req.Assertion
+	if a == nil {
+		t.Fatal("Assertion is nil")
+	}
+	if a.Type != "document_status" || a.Value != "complete" {
+		t.Errorf("Type/Value = %q/%q, want document_status/complete", a.Type, a.Value)
+	}
+}
+
+func TestHandleAssert_InflightRequests(t *testing.T) {
+	url, req := actionCaptureServer(t, assertResponse)
+	if err := handleAssert(context.Background(), url, "sess", map[string]any{
+		"state": map[string]any{"inflight_requests": 2},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	a := req.Assertion
+	if a == nil {
+		t.Fatal("Assertion is nil")
+	}
+	if a.Type != "inflight_requests" || a.Value != "2" {
+		t.Errorf("Type/Value = %q/%q, want inflight_requests/2", a.Type, a.Value)
+	}
+}
+
+func TestHandleAssert_StateRejectsEmptyShape(t *testing.T) {
+	url, _ := actionCaptureServer(t, assertResponse)
+	err := handleAssert(context.Background(), url, "sess", map[string]any{
+		"state": map[string]any{"some_unknown": true},
+	})
+	if err == nil || !strings.Contains(err.Error(), "state assertion requires document_status or inflight_requests") {
+		t.Fatalf("err = %v, want state requirement error", err)
+	}
+}

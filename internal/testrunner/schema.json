@@ -144,7 +144,8 @@
         "value": { "type": "string" },
         "url": { "type": "string" },
         "title": { "type": "string" },
-        "no_console_errors": { "type": "boolean" }
+        "no_console_errors": { "type": "boolean" },
+        "state": { "$ref": "#/definitions/assert_state" }
       },
       "additionalProperties": false,
       "anyOf": [
@@ -159,12 +160,26 @@
         { "required": ["attr"] },
         { "required": ["url"] },
         { "required": ["title"] },
-        { "required": ["no_console_errors"] }
+        { "required": ["no_console_errors"] },
+        { "required": ["state"] }
       ],
       "dependencies": {
         "attr": ["value"],
         "value": ["attr"]
       }
+    },
+    "assert_state": {
+      "type": "object",
+      "description": "Assert on page-level system state. Exactly one of document_status or inflight_requests must be present.",
+      "properties": {
+        "document_status": { "type": "string", "description": "Expected document.readyState: loading, interactive, or complete." },
+        "inflight_requests": { "type": "integer", "minimum": 0, "description": "Expected number of in-flight network requests." }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["document_status"] },
+        { "required": ["inflight_requests"] }
+      ]
     },
     "select_option": {
       "type": "object",

@@ -898,11 +898,31 @@ func handleAssert(ctx context.Context, serverURL, sessionID string, v any) error
 	url := asString(m["url"])
 	title := asString(m["title"])
 	_, hasNoConsoleErrors := m["no_console_errors"]
+	_, hasState := m["state"]
 
-	// Priority: the newer explicit condition keys first (count, attr, url,
-	// title, no_console_errors), then element assertions, then text assertions —
-	// matching the order the conditions are documented in the schema.
+	// Priority: the newer explicit condition keys first (state, count, attr,
+	// url, title, no_console_errors), then element assertions, then text
+	// assertions — matching the order the conditions are documented in the
+	// schema.
 	switch {
+	case hasState:
+		sm, ok := m["state"].(map[string]any)
+		if !ok {
+			return fmt.Errorf("state assertion expects object")
+		}
+		if ds, ok := sm["document_status"].(string); ok && ds != "" {
+			a.Type = "document_status"
+			a.Value = ds
+		} else if ir, ok := sm["inflight_requests"]; ok {
+			n := asInt(ir)
+			if n < 0 {
+				return fmt.Errorf("state.inflight_requests must be a non-negative integer")
+			}
+			a.Type = "inflight_requests"
+			a.Value = fmt.Sprintf("%d", n)
+		} else {
+			return fmt.Errorf("state assertion requires document_status or inflight_requests")
+		}
 	case hasCount:
 		if sel == nil || sel.IsEmpty() {
 			return fmt.Errorf("count assertion requires a selector")

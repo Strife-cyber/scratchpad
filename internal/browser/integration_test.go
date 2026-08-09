@@ -202,6 +202,51 @@ func TestIntegration_FullLoop(t *testing.T) {
 	})
 }
 
+// TestIntegration_StateAssertions exercises the document_status /
+// inflight_requests assertions against a live page and proves the observation
+// reports the truthful readyState (SystemState.DocumentStatus matches
+// PageInfo.LoadStatus).
+func TestIntegration_StateAssertions(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	if err := e.Navigate(srv.URL); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	// document_status: after a settled navigate the fixture is complete.
+	action(t, e, protocol.ActionRequest{
+		Action: protocol.ActionAssert,
+		Assertion: &protocol.AssertionRequest{
+			Type:  "document_status",
+			Value: "complete",
+		},
+	})
+
+	// inflight_requests: no pending network traffic on the static fixture.
+	action(t, e, protocol.ActionRequest{
+		Action: protocol.ActionAssert,
+		Assertion: &protocol.AssertionRequest{
+			Type:  "inflight_requests",
+			Value: "0",
+		},
+	})
+
+	// The observation must report the real readyState, not the hardcoded default.
+	obs := observe(t, e)
+	if obs.PageInfo == nil || obs.PageInfo.LoadStatus == "" {
+		t.Fatal("page_info.load_status missing from observation")
+	}
+	if obs.SystemState.DocumentStatus != obs.PageInfo.LoadStatus {
+		t.Errorf("SystemState.DocumentStatus = %q, want PageInfo.LoadStatus %q",
+			obs.SystemState.DocumentStatus, obs.PageInfo.LoadStatus)
+	}
+	if obs.SystemState.DocumentStatus != "complete" {
+		t.Errorf("SystemState.DocumentStatus = %q, want complete after settled navigate", obs.SystemState.DocumentStatus)
+	}
+}
+
 // TestIntegration_EverySelectorType exercises every selector strategy the
 // engine supports, each with a real effect on the fixture.
 func TestIntegration_EverySelectorType(t *testing.T) {

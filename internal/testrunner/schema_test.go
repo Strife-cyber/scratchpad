@@ -163,6 +163,47 @@ steps:
 	}
 }
 
+func TestValidateSuite_ValidStateAssertions(t *testing.T) {
+	errs := mustValidate(t, `
+steps:
+  - assert: {state: {document_status: "complete"}}
+  - assert: {state: {inflight_requests: 0}}
+`)
+	if len(errs) != 0 {
+		t.Fatalf("expected valid state assertions, got %d errors: %v", len(errs), errs)
+	}
+}
+
+func TestValidateSuite_StateAssertionUnknownKey(t *testing.T) {
+	errs := mustValidate(t, `
+steps:
+  - assert: {state: {doc_status: "complete"}}
+`)
+	if len(errs) == 0 || !strings.Contains(errs[0].Message, "doc_status") {
+		t.Fatalf("expected unknown state-key error, got %v", errs)
+	}
+}
+
+func TestValidateSuite_StateAssertionBadType(t *testing.T) {
+	errs := mustValidate(t, `
+steps:
+  - assert: {state: {inflight_requests: "three"}}
+`)
+	if len(errs) == 0 || !strings.Contains(errs[0].Message, "integer") {
+		t.Fatalf("expected integer-type error, got %v", errs)
+	}
+}
+
+func TestValidateSuite_StateAssertionEmptyShape(t *testing.T) {
+	errs := mustValidate(t, `
+steps:
+  - assert: {state: {}}
+`)
+	if len(errs) == 0 || !strings.Contains(errs[0].Message, "document_status or inflight_requests") {
+		t.Fatalf("expected empty-state error, got %v", errs)
+	}
+}
+
 func TestValidateSuite_InvalidSelectorKey(t *testing.T) {
 	errs := mustValidate(t, `
 steps:

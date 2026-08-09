@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -292,5 +293,68 @@ func TestNetworkResponseBody_RequiresValue_IsPermanent(t *testing.T) {
 	})
 	if at.success || !at.permanent {
 		t.Errorf("missing value should be a permanent failure: %+v", at)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// state assertions (document_status / inflight_requests)
+// ---------------------------------------------------------------------------
+
+// TestInflightRequests_Matches verifies the counter is read straight from the
+// engine's atomic counter — no CDP involved, so it works on an in-memory engine.
+func TestInflightRequests_Matches(t *testing.T) {
+	e := &ChromeEngine{}
+	atomic.StoreInt32(&e.inFlightCount, 2)
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:  "inflight_requests",
+		Value: "2",
+	})
+	if !at.success {
+		t.Errorf("expected match: %+v", at)
+	}
+	if !strings.Contains(at.msg, "match") {
+		t.Errorf("msg = %q, want a match notice", at.msg)
+	}
+}
+
+func TestInflightRequests_Mismatch(t *testing.T) {
+	e := &ChromeEngine{}
+	atomic.StoreInt32(&e.inFlightCount, 2)
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:  "inflight_requests",
+		Value: "3",
+	})
+	if at.success {
+		t.Fatal("expected failure on count mismatch")
+	}
+	if !strings.Contains(at.msg, "got 2 want 3") {
+		t.Errorf("msg = %q, want a got/want diagnostic", at.msg)
+	}
+}
+
+func TestInflightRequests_NonInteger_IsPermanent(t *testing.T) {
+	e := &ChromeEngine{}
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type:  "inflight_requests",
+		Value: "abc",
+	})
+	if at.success || !at.permanent {
+		t.Errorf("non-integer value should be a permanent failure: %+v", at)
+	}
+}
+
+// TestDocumentStatus_EmptyValue_IsPermanent proves the configuration error is
+// caught without touching CDP (the real readyState read is covered by the
+// integration test).
+func TestDocumentStatus_EmptyValue_IsPermanent(t *testing.T) {
+	e := &ChromeEngine{}
+	at := e.evaluateAssertOnce(context.Background(), &protocol.AssertionRequest{
+		Type: "document_status",
+	})
+	if at.success || !at.permanent {
+		t.Errorf("empty value should be a permanent failure: %+v", at)
+	}
+	if !strings.Contains(at.msg, "assertion.value") {
+		t.Errorf("msg = %q, want a missing-value notice", at.msg)
 	}
 }

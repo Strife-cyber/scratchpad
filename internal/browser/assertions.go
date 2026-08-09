@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"scratchpad/internal/protocol"
@@ -337,6 +338,31 @@ func (e *ChromeEngine) evaluateAssertOnce(ctx context.Context, a *protocol.Asser
 			return ok(fmt.Sprintf("console error count matches: %d", errCount))
 		}
 		return fail(fmt.Sprintf("console error count mismatch: got %d want %d", errCount, want))
+
+	case "document_status":
+		want := strings.TrimSpace(a.Value)
+		if want == "" {
+			return perm("document_status requires assertion.value")
+		}
+		var got string
+		if err := chromedp.Evaluate(`document.readyState`, &got).Do(ctx); err != nil {
+			return fail(fmt.Sprintf("document_status query failed: %v", err))
+		}
+		if strings.TrimSpace(got) == want {
+			return ok(fmt.Sprintf("document status matches %q", want))
+		}
+		return fail(fmt.Sprintf("document status mismatch: got %q want %q", got, want))
+
+	case "inflight_requests":
+		want, err := strconv.Atoi(strings.TrimSpace(a.Value))
+		if err != nil {
+			return perm("inflight_requests requires integer assertion.value")
+		}
+		got := int(atomic.LoadInt32(&e.inFlightCount))
+		if got == want {
+			return ok(fmt.Sprintf("inflight requests match: %d", got))
+		}
+		return fail(fmt.Sprintf("inflight request count mismatch: got %d want %d", got, want))
 
 	case "network_request_status":
 		urlPattern := strings.TrimSpace(a.Pattern)

@@ -95,6 +95,8 @@ steps:
 - assert: {selector: {css: "#loading"}, visible: true}
 - assert: {selector: {css: ".item"}, exists: true}
 - assert: {selector: {css: "#checkbox"}, checked: true}
+- assert: {state: {document_status: "complete"}}
+- assert: {state: {inflight_requests: 0}}
 ```
 
 Assertion boolean fields map to types:
@@ -107,6 +109,12 @@ Assertion boolean fields map to types:
 | `visible` | `element_visible` |
 | `exists` | `element_exists` |
 | `checked` | `element_checked` |
+
+State assertions check page-level system state (no selector needed). Exactly one of
+`document_status` or `inflight_requests` must be present:
+
+- `state.document_status` — expected `document.readyState`: `loading`, `interactive`, or `complete`.
+- `state.inflight_requests` — expected number of in-flight network requests (non-negative integer).
 
 ### observe
 

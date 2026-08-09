@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -201,6 +202,10 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 		obs.PageInfo = pageInfo
 	}
 
+	// Report the truthful document readyState (the AX/SystemState default of
+	// "interactive" is only a fallback when no page info was captured).
+	obs.SystemState.DocumentStatus = systemDocumentStatus(pageInfo)
+
 	// Clear per-step console logs so subsequent assertions can measure fresh
 	// errors after new actions/waits.
 	e.consoleMu.Lock()
@@ -218,6 +223,17 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	)
 
 	return obs, nil
+}
+
+// systemDocumentStatus maps the observed PageInfo into SystemState.DocumentStatus.
+// PageInfo.LoadStatus is the real document.readyState normalized by
+// capturePageInfo; the fallback keeps the historical default when no page info
+// was captured (e.g. an observe that skipped page info).
+func systemDocumentStatus(pi *protocol.PageInfo) string {
+	if pi == nil || strings.TrimSpace(pi.LoadStatus) == "" {
+		return "interactive"
+	}
+	return pi.LoadStatus
 }
 
 // currentNavID returns the engine's navigation counter under lock.

@@ -392,6 +392,9 @@ func validateAssert(v *yaml.Node, errs *[]SchemaError, path string) {
 		case "no_console_errors":
 			requireBool(key, val, errs, kp)
 			conditions++
+		case "state":
+			validateAssertState(key, val, errs, kp)
+			conditions++
 		case "visible", "exists", "checked", "contains", "matches", "equals":
 			requireBool(key, val, errs, kp)
 			conditions++
@@ -409,7 +412,38 @@ func validateAssert(v *yaml.Node, errs *[]SchemaError, path string) {
 		conditions++
 	}
 	if conditions == 0 {
-		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "assert requires at least one condition (visible, exists, checked, contains, matches, equals, text, count, attr, url, title, or no_console_errors)"})
+		*errs = append(*errs, SchemaError{Line: v.Line, Column: v.Column, Path: path, Message: "assert requires at least one condition (visible, exists, checked, contains, matches, equals, text, count, attr, url, title, no_console_errors, or state)"})
+	}
+}
+
+// validateAssertState validates the state assertion mapping. Exactly one of
+// document_status (string) or inflight_requests (non-negative int) must be
+// present; unknown keys are rejected so typos surface at schema time.
+func validateAssertState(key *yaml.Node, val *yaml.Node, errs *[]SchemaError, path string) {
+	if !isMapping(val) {
+		*errs = append(*errs, SchemaError{Line: val.Line, Column: val.Column, Path: path, Message: "state expects a mapping with document_status or inflight_requests"})
+		return
+	}
+	known := 0
+	for i := 0; i < len(val.Content); i += 2 {
+		sk := val.Content[i]
+		sv := val.Content[i+1]
+		sp := path + "." + sk.Value
+		switch sk.Value {
+		case "document_status":
+			requireStringScalar(sk, sv, errs, sp)
+			if isStringScalar(sv) && sv.Value != "" {
+				known++
+			}
+		case "inflight_requests":
+			requireNonNegInt(sk, sv, errs, sp)
+			known++
+		default:
+			*errs = append(*errs, SchemaError{Line: sk.Line, Column: sk.Column, Path: sp, Message: fmt.Sprintf("unknown state assertion key %q", sk.Value)})
+		}
+	}
+	if known == 0 {
+		*errs = append(*errs, SchemaError{Line: val.Line, Column: val.Column, Path: path, Message: "state assertion requires document_status or inflight_requests"})
 	}
 }
 
