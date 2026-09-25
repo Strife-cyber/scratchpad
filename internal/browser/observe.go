@@ -28,10 +28,9 @@ import (
 // truncated, ObservationResponse.Truncated and FullNodeCount report the fact
 // and the full size.
 //
-// The AX capture is served from observeCache: when neither the navigation id
-// nor any tracked DOM mutation changed since the last observation, no CDP
-// calls are issued at all (screenshot aside); when only inserted subtrees are
-// dirty, they are refreshed via accessibility.GetPartialAXTree.
+// The AX capture is rebuilt on every call (see the invalidateAll below);
+// observeCache still holds the result so page info and the handle registry
+// share one snapshot.
 // Implements engine.Engine.
 func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.ObservationResponse, error) {
 	req := engine.MergeObserveRequests(reqs)
@@ -62,6 +61,14 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	// Emit diagnostics/assertions once per observation.
 	e.lastAssertionResult = nil
 	e.lastActionResult = nil
+
+	// Every observation rebuilds the tree from a fresh AX snapshot. The DOM
+	// mutation events the cache listens for are only emitted for nodes a
+	// client has already requested through DOM.getDocument/requestChildNodes,
+	// and typed values, selected options, scrolling and :hover-driven layout
+	// emit none at all — so trusting the cache served stale trees (and stale
+	// click coordinates) after almost every action.
+	cache.invalidateAll()
 
 	// Decide how much CDP work the tree capture needs.
 	treeMode := cache.observeMode(e.currentNavID())
