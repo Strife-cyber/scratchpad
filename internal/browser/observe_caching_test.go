@@ -236,3 +236,27 @@ func TestApplyDepthLimit(t *testing.T) {
 		t.Fatalf("limit 2 should keep all, got %d", len(got))
 	}
 }
+
+// Every observed element must carry its node_ref so agents can act on it by
+// handle_id; nodes without a backend id carry none.
+func TestObserveCache_BuildFullSetsNodeRef(t *testing.T) {
+	c := newObserveCache()
+	ax := []*accessibility.Node{
+		axNode("r", "", 0, "document", false, "a"),
+		axNode("a", "r", 42, "button", false),
+	}
+	if err := c.buildFull(context.Background(), 1, ax); err != nil {
+		t.Fatalf("buildFull: %v", err)
+	}
+	tree, _, _ := c.snapshot()
+	refs := map[string]string{}
+	for _, n := range tree {
+		refs[n.NodeID] = n.NodeRef
+	}
+	if refs["a"] != "42" {
+		t.Errorf("button node_ref = %q, want %q", refs["a"], "42")
+	}
+	if refs["r"] != "" {
+		t.Errorf("document node_ref = %q, want empty (no backend id)", refs["r"])
+	}
+}

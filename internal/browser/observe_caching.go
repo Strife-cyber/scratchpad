@@ -373,6 +373,9 @@ func buildSpatialTree(
 						Interactive: isInteractive(role),
 						Value:       axValueToString(node.Value),
 						Description: axValueToString(node.Description),
+						// Stable node handle (improvement-plan item 20): agents pass
+						// it back as ActionRequest.HandleID.
+						NodeRef: backendNodeRef(node.BackendDOMNodeID),
 					}
 				}
 				treeByID[id] = sn
