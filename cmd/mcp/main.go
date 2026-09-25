@@ -12,6 +12,9 @@ import (
 
 func main() {
 	engineURL := "ws://localhost:8080/ws"
+	if u := os.Getenv("SCRATCHPAD_URL"); u != "" {
+		engineURL = u
+	}
 
 	// 1. Connect the adapter to your engine
 	adapter, err := mcp.NewMcpServer(engineURL)

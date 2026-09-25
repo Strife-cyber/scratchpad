@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"scratchpad/internal/middleware"
 	"scratchpad/internal/protocol"
 
 	"github.com/gorilla/websocket"
@@ -110,6 +111,28 @@ func TestNewMcpServer_ConnectFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unreachable engine, got nil")
 	}
+}
+
+// The bridge must present SCRATCHPAD_TOKEN to a token-protected engine, and
+// say so plainly when it is missing.
+func TestNewMcpServer_SendsToken(t *testing.T) {
+	srv := startTestWSServer(t, "tok-session", nil)
+	defer srv.Close()
+	guarded := httptest.NewServer(middleware.Auth("s3cret", srv.Config.Handler))
+	defer guarded.Close()
+	wsURL := "ws" + strings.TrimPrefix(guarded.URL, "http")
+
+	t.Setenv("SCRATCHPAD_TOKEN", "")
+	if _, err := NewMcpServer(wsURL); err == nil || !strings.Contains(err.Error(), "SCRATCHPAD_TOKEN") {
+		t.Fatalf("missing token: err = %v, want a SCRATCHPAD_TOKEN hint", err)
+	}
+
+	t.Setenv("SCRATCHPAD_TOKEN", "s3cret")
+	server, err := NewMcpServer(wsURL)
+	if err != nil {
+		t.Fatalf("with token: %v", err)
+	}
+	server.Close()
 }
 
 // ---------------------------------------------------------------------------

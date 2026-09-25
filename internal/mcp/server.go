@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -115,9 +117,17 @@ func (sc *sessionConn) closeConn() {
 func dial(engineURL, attachID string) (*sessionConn, error) {
 	dialer := *websocket.DefaultDialer
 	dialer.HandshakeTimeout = 10 * time.Second
-	conn, _, err := dialer.Dial(engineURL, nil)
+	var header http.Header
+	if tok := os.Getenv("SCRATCHPAD_TOKEN"); tok != "" {
+		header = http.Header{"Authorization": {"Bearer " + tok}}
+	}
+	conn, resp, err := dialer.Dial(engineURL, header)
 	if err != nil {
-		return nil, fmt.Errorf("mcp: dial failed: %w", err)
+		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("mcp: engine at %s rejected the connection (401): set SCRATCHPAD_TOKEN to the server's token", engineURL)
+		}
+		return nil, fmt.Errorf("mcp: cannot reach the Scratchpad engine at %s: %w "+
+			"(start the server with `make run`, or point SCRATCHPAD_URL / --engine-url at a running one)", engineURL, err)
 	}
 
 	var handshake struct {
