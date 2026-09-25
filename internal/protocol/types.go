@@ -763,6 +763,18 @@ type Selector struct {
 	Placeholder string `json:"placeholder,omitempty"`
 }
 
+// UnmarshalJSON also accepts a bare string as shorthand for a CSS selector
+// ("#submit" == {"css":"#submit"}), the form agents most often guess.
+func (s *Selector) UnmarshalJSON(data []byte) error {
+	var css string
+	if err := json.Unmarshal(data, &css); err == nil {
+		*s = Selector{CSS: css}
+		return nil
+	}
+	type plain Selector
+	return json.Unmarshal(data, (*plain)(s))
+}
+
 // IsEmpty returns true when no selector strategy is set.
 func (s Selector) IsEmpty() bool {
 	return s.CSS == "" && s.XPath == "" && s.Text == "" &&
