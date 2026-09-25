@@ -184,7 +184,8 @@ func (s *Server) RegisterTools(srv *mcp.Server) {
 	// and a register closure, so this method stays a simple loop.
 	for _, td := range s.toolDefs() {
 		if err := td.register(srv); err != nil {
-			fmt.Printf("Failed to register %s: %v\n", td.name, err)
+			// Never write to stdout: it is the MCP JSON-RPC channel.
+			slog.Error("mcp: failed to register tool", "tool", td.name, "err", err)
 		}
 	}
 }
