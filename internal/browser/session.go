@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"scratchpad/internal/engine"
 
@@ -27,6 +28,12 @@ func (e *ChromeEngine) spawn(opts engine.Options) {
 		chromedp.WindowSize(1280, 720),
 		chromedp.Flag("hide-scrollbars", false),
 	)
+	// CHROME_PATH pins the browser binary. Without it chromedp only probes a
+	// fixed list of names on PATH, so Chromium installed anywhere else (e.g. a
+	// Playwright browser cache) is never found.
+	if p := os.Getenv("CHROME_PATH"); p != "" {
+		execOpts = append(execOpts, chromedp.ExecPath(p))
+	}
 	if opts.ProfileDir != "" {
 		execOpts = append(execOpts, chromedp.UserDataDir(opts.ProfileDir))
 	}
