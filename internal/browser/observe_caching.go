@@ -344,6 +344,7 @@ func buildSpatialTree(
 	treeByID = make(map[accessibility.NodeID]protocol.SpatialNode)
 	depthByID = make(map[accessibility.NodeID]int)
 	byBackend = make(map[cdp.BackendNodeID]accessibility.NodeID)
+	boundsByBackend := prefetchBounds(ctx, byID, reuse)
 
 	var walk func(id accessibility.NodeID, depth int)
 	walk = func(id accessibility.NodeID, depth int) {
@@ -360,12 +361,7 @@ func buildSpatialTree(
 			if role != "" && isStructuralOrInteractive(role) {
 				sn, ok := reuse[id]
 				if !ok {
-					var bounds protocol.Bounds
-					if node.BackendDOMNodeID != 0 {
-						if b, ok := boundsFromBackendNode(ctx, node.BackendDOMNodeID); ok {
-							bounds = b
-						}
-					}
+					bounds := boundsByBackend[node.BackendDOMNodeID]
 					sn = protocol.SpatialNode{
 						NodeID:      string(node.NodeID),
 						Role:        role,
@@ -394,6 +390,55 @@ func buildSpatialTree(
 		walk(root, 0)
 	}
 	return tree, treeByID, depthByID, byBackend
+}
+
+// boundsWorkers bounds how many DOM.getBoxModel calls are in flight at once.
+const boundsWorkers = 16
+
+// prefetchBounds resolves the bounding box of every node buildSpatialTree will
+// emit fresh (not in reuse), issuing the DOM.getBoxModel calls concurrently:
+// one sequential round trip per node made a full observation of a large page
+// take over a second. Nodes whose box cannot be resolved are absent from the
+// result, which buildSpatialTree reads as zero bounds.
+func prefetchBounds(
+	ctx context.Context,
+	byID map[accessibility.NodeID]*accessibility.Node,
+	reuse map[accessibility.NodeID]protocol.SpatialNode,
+) map[cdp.BackendNodeID]protocol.Bounds {
+	var ids []cdp.BackendNodeID
+	for id, node := range byID {
+		if node.Ignored || node.BackendDOMNodeID == 0 || !isStructuralOrInteractive(axValueToString(node.Role)) {
+			continue
+		}
+		if _, ok := reuse[id]; ok {
+			continue
+		}
+		ids = append(ids, node.BackendDOMNodeID)
+	}
+
+	out := make(map[cdp.BackendNodeID]protocol.Bounds, len(ids))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	work := make(chan cdp.BackendNodeID)
+	for w := 0; w < min(boundsWorkers, len(ids)); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range work {
+				if b, ok := boundsFromBackendNode(ctx, id); ok {
+					mu.Lock()
+					out[id] = b
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+	for _, id := range ids {
+		work <- id
+	}
+	close(work)
+	wg.Wait()
+	return out
 }
 
 // maxOwnTextLen caps SpatialNode.Text so one long article paragraph cannot
