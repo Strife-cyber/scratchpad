@@ -1205,6 +1205,12 @@ type SpatialNode struct {
 	// Description is the aria-description or title attribute.
 	Description string `json:"description,omitempty"`
 
+	// Text is the visible text directly inside this element (e.g. a
+	// paragraph, table cell or status message), set only when Name is empty
+	// so it never duplicates an accessible name. Text owned by a descendant
+	// that appears as its own node is not repeated here.
+	Text string `json:"text,omitempty"`
+
 	// NodeRef is a stable node handle for this element: the decimal
 	// backendNodeId as resolved by the accessibility tree. Agents can pass it
 	// back as ActionRequest.HandleID to target the element without re-resolving

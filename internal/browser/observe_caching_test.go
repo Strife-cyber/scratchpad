@@ -260,3 +260,39 @@ func TestObserveCache_BuildFullSetsNodeRef(t *testing.T) {
 		t.Errorf("document node_ref = %q, want empty (no backend id)", refs["r"])
 	}
 }
+
+// axText builds a named AX node (StaticText or any role carrying a name).
+func axText(id, parent, role, name string, children ...string) *accessibility.Node {
+	n := axNode(id, parent, 0, role, false, children...)
+	n.Name = &accessibility.Value{Value: []byte(`"` + name + `"`)}
+	return n
+}
+
+// A paragraph's visible text surfaces as Text (through inline wrappers), but
+// text owned by an emitted child (a link) is not repeated, and named nodes
+// carry no Text.
+func TestObserveCache_OwnText(t *testing.T) {
+	c := newObserveCache()
+	ax := []*accessibility.Node{
+		axNode("p", "", 0, "paragraph", false, "t1", "em", "a"),
+		axText("t1", "p", "StaticText", "Welcome,"),
+		axNode("em", "p", 0, "emphasis", false, "t2"),
+		axText("t2", "em", "StaticText", "  alice "),
+		axText("a", "p", "link", "Log out", "t3"),
+		axText("t3", "a", "StaticText", "Log out"),
+	}
+	if err := c.buildFull(context.Background(), 1, ax); err != nil {
+		t.Fatalf("buildFull: %v", err)
+	}
+	tree, _, _ := c.snapshot()
+	got := map[string]string{}
+	for _, n := range tree {
+		got[n.NodeID] = n.Text
+	}
+	if got["p"] != "Welcome, alice" {
+		t.Errorf("paragraph text = %q, want %q", got["p"], "Welcome, alice")
+	}
+	if got["a"] != "" {
+		t.Errorf("named link carries text %q, want none", got["a"])
+	}
+}

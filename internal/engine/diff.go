@@ -38,7 +38,7 @@ func ComputeDiff(oldTree, newTree []protocol.SpatialNode) *protocol.TreeDelta {
 // has changed between two observations.
 func spatialNodeChanged(a, b protocol.SpatialNode) bool {
 	return a.Bounds != b.Bounds || a.Name != b.Name || a.Role != b.Role ||
-		a.Value != b.Value || a.Description != b.Description ||
+		a.Value != b.Value || a.Description != b.Description || a.Text != b.Text ||
 		a.Interactive != b.Interactive || a.NodeRef != b.NodeRef ||
 		a.ScrollState != b.ScrollState
 }

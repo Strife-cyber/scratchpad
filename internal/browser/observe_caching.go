@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 
 	"scratchpad/internal/protocol"
@@ -377,6 +378,9 @@ func buildSpatialTree(
 						// it back as ActionRequest.HandleID.
 						NodeRef: backendNodeRef(node.BackendDOMNodeID),
 					}
+					if sn.Name == "" {
+						sn.Text = ownText(byID, node)
+					}
 				}
 				treeByID[id] = sn
 				tree = append(tree, sn)
@@ -390,6 +394,50 @@ func buildSpatialTree(
 		walk(root, 0)
 	}
 	return tree, treeByID, depthByID, byBackend
+}
+
+// maxOwnTextLen caps SpatialNode.Text so one long article paragraph cannot
+// swamp an observation.
+const maxOwnTextLen = 300
+
+// ownText collects the StaticText under node, descending through children
+// that are not emitted as spatial nodes themselves (ignored nodes, inline
+// roles like strong/emphasis) and stopping at emitted ones, which carry their
+// own name or text.
+func ownText(byID map[accessibility.NodeID]*accessibility.Node, node *accessibility.Node) string {
+	var b strings.Builder
+	var walk func(n *accessibility.Node)
+	walk = func(n *accessibility.Node) {
+		for _, cid := range n.ChildIDs {
+			if b.Len() >= maxOwnTextLen {
+				return
+			}
+			child, ok := byID[cid]
+			if !ok {
+				continue
+			}
+			role := axValueToString(child.Role)
+			if role == "StaticText" {
+				if t := strings.Join(strings.Fields(axValueToString(child.Name)), " "); t != "" {
+					if b.Len() > 0 {
+						b.WriteByte(' ')
+					}
+					b.WriteString(t)
+				}
+				continue
+			}
+			if !child.Ignored && isStructuralOrInteractive(role) {
+				continue
+			}
+			walk(child)
+		}
+	}
+	walk(node)
+	t := b.String()
+	if len(t) > maxOwnTextLen {
+		t = strings.ToValidUTF8(t[:maxOwnTextLen], "") + "…"
+	}
+	return t
 }
 
 // applyDepthLimit drops spatial nodes deeper than limit (root = depth 0), using
