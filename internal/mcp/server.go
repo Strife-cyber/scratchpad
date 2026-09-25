@@ -436,11 +436,16 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 
 	truncated := ""
 	if obs.Truncated {
-		truncated = fmt.Sprintf(" (truncated, full=%d)", obs.FullNodeCount)
+		truncated = fmt.Sprintf(" (truncated from %d; raise max_nodes or pass interactive_only to see the rest)", obs.FullNodeCount)
 	}
 
-	displayText := fmt.Sprintf("State: %+v%s%s\nNodes: %d%s%s",
-		obs.SystemState, pageText, actionResult, len(obs.SpatialTree), truncated, topElements(obs.SpatialTree))
+	state := "State: document " + obs.SystemState.DocumentStatus
+	if n := obs.SystemState.InflightRequests; n > 0 {
+		state += fmt.Sprintf(", %d requests in flight", n)
+	}
+
+	displayText := fmt.Sprintf("%s%s%s\nNodes: %d%s%s",
+		state, pageText, actionResult, len(obs.SpatialTree), truncated, topElements(obs.SpatialTree))
 
 	contents := []*mcp.Content{mcp.NewTextContent(displayText)}
 
@@ -476,31 +481,39 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 	return mcp.NewToolResponse(contents...), nil
 }
 
-// topElements renders the most relevant spatial nodes as a compact "Elements:
-// ..." list. Interactive nodes and named headings/links are shown first, up to
-// maxShown entries, so the agent gets actionable element ids without the full
-// JSON tree.
+// topElements renders the observed tree as an "Elements:" outline, one node
+// per line in page order: every interactive node plus every node carrying a
+// name or visible text. Each actionable line ends in ref=<node_ref>, which the
+// agent passes back as handle_id. The tree is already capped by the observe
+// node budget, so every node that survived it is listed.
 func topElements(tree []protocol.SpatialNode) string {
-	const maxShown = 6
-	shown := 0
 	var b strings.Builder
-	b.WriteString("\nElements:")
+	b.WriteString("\nElements: (pass a ref as handle_id to act on that element)")
+	listed := 0
 	for _, n := range tree {
-		if shown >= maxShown {
-			break
-		}
-		if !n.Interactive && n.Name == "" {
+		if !n.Interactive && n.Name == "" && n.Text == "" {
 			continue
 		}
-		label := n.Name
-		if label == "" {
-			label = n.NodeID
+		listed++
+		b.WriteString("\n- ")
+		b.WriteString(n.Role)
+		if name := strings.TrimSpace(n.Name); name != "" {
+			fmt.Fprintf(&b, " %q", name)
 		}
-		fmt.Fprintf(&b, " [%s %q id=%s]", n.Role, label, n.NodeID)
-		shown++
+		if n.Value != "" {
+			fmt.Fprintf(&b, " value=%q", n.Value)
+		}
+		if n.Text != "" {
+			b.WriteString(": ")
+			b.WriteString(n.Text)
+		}
+		if n.NodeRef != "" && (n.Interactive || n.Name != "") {
+			b.WriteString(" ref=")
+			b.WriteString(n.NodeRef)
+		}
 	}
-	if remaining := len(tree) - shown; remaining > 0 {
-		fmt.Fprintf(&b, " (+%d more)", remaining)
+	if listed == 0 {
+		b.WriteString(" none")
 	}
 	return b.String()
 }
