@@ -74,3 +74,42 @@ func TestIntegration_ActOnObservedNodeRef(t *testing.T) {
 		t.Errorf("select_option by handle: #country = %q, want %q", got, "CA")
 	}
 }
+
+// TestIntegration_ObservedRoleNameIsASelector checks the observation ->
+// selector round trip: every named control an observation reports must be
+// findable by exactly that role + name.
+func TestIntegration_ObservedRoleNameIsASelector(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	if err := e.Navigate(srv.URL + "/index.html"); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	checked := 0
+	for _, n := range observe(t, e).SpatialTree {
+		switch n.Role {
+		case "button", "link", "textbox", "checkbox", "combobox", "spinbutton", "searchbox":
+		default:
+			continue
+		}
+		// "Choose File" is the user-agent shadow button inside
+		// <input type=file>; page script cannot address it by role.
+		if n.Name == "" || n.Bounds.Width == 0 || n.Name == "Choose File" {
+			continue
+		}
+		checked++
+		sel := protocol.Selector{Role: n.Role, Name: n.Name}
+		matches, err := e.findElementsOnce(e.ctx, sel)
+		if err != nil {
+			t.Errorf("role=%s name=%q: %v", n.Role, n.Name, err)
+			continue
+		}
+		if len(matches) == 0 {
+			t.Errorf("observed role=%s name=%q is not matched by the same role+name selector", n.Role, n.Name)
+		}
+	}
+	if checked < 5 {
+		t.Fatalf("only %d named controls observed; fixture or observe changed", checked)
+	}
+}

@@ -131,6 +131,10 @@ const pierceHelpersSource = `const pierceHelpers = (() => {
       if (type === 'checkbox') return 'checkbox';
       if (type === 'radio') return 'radio';
       if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image') return 'button';
+      // Match the roles Chrome's accessibility tree (and so observations) report.
+      if (type === 'search') return 'searchbox';
+      if (type === 'number') return 'spinbutton';
+      if (type === 'range') return 'slider';
       return 'textbox';
     }
     return '';
@@ -141,32 +145,52 @@ const pierceHelpersSource = `const pierceHelpers = (() => {
     return explicit || implicitRole(el);
   }
 
+  function normalizeName(t) {
+    return String(t || '').replace(/\s+/g, ' ').trim();
+  }
+
+  // accessibleName approximates the name Chrome's accessibility tree computes,
+  // so the role+name an observation reports can be used verbatim as a selector.
   function accessibleName(el) {
-    const ariaLabel = el.getAttribute('aria-label');
-    if (ariaLabel) return ariaLabel.trim();
+    const ariaLabel = normalizeName(el.getAttribute('aria-label'));
+    if (ariaLabel) return ariaLabel;
     const labelledby = el.getAttribute('aria-labelledby');
     if (labelledby) {
       const ids = labelledby.split(/\s+/);
       let text = '';
       for (let i = 0; i < ids.length; i++) {
         const ref = document.getElementById(ids[i]);
-        if (ref) text += (ref.textContent || '').trim() + ' ';
+        if (ref) text += (ref.textContent || '') + ' ';
       }
-      const resolved = text.trim();
+      const resolved = normalizeName(text);
       if (resolved) return resolved;
     }
-    const title = el.getAttribute('title');
-    if (title) return title.trim();
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    // Form controls are named by their <label for=...> or wrapping <label>.
+    if (el.labels && el.labels.length) {
+      let text = '';
+      for (let i = 0; i < el.labels.length; i++) text += (el.labels[i].textContent || '') + ' ';
+      const resolved = normalizeName(text);
+      if (resolved) return resolved;
+    }
+    if (tag === 'input' && (type === 'submit' || type === 'button' || type === 'reset')) {
+      const v = normalizeName(el.value);
+      if (v) return v;
+    }
     const role = computedRole(el);
-    if (role === 'button' || role === 'link' || role === 'heading' || role === 'menuitem' || role === 'option') {
-      const t = (el.textContent || '').trim();
+    if (role === 'button' || role === 'link' || role === 'heading' || role === 'menuitem' || role === 'option' ||
+        role === 'tab' || role === 'checkbox' || role === 'radio' || role === 'switch' || role === 'treeitem') {
+      const t = normalizeName(el.textContent);
       if (t) return t;
     }
-    if (el.tagName.toLowerCase() === 'img') {
-      const alt = el.getAttribute('alt');
-      if (alt) return alt.trim();
+    if (tag === 'img') {
+      const alt = normalizeName(el.getAttribute('alt'));
+      if (alt) return alt;
     }
-    return '';
+    const title = normalizeName(el.getAttribute('title'));
+    if (title) return title;
+    return normalizeName(el.getAttribute('placeholder'));
   }
 
   function roleMatches(el, role) {
@@ -175,7 +199,7 @@ const pierceHelpersSource = `const pierceHelpers = (() => {
 
   function roleNameMatches(el, role, name) {
     if (role && !roleMatches(el, role)) return false;
-    return accessibleName(el) === String(name).trim();
+    return accessibleName(el) === normalizeName(name);
   }
 
   function queryFor(root, kind, value) {
