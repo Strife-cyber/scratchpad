@@ -296,3 +296,26 @@ func TestObserveCache_OwnText(t *testing.T) {
 		t.Errorf("named link carries text %q, want none", got["a"])
 	}
 }
+
+// Label text and a textbox's inner editor text are already reported as the
+// control's name and value, so they must not reappear as Text.
+func TestObserveCache_OwnTextSkipsLabelsAndEditors(t *testing.T) {
+	c := newObserveCache()
+	ax := []*accessibility.Node{
+		axNode("form", "", 0, "generic", false, "lbl", "tb"),
+		axNode("lbl", "form", 0, "LabelText", false, "t1"),
+		axText("t1", "lbl", "StaticText", "Username"),
+		axText("tb", "form", "textbox", "Username", "inner"),
+		axNode("inner", "tb", 0, "generic", false, "t2"),
+		axText("t2", "inner", "StaticText", "alice"),
+	}
+	if err := c.buildFull(context.Background(), 1, ax); err != nil {
+		t.Fatalf("buildFull: %v", err)
+	}
+	tree, _, _ := c.snapshot()
+	for _, n := range tree {
+		if n.Text != "" {
+			t.Errorf("node %s (%s) carries duplicate text %q", n.NodeID, n.Role, n.Text)
+		}
+	}
+}

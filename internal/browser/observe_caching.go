@@ -378,7 +378,7 @@ func buildSpatialTree(
 						// it back as ActionRequest.HandleID.
 						NodeRef: backendNodeRef(node.BackendDOMNodeID),
 					}
-					if sn.Name == "" {
+					if sn.Name == "" && !insideTextControl(byID, node) {
 						sn.Text = ownText(byID, node)
 					}
 				}
@@ -426,7 +426,8 @@ func ownText(byID map[accessibility.NodeID]*accessibility.Node, node *accessibil
 				}
 				continue
 			}
-			if !child.Ignored && isStructuralOrInteractive(role) {
+			// Label text already names its control.
+			if role == "LabelText" || (!child.Ignored && isStructuralOrInteractive(role)) {
 				continue
 			}
 			walk(child)
@@ -438,6 +439,18 @@ func ownText(byID map[accessibility.NodeID]*accessibility.Node, node *accessibil
 		t = strings.ToValidUTF8(t[:maxOwnTextLen], "") + "…"
 	}
 	return t
+}
+
+// insideTextControl reports whether node sits inside an editable control,
+// whose inner editor text is already reported as the control's value.
+func insideTextControl(byID map[accessibility.NodeID]*accessibility.Node, node *accessibility.Node) bool {
+	for p, ok := byID[node.ParentID]; ok; p, ok = byID[p.ParentID] {
+		switch axValueToString(p.Role) {
+		case "textbox", "searchbox", "combobox", "spinbutton":
+			return true
+		}
+	}
+	return false
 }
 
 // applyDepthLimit drops spatial nodes deeper than limit (root = depth 0), using
