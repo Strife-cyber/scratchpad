@@ -177,4 +177,18 @@ func TestSpatialNodeChanged(t *testing.T) {
 	if !spatialNodeChanged(a, b) {
 		t.Error("role change should mark node as changed")
 	}
+
+	// A typed or selected value must reach delta consumers, otherwise the
+	// reconstructed tree keeps showing the old value.
+	b = a
+	b.Value = "typed"
+	if !spatialNodeChanged(a, b) {
+		t.Error("value change should mark node as changed")
+	}
+
+	b = a
+	b.NodeRef = "42"
+	if !spatialNodeChanged(a, b) {
+		t.Error("node_ref change should mark node as changed")
+	}
 }
