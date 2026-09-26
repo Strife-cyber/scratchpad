@@ -17,7 +17,9 @@ scratchpad-cli mcp --engine-url ws://localhost:8080/ws --name "scratchpad-mcp" -
 ```
 
 This starts an MCP server over stdio. Configure your AI agent to launch this as an MCP tool.
-The engine server (`make run`) must already be running; the bridge connects to it on startup.
+The bridge connects to the engine server (`make run`) on startup. If the server is
+not up yet, the bridge still starts and connects on the first tool call; until
+then tool calls fail with a message saying how to start it.
 
 | Environment variable | Purpose |
 |----------------------|---------|

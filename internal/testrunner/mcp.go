@@ -28,7 +28,9 @@ func RunMcp(args []string) {
 
 	adapter, err := mcp.NewMcpServer(*engineURL)
 	if err != nil {
-		log.Fatalf("Engine connection failed: %v", err)
+		// Keep serving: the first tool call connects once the engine is up.
+		log.Printf("engine not reachable yet; will connect on the first tool call: %v", err)
+		adapter = mcp.NewLazyMcpServer(*engineURL)
 	}
 
 	s := mcpg.NewServer(

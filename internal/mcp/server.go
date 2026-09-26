@@ -76,11 +76,7 @@ type sessionConn struct {
 // session handshake, and makes that first session the active one. Returns once
 // the session is ready.
 func NewMcpServer(engineURL string) (*Server, error) {
-	s := &Server{
-		engineURL:         engineURL,
-		conns:             make(map[string]*sessionConn),
-		actionScreenshots: os.Getenv(screenshotsEnv) == "always",
-	}
+	s := NewLazyMcpServer(engineURL)
 	sc, err := dial(engineURL, "")
 	if err != nil {
 		return nil, err
@@ -104,6 +100,19 @@ func (s *Server) actionObserve() *protocol.ObserveRequest {
 	}
 	off := false
 	return &protocol.ObserveRequest{Screenshot: &off}
+}
+
+// NewLazyMcpServer returns a bridge that has not connected yet: the first tool
+// call dials the engine and creates the session. MCP hosts start the bridge
+// on their own schedule, often before the engine server is up; failing at
+// startup made the whole tool look broken, while connecting lazily turns that
+// into a tool error that says how to start the server.
+func NewLazyMcpServer(engineURL string) *Server {
+	return &Server{
+		engineURL:         engineURL,
+		conns:             make(map[string]*sessionConn),
+		actionScreenshots: os.Getenv(screenshotsEnv) == "always",
+	}
 }
 
 // SessionID returns the id of the currently active session.
@@ -286,7 +295,7 @@ func (s *Server) RegisterTools(srv *mcp.Server) {
 // sendEnvelope sends env on the active session's connection and returns the
 // formatted ToolResponse.
 func (s *Server) sendEnvelope(env protocol.Envelope) (*mcp.ToolResponse, error) {
-	return s.sendEnvelopeTo(s.activeSessionID, env)
+	return s.sendEnvelopeTo("", env) // "" = active session, read under s.mu
 }
 
 // sendEnvelopeTo sends env on the given session's connection. Concurrent calls
@@ -340,7 +349,16 @@ func (s *Server) getConn(sessionID string) (*sessionConn, error) {
 		for _, sc := range s.conns {
 			return sc, nil
 		}
-		return nil, fmt.Errorf("mcp: no sessions connected")
+		// Nothing connected yet (lazy start, or the engine was down at
+		// startup): connect now and make that session the active one.
+		sc, err := dial(s.engineURL, "")
+		if err != nil {
+			return nil, err
+		}
+		sc.engineURL = s.engineURL
+		s.conns[sc.id] = sc
+		s.activeSessionID = sc.id
+		return sc, nil
 	}
 	sc, ok := s.conns[id]
 	if !ok {

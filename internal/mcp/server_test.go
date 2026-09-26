@@ -136,6 +136,32 @@ func TestNewMcpServer_SendsToken(t *testing.T) {
 	server.Close()
 }
 
+// A lazy bridge starts with no engine and connects on the first tool call;
+// while the engine is down each call fails with the actionable dial error.
+func TestLazyMcpServer_ConnectsOnFirstCall(t *testing.T) {
+	eng := startTestWSServer(t, "lazy-session", func([]byte) []byte { return observationResponseJSON(t) })
+	defer eng.Close()
+	wsURL := "ws" + strings.TrimPrefix(eng.URL, "http")
+
+	down := NewLazyMcpServer("ws://127.0.0.1:1/ws")
+	if _, err := down.sendEnvelope(protocol.Envelope{Type: protocol.MsgTypeObserve}); err == nil ||
+		!strings.Contains(err.Error(), "start the server") {
+		t.Fatalf("engine down: err = %v, want the start-the-server hint", err)
+	}
+
+	s := NewLazyMcpServer(wsURL)
+	defer s.Close()
+	if s.SessionID() != "" {
+		t.Fatalf("lazy bridge connected eagerly (session %q)", s.SessionID())
+	}
+	if _, err := s.sendEnvelope(protocol.Envelope{Type: protocol.MsgTypeObserve}); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if s.SessionID() != "lazy-session" {
+		t.Errorf("active session = %q, want lazy-session", s.SessionID())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // sendEnvelope / readResponse tests
 // ---------------------------------------------------------------------------
