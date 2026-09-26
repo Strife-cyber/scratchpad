@@ -132,6 +132,9 @@ const pierceHelpersSource = `const pierceHelpers = (() => {
       if (type === 'radio') return 'radio';
       if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image') return 'button';
       // Match the roles Chrome's accessibility tree (and so observations) report.
+      // A text-like input backed by a <datalist> is a combobox.
+      const textLike = ['text', 'search', 'email', 'tel', 'url'].indexOf(type) !== -1;
+      if (textLike && el.list) return 'combobox';
       if (type === 'search') return 'searchbox';
       if (type === 'number') return 'spinbutton';
       if (type === 'range') return 'slider';
@@ -147,6 +150,26 @@ const pierceHelpersSource = `const pierceHelpers = (() => {
 
   function normalizeName(t) {
     return String(t || '').replace(/\s+/g, ' ').trim();
+  }
+
+  // labelText is a label's contribution to a control's name: its text minus
+  // content hidden from assistive tech (aria-hidden, hidden, display:none),
+  // such as a decorative required-field "*". The labelled control itself is
+  // skipped, so a wrapping <label> around a <select> does not pull in its
+  // option text.
+  function labelText(node, self) {
+    let text = '';
+    for (let c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) {
+        text += c.nodeValue;
+      } else if (c.nodeType === 1) {
+        if (c === self || c.getAttribute('aria-hidden') === 'true' || c.hidden) continue;
+        const style = window.getComputedStyle(c);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        text += ' ' + labelText(c, self) + ' ';
+      }
+    }
+    return text;
   }
 
   // accessibleName approximates the name Chrome's accessibility tree computes,
@@ -170,7 +193,7 @@ const pierceHelpersSource = `const pierceHelpers = (() => {
     // Form controls are named by their <label for=...> or wrapping <label>.
     if (el.labels && el.labels.length) {
       let text = '';
-      for (let i = 0; i < el.labels.length; i++) text += (el.labels[i].textContent || '') + ' ';
+      for (let i = 0; i < el.labels.length; i++) text += labelText(el.labels[i], el) + ' ';
       const resolved = normalizeName(text);
       if (resolved) return resolved;
     }

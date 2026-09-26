@@ -4,6 +4,7 @@ package browser
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"scratchpad/internal/protocol"
@@ -147,5 +148,42 @@ func TestIntegration_FailedActionIsNotASuccess(t *testing.T) {
 	action(t, e, protocol.ActionRequest{Action: protocol.ActionType, Selector: &protocol.Selector{CSS: "#text-input"}, Text: "x"})
 	if r := observe(t, e).ActionResult; r == nil || r.Action != protocol.ActionType || !r.Success {
 		t.Errorf("result after type = %+v, want a successful type", r)
+	}
+}
+
+// TestIntegration_RoleNameRoundTripEdgeCases covers controls whose observed
+// role or name differs from a naive DOM reading: a search input backed by a
+// datalist is a combobox, and aria-hidden label content (a required-field
+// marker) is not part of the accessible name.
+func TestIntegration_RoleNameRoundTripEdgeCases(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	if err := e.Navigate(srv.URL + "/index.html"); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	evalJS(t, e, `document.body.insertAdjacentHTML("afterbegin",
+		'<label for="rt-search">Find city</label><input id="rt-search" type="search" list="rt-cities">' +
+		'<datalist id="rt-cities"><option value="Paris"></option></datalist>' +
+		'<label for="rt-email">Work email <span aria-hidden="true">*</span></label><input id="rt-email" type="text">' +
+		'<label>Shipping speed <select><option>Standard</option><option>Express</option></select></label>'); true`)
+
+	observed := map[string]string{}
+	for _, n := range observe(t, e).SpatialTree {
+		// Chrome may keep trailing whitespace ("Work email "); agents see the
+		// trimmed name, and selector names are whitespace-normalized.
+		if name := strings.TrimSpace(n.Name); name == "Find city" || name == "Work email" || name == "Shipping speed" {
+			observed[name] = n.Role
+		}
+	}
+	if observed["Find city"] != "combobox" || observed["Work email"] != "textbox" || observed["Shipping speed"] != "combobox" {
+		t.Fatalf("observed roles = %v, want Find city=combobox, Work email=textbox, Shipping speed=combobox", observed)
+	}
+	for name, role := range observed {
+		matches, err := e.findElementsOnce(e.ctx, protocol.Selector{Role: role, Name: name})
+		if err != nil || len(matches) != 1 {
+			t.Errorf("role=%s name=%q matched %d elements (err %v), want 1", role, name, len(matches), err)
+		}
 	}
 }
