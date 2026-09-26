@@ -24,7 +24,8 @@ const bindEnv = "SCRATCHPAD_BIND"
 
 // resolveBind returns the listen address, preferring the --bind flag, then
 // SCRATCHPAD_BIND, then the loopback default. A bare port (":8080") is
-// accepted; a host without a port is rejected so the intent is unambiguous.
+// accepted but listens on all interfaces, so validateBind treats it as
+// non-loopback; a host without a port is rejected so the intent is unambiguous.
 func resolveBind(flagVal, envVal string) (string, error) {
 	addr := flagVal
 	if addr == "" {
@@ -57,16 +58,15 @@ func validateBind(addr, token string, allowShared bool) (string, error) {
 }
 
 // isLoopback reports whether addr's host is a loopback address (127.0.0.1,
-// ::1, or localhost). A bare ":port" (empty host) resolves to the loopback
-// interface on every platform and is treated as loopback.
+// ::1, or localhost). A bare ":port" (empty host) is NOT loopback: net.Listen
+// binds it on every interface, exactly like 0.0.0.0.
 func isLoopback(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr
 	}
 	host = strings.Trim(host, "[]")
-	switch host {
-	case "", "localhost":
+	if host == "localhost" {
 		return true
 	}
 	ip := net.ParseIP(host)

@@ -10,6 +10,7 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/chromedp"
 )
 
 // Persistent node handles (improvement-plan item 20).
@@ -81,7 +82,12 @@ func (e *ChromeEngine) resolveHandleNode(ctx context.Context, handleID string) (
 		}
 	}
 
-	obj, err := dom.ResolveNode().WithBackendNodeID(cdp.BackendNodeID(backendID)).Do(ctx)
+	var obj *runtime.RemoteObject
+	err = runCDP(ctx, func(ctx context.Context) error {
+		var err error
+		obj, err = dom.ResolveNode().WithBackendNodeID(cdp.BackendNodeID(backendID)).Do(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("resolve handle %q: %w", handleID, err)
 	}
@@ -95,11 +101,32 @@ func (e *ChromeEngine) resolveHandleNode(ctx context.Context, handleID string) (
 	return obj, nil
 }
 
+// runCDP runs raw cdproto commands inside chromedp.Run. A bare .Do(ctx) on
+// an action or engine context fails with "invalid context": the CDP executor
+// is only attached to the context chromedp.Run hands its actions.
+func runCDP(ctx context.Context, fn func(context.Context) error) error {
+	return chromedp.Run(ctx, chromedp.ActionFunc(fn))
+}
+
+// callFunctionOn calls fn with `this` bound to obj and returns the result by
+// value.
+func callFunctionOn(ctx context.Context, fn string, obj *runtime.RemoteObject) (res *runtime.RemoteObject, ex *runtime.ExceptionDetails, err error) {
+	err = runCDP(ctx, func(ctx context.Context) error {
+		var err error
+		res, ex, err = runtime.CallFunctionOn(fn).
+			WithObjectID(obj.ObjectID).
+			WithReturnByValue(true).
+			Do(ctx)
+		return err
+	})
+	return res, ex, err
+}
+
 // releaseHandleNode releases a RemoteObject obtained from resolveHandleNode.
 // Best-effort: a release failure is not an action failure.
 func (e *ChromeEngine) releaseHandleNode(obj *runtime.RemoteObject) {
 	if obj != nil && obj.ObjectID != "" {
-		_ = runtime.ReleaseObject(obj.ObjectID).Do(e.ctx)
+		_ = runCDP(e.ctx, runtime.ReleaseObject(obj.ObjectID).Do)
 	}
 }
 
@@ -112,10 +139,7 @@ func handleCenter(ctx context.Context, obj *runtime.RemoteObject) (cx, cy float6
 		if (r.width <= 0 || r.height <= 0) return null;
 		return {x: r.left + r.width / 2, y: r.top + r.height / 2};
 	}`
-	res, ex, err := runtime.CallFunctionOn(fn).
-		WithObjectID(obj.ObjectID).
-		WithReturnByValue(true).
-		Do(ctx)
+	res, ex, err := callFunctionOn(ctx, fn, obj)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -138,10 +162,7 @@ func handleCenter(ctx context.Context, obj *runtime.RemoteObject) (cx, cy float6
 // actions share logic). Returns true when the action succeeded.
 func (e *ChromeEngine) runHandleAction(ctx context.Context, obj *runtime.RemoteObject, actionBody string) (bool, error) {
 	fn := "function() { let el = this;\n" + actionBody + "\n}"
-	res, ex, err := runtime.CallFunctionOn(fn).
-		WithObjectID(obj.ObjectID).
-		WithReturnByValue(true).
-		Do(ctx)
+	res, ex, err := callFunctionOn(ctx, fn, obj)
 	if err != nil {
 		return false, err
 	}
@@ -208,7 +229,12 @@ func (e *ChromeEngine) runRetryHandleAction(ctx context.Context, name string, ti
 // DOM.getNodeForLocation, returning its decimal string form or "" on failure.
 // Used by findElementsOnce to give selector matches a stable node_ref.
 func nodeRefForPoint(ctx context.Context, x, y float64) string {
-	bid, _, _, err := dom.GetNodeForLocation(int64(x), int64(y)).Do(ctx)
+	var bid cdp.BackendNodeID
+	err := runCDP(ctx, func(ctx context.Context) error {
+		var err error
+		bid, _, _, err = dom.GetNodeForLocation(int64(x), int64(y)).Do(ctx)
+		return err
+	})
 	if err != nil || bid == 0 {
 		return ""
 	}

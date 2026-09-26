@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -360,14 +361,12 @@ func TestCloseSession_NoLocalConnection_ForwardsClose(t *testing.T) {
 func TestCloseSession_NoLocalConnection_MissingSession_TypedError(t *testing.T) {
 	server := closeTestServer(t, func(string) bool { return false })
 
-	resp, err := server.closeSession("gone-session")
-	if err != nil {
-		t.Fatalf("expected a ToolResponse carrying the typed error, got error: %v", err)
+	_, err := server.closeSession("gone-session")
+	var engErr *EngineError
+	if !errors.As(err, &engErr) {
+		t.Fatalf("expected a typed EngineError (isError result), got: %v", err)
 	}
-	if len(resp.Content) == 0 || resp.Content[0].TextContent == nil {
-		t.Fatal("expected a text content block")
-	}
-	body := resp.Content[0].TextContent.Text
+	body := err.Error()
 	if !strings.Contains(body, `"code":"session_not_found"`) {
 		t.Errorf("expected typed session_not_found envelope, got: %s", body)
 	}

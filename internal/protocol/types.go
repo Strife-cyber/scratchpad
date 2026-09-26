@@ -696,6 +696,11 @@ type ActionRequest struct {
 	// Used by "start_recording", "stop_recording", "start_logcat" and
 	// "stop_logcat". Ignored by other actions.
 	Record *RecordOptions `json:"record,omitempty"`
+
+	// Observe, when set, shapes the observation sent back after this request
+	// (e.g. {"screenshot": false} to skip the screenshot). Nil keeps the full
+	// default observation.
+	Observe *ObserveRequest `json:"observe,omitempty"`
 }
 
 // ResolveTimeout returns the action timeout, defaulting to 10s when unset.
@@ -761,6 +766,18 @@ type Selector struct {
 	Name        string `json:"name,omitempty"`
 	TestID      string `json:"test_id,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
+}
+
+// UnmarshalJSON also accepts a bare string as shorthand for a CSS selector
+// ("#submit" == {"css":"#submit"}), the form agents most often guess.
+func (s *Selector) UnmarshalJSON(data []byte) error {
+	var css string
+	if err := json.Unmarshal(data, &css); err == nil {
+		*s = Selector{CSS: css}
+		return nil
+	}
+	type plain Selector
+	return json.Unmarshal(data, (*plain)(s))
 }
 
 // IsEmpty returns true when no selector strategy is set.
@@ -1122,6 +1139,11 @@ type InitializeRequest struct {
 	// body; the field is echoed here so clients that only speak the
 	// first-navigate message can still express the intent.
 	Platforms []string `json:"platforms,omitempty"`
+
+	// Observe, when set, shapes the observation sent back after this request
+	// (e.g. {"screenshot": false} to skip the screenshot). Nil keeps the full
+	// default observation.
+	Observe *ObserveRequest `json:"observe,omitempty"`
 }
 
 type Viewport struct {
@@ -1204,6 +1226,12 @@ type SpatialNode struct {
 
 	// Description is the aria-description or title attribute.
 	Description string `json:"description,omitempty"`
+
+	// Text is the visible text directly inside this element (e.g. a
+	// paragraph, table cell or status message), set only when Name is empty
+	// so it never duplicates an accessible name. Text owned by a descendant
+	// that appears as its own node is not repeated here.
+	Text string `json:"text,omitempty"`
 
 	// NodeRef is a stable node handle for this element: the decimal
 	// backendNodeId as resolved by the accessibility tree. Agents can pass it

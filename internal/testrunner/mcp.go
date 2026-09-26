@@ -3,6 +3,7 @@ package testrunner
 import (
 	"flag"
 	"log"
+	"os"
 
 	"scratchpad/internal/mcp"
 
@@ -14,8 +15,12 @@ import (
 // used for AI workflows.
 func RunMcp(args []string) {
 	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
+	defaultURL := "ws://localhost:8080/ws"
+	if u := os.Getenv("SCRATCHPAD_URL"); u != "" {
+		defaultURL = u
+	}
 	var (
-		engineURL = fs.String("engine-url", "ws://localhost:8080/ws", "engine websocket URL")
+		engineURL = fs.String("engine-url", defaultURL, "engine websocket URL (default $SCRATCHPAD_URL or ws://localhost:8080/ws)")
 		name      = fs.String("name", "Browser-Engine-MCP", "mcp server name")
 		version   = fs.String("version", "1.0.0", "mcp server version")
 	)
@@ -23,7 +28,9 @@ func RunMcp(args []string) {
 
 	adapter, err := mcp.NewMcpServer(*engineURL)
 	if err != nil {
-		log.Fatalf("Engine connection failed: %v", err)
+		// Keep serving: the first tool call connects once the engine is up.
+		log.Printf("engine not reachable yet; will connect on the first tool call: %v", err)
+		adapter = mcp.NewLazyMcpServer(*engineURL)
 	}
 
 	s := mcpg.NewServer(

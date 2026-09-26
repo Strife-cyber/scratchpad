@@ -145,11 +145,6 @@ type ChromeEngine struct {
 	handleMu sync.Mutex
 	handles  map[string]nodeHandle
 
-	// obsCache memoizes the last AX snapshot + resolved spatial tree so
-	// consecutive Observe() calls skip the expensive CDP work on unchanged
-	// pages. Owned by observe_caching.go.
-	obsCache *observeCache
-
 	// Tab management: tracks all browser targets (tabs/windows) so the agent
 	// can list, switch, and close tabs opened by ads or links.
 	targetMu        sync.Mutex
@@ -268,7 +263,7 @@ func NewChromeEngine(opts engine.Options) (*ChromeEngine, error) {
 	e.setupTargetListener()
 	e.setupDownloadBehavior()
 	e.setupDownloadListener()
-	e.setupObserveCaching()
+	e.setupNavigationTracking()
 
 	return e, nil
 }

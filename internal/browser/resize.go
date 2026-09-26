@@ -25,8 +25,7 @@ func (e *ChromeEngine) Resize(width, height int, mobile, touch bool) error {
 // setEmulation applies CDP device-metrics override + touch emulation and records
 // the emulated state under lock. device is the preset name ("" for a free-form
 // resize); it is surfaced in PageInfo so agents always see the current
-// emulation context. The observe cache is invalidated because a viewport change
-// can alter the AX tree bounds and page info.
+// emulation context.
 func (e *ChromeEngine) setEmulation(width, height int, dsf float64, mobile, touch bool, device string) error {
 	if e.ctx == nil {
 		return fmt.Errorf("resize: engine not connected")
@@ -42,10 +41,6 @@ func (e *ChromeEngine) setEmulation(width, height int, dsf float64, mobile, touc
 	e.lastViewport = protocol.Viewport{Width: width, Height: height}
 	e.devicePreset = device
 	e.emulMu.Unlock()
-
-	if e.obsCache != nil {
-		e.obsCache.invalidateAll()
-	}
 	return nil
 }
 

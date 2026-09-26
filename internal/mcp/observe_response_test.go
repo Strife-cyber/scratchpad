@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -151,5 +152,37 @@ func TestParseResponse_CompactSummaryShowsElements(t *testing.T) {
 	}
 	if strings.Contains(body, `"generic"`) {
 		t.Errorf("compact summary should skip unnamed generic nodes: %q", body)
+	}
+}
+
+// The outline lists every surviving node (not just the first few) and gives
+// the agent what it needs to act: the ref to pass as handle_id, current
+// values, and visible text.
+func TestParseResponse_OutlineCarriesRefsValuesAndText(t *testing.T) {
+	s := &Server{}
+	sc := &sessionConn{}
+	tree := []protocol.SpatialNode{
+		{NodeID: "1", Role: "textbox", Name: "Username", Value: "alice", Interactive: true, NodeRef: "41"},
+		{NodeID: "2", Role: "paragraph", Text: "Welcome, alice"},
+	}
+	for i := 0; i < 10; i++ {
+		tree = append(tree, protocol.SpatialNode{
+			NodeID: fmt.Sprintf("b%d", i), Role: "button", Name: fmt.Sprintf("Btn %d", i),
+			Interactive: true, NodeRef: fmt.Sprintf("%d", 100+i),
+		})
+	}
+	resp, err := s.parseResponse(sc, obsBytes(t, protocol.ObservationResponse{Type: "observation", SpatialTree: tree}), nil)
+	if err != nil {
+		t.Fatalf("parseResponse: %v", err)
+	}
+	body := resp.Content[0].TextContent.Text
+	for _, want := range []string{
+		`textbox "Username" value="alice" ref=41`,
+		`paragraph: Welcome, alice`,
+		`button "Btn 9" ref=109`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("outline missing %q:\n%s", want, body)
+		}
 	}
 }

@@ -140,7 +140,12 @@ docker run -p 8080:8080 scratchpad
 |------|-------------|
 | `browser_navigate` | Load a URL |
 | `browser_observe` | Capture page state (screenshot + spatial tree) |
-| `browser_action` | Click, type, scroll, wait, and other interactions |
+| `browser_click`, `browser_type`, `browser_select_option`, … | One narrow tool per interaction |
+| `session_*` | Create, attach, switch and close sessions |
+
+Android tools and the raw `browser_action` fallback are opt-in via
+`SCRATCHPAD_MCP_TOOLS=android,advanced` (or `all`), so the default tool list
+stays small.
 
 See [MCP Tools](docs/src/content/docs/api/mcp-tools.mdx) for full schemas and examples.
 

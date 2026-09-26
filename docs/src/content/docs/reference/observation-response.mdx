@@ -109,6 +109,8 @@ The spatial tree now includes **both interactive and structural elements** (head
 | `interactive` | bool | Whether the node is an interactive/actionable element |
 | `value` | string | Current value of the element (e.g., text in an input field) |
 | `description` | string | Extended description or accessibility description of the element |
+| `text` | string | Visible text directly inside the element (paragraphs, cells, status messages); only set when `name` is empty, capped at 300 chars |
+| `node_ref` | string | Stable element handle; pass it back as `handle_id` to act on this element. Invalidated by navigation |
 | `children` | array | Nested child nodes |
 
 ## TreeDelta

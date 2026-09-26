@@ -126,6 +126,7 @@ func ApplyTreeBudget(tree []protocol.SpatialNode, maxNodes int, interactiveOnly,
 			n.Name = ""
 			n.Value = ""
 			n.Description = ""
+			n.Text = ""
 			stripped[i] = n
 		}
 		tree = stripped

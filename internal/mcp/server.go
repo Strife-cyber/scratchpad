@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +40,14 @@ const (
 type Server struct {
 	engineURL string
 
+	// actionScreenshots attaches a page screenshot (and the element highlight)
+	// to every action and navigate response. Off by default: the element
+	// outline already reports the effect of an action, and each image costs
+	// the agent far more context than the text. browser_observe and
+	// browser_screenshot always return images. Enabled with
+	// SCRATCHPAD_MCP_SCREENSHOTS=always.
+	actionScreenshots bool
+
 	// activeSessionID is the session plain browser_* tools target. It is set on
 	// connect and updated by session_create / session_attach.
 	activeSessionID string
@@ -66,7 +77,7 @@ type sessionConn struct {
 // session handshake, and makes that first session the active one. Returns once
 // the session is ready.
 func NewMcpServer(engineURL string) (*Server, error) {
-	s := &Server{engineURL: engineURL, conns: make(map[string]*sessionConn)}
+	s := NewLazyMcpServer(engineURL)
 	sc, err := dial(engineURL, "")
 	if err != nil {
 		return nil, err
@@ -75,6 +86,34 @@ func NewMcpServer(engineURL string) (*Server, error) {
 	s.conns[sc.id] = sc
 	s.activeSessionID = sc.id
 	return s, nil
+}
+
+// screenshotsEnv set to "always" re-enables screenshots on action and navigate
+// responses.
+const screenshotsEnv = "SCRATCHPAD_MCP_SCREENSHOTS"
+
+// actionObserve is the observe request attached to action and navigate
+// envelopes: nil (full default observation) when action screenshots are on,
+// otherwise an observation without the screenshot.
+func (s *Server) actionObserve() *protocol.ObserveRequest {
+	if s.actionScreenshots {
+		return nil
+	}
+	off := false
+	return &protocol.ObserveRequest{Screenshot: &off}
+}
+
+// NewLazyMcpServer returns a bridge that has not connected yet: the first tool
+// call dials the engine and creates the session. MCP hosts start the bridge
+// on their own schedule, often before the engine server is up; failing at
+// startup made the whole tool look broken, while connecting lazily turns that
+// into a tool error that says how to start the server.
+func NewLazyMcpServer(engineURL string) *Server {
+	return &Server{
+		engineURL:         engineURL,
+		conns:             make(map[string]*sessionConn),
+		actionScreenshots: os.Getenv(screenshotsEnv) == "always",
+	}
 }
 
 // SessionID returns the id of the currently active session.
@@ -108,6 +147,28 @@ func (sc *sessionConn) closeConn() {
 	}
 }
 
+// checkTokenTransport refuses to send the bearer token in a plaintext
+// handshake to another machine: over ws:// the Authorization header crosses
+// the network in clear text. wss:// and loopback hosts are allowed.
+func checkTokenTransport(engineURL string) error {
+	u, err := url.Parse(engineURL)
+	if err != nil {
+		return fmt.Errorf("mcp: invalid engine URL %q: %w", engineURL, err)
+	}
+	if u.Scheme == "wss" {
+		return nil
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("mcp: refusing to send SCRATCHPAD_TOKEN over unencrypted %s to %s: use a wss:// URL "+
+		"(start the server with --cert/--key) or a loopback address", u.Scheme, host)
+}
+
 // dial opens a WS connection to engineURL and performs the session-ID
 // handshake. When attachID is non-empty the fresh session created by the
 // handshake is immediately released and the connection rebinds to attachID
@@ -115,9 +176,20 @@ func (sc *sessionConn) closeConn() {
 func dial(engineURL, attachID string) (*sessionConn, error) {
 	dialer := *websocket.DefaultDialer
 	dialer.HandshakeTimeout = 10 * time.Second
-	conn, _, err := dialer.Dial(engineURL, nil)
+	var header http.Header
+	if tok := os.Getenv("SCRATCHPAD_TOKEN"); tok != "" {
+		if err := checkTokenTransport(engineURL); err != nil {
+			return nil, err
+		}
+		header = http.Header{"Authorization": {"Bearer " + tok}}
+	}
+	conn, resp, err := dialer.Dial(engineURL, header)
 	if err != nil {
-		return nil, fmt.Errorf("mcp: dial failed: %w", err)
+		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("mcp: engine at %s rejected the connection (401): set SCRATCHPAD_TOKEN to the server's token", engineURL)
+		}
+		return nil, fmt.Errorf("mcp: cannot reach the Scratchpad engine at %s: %w "+
+			"(start the server with `make run`, or point SCRATCHPAD_URL / --engine-url at a running one)", engineURL, err)
 	}
 
 	var handshake struct {
@@ -177,15 +249,68 @@ func dial(engineURL, attachID string) (*sessionConn, error) {
 // Tool registration
 // ---------------------------------------------------------------------------
 
-func (s *Server) RegisterTools(srv *mcp.Server) {
-	// Descriptor-driven registration: every tool (including the mega
-	// browser_action fallback) lives in the table returned by toolDefs()
-	// (see tools.go). Each entry carries its name, description-with-example,
-	// and a register closure, so this method stays a simple loop.
-	for _, td := range s.toolDefs() {
-		if err := td.register(srv); err != nil {
-			fmt.Printf("Failed to register %s: %v\n", td.name, err)
+// Optional tool groups. Every tool definition costs the agent context on
+// every turn, so tools most sessions never use are registered only when
+// SCRATCHPAD_MCP_TOOLS names their group (comma-separated, or "all").
+const (
+	// toolGroupAndroid holds the android_* tools (device and app control).
+	toolGroupAndroid = "android"
+	// toolGroupAdvanced holds the raw browser_action fallback, whose schema
+	// alone is the size of a dozen narrow tools, and the iframe-scope tools,
+	// which only record the frame selector and do not scope lookups yet.
+	toolGroupAdvanced = "advanced"
+)
+
+// toolsEnv selects the optional tool groups to register.
+const toolsEnv = "SCRATCHPAD_MCP_TOOLS"
+
+// toolGroup returns the optional group a tool belongs to, or "" for the
+// tools that are always registered.
+func toolGroup(name string) string {
+	switch {
+	case strings.HasPrefix(name, "android_"):
+		return toolGroupAndroid
+	case name == "browser_action", name == "browser_switch_to_iframe", name == "browser_switch_to_main_frame":
+		return toolGroupAdvanced
+	}
+	return ""
+}
+
+// enabledToolGroups parses SCRATCHPAD_MCP_TOOLS ("android,advanced", "all").
+func enabledToolGroups(env string) map[string]bool {
+	groups := map[string]bool{"": true}
+	for _, g := range strings.Split(env, ",") {
+		g = strings.TrimSpace(strings.ToLower(g))
+		if g == "all" {
+			groups[toolGroupAndroid] = true
+			groups[toolGroupAdvanced] = true
+		} else if g != "" {
+			groups[g] = true
 		}
+	}
+	return groups
+}
+
+func (s *Server) RegisterTools(srv *mcp.Server) {
+	// Descriptor-driven registration: every tool lives in the table returned
+	// by toolDefs() (see tools.go). Each entry carries its name,
+	// description-with-example, and a register closure, so this method stays a
+	// simple loop; optional groups are skipped unless enabled.
+	enabled := enabledToolGroups(os.Getenv(toolsEnv))
+	skipped := 0
+	for _, td := range s.toolDefs() {
+		if !enabled[toolGroup(td.name)] {
+			skipped++
+			continue
+		}
+		if err := td.register(srv); err != nil {
+			// Never write to stdout: it is the MCP JSON-RPC channel.
+			slog.Error("mcp: failed to register tool", "tool", td.name, "err", err)
+		}
+	}
+	if skipped > 0 {
+		slog.Info("mcp: optional tools not registered; set "+toolsEnv+"=android,advanced (or all) to enable them",
+			"skipped", skipped)
 	}
 }
 
@@ -196,7 +321,7 @@ func (s *Server) RegisterTools(srv *mcp.Server) {
 // sendEnvelope sends env on the active session's connection and returns the
 // formatted ToolResponse.
 func (s *Server) sendEnvelope(env protocol.Envelope) (*mcp.ToolResponse, error) {
-	return s.sendEnvelopeTo(s.activeSessionID, env)
+	return s.sendEnvelopeTo("", env) // "" = active session, read under s.mu
 }
 
 // sendEnvelopeTo sends env on the given session's connection. Concurrent calls
@@ -250,7 +375,16 @@ func (s *Server) getConn(sessionID string) (*sessionConn, error) {
 		for _, sc := range s.conns {
 			return sc, nil
 		}
-		return nil, fmt.Errorf("mcp: no sessions connected")
+		// Nothing connected yet (lazy start, or the engine was down at
+		// startup): connect now and make that session the active one.
+		sc, err := dial(s.engineURL, "")
+		if err != nil {
+			return nil, err
+		}
+		sc.engineURL = s.engineURL
+		s.conns[sc.id] = sc
+		s.activeSessionID = sc.id
+		return sc, nil
 	}
 	sc, ok := s.conns[id]
 	if !ok {
@@ -326,6 +460,25 @@ func (sc *sessionConn) reconnect() error {
 	return nil
 }
 
+// EngineError is a typed engine error envelope returned from a tool handler.
+// Returning it as an error (rather than a normal response) is what makes
+// mcp-golang mark the tool result isError:true; its text is the envelope JSON
+// verbatim, so agents still see code, message and hint. mcp-golang v0.16.1
+// renders only the error text, so an error screenshot cannot be attached.
+type EngineError struct {
+	Envelope protocol.ErrorResponse
+}
+
+func newEngineError(resp protocol.ErrorResponse) *EngineError {
+	resp.Screenshot = "" // not renderable on the error path; keep the text small
+	return &EngineError{Envelope: resp}
+}
+
+func (e *EngineError) Error() string {
+	data, _ := json.Marshal(e.Envelope)
+	return string(data)
+}
+
 // parseResponse parses one raw engine message as either an ErrorResponse or an
 // ObservationResponse. Errors are returned as descriptive text so the AI agent
 // gets helpful feedback.
@@ -343,12 +496,7 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 	// image so it stays viewable.
 	var errResp protocol.ErrorResponse
 	if err := json.Unmarshal(message, &errResp); err == nil && errResp.Type != "" && errResp.Message != "" {
-		data, _ := json.Marshal(errResp)
-		contents := []*mcp.Content{mcp.NewTextContent(string(data))}
-		if errResp.Screenshot != "" {
-			contents = append(contents, mcp.NewImageContent(errResp.Screenshot, "image/jpeg"))
-		}
-		return mcp.NewToolResponse(contents...), nil
+		return nil, newEngineError(errResp)
 	}
 
 	// Fall back to ObservationResponse (success path).
@@ -436,11 +584,16 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 
 	truncated := ""
 	if obs.Truncated {
-		truncated = fmt.Sprintf(" (truncated, full=%d)", obs.FullNodeCount)
+		truncated = fmt.Sprintf(" (truncated from %d; raise max_nodes or pass interactive_only to see the rest)", obs.FullNodeCount)
 	}
 
-	displayText := fmt.Sprintf("State: %+v%s%s\nNodes: %d%s%s",
-		obs.SystemState, pageText, actionResult, len(obs.SpatialTree), truncated, topElements(obs.SpatialTree))
+	state := "State: document " + obs.SystemState.DocumentStatus
+	if n := obs.SystemState.InflightRequests; n > 0 {
+		state += fmt.Sprintf(", %d requests in flight", n)
+	}
+
+	displayText := fmt.Sprintf("%s%s%s\nNodes: %d%s%s",
+		state, pageText, actionResult, len(obs.SpatialTree), truncated, topElements(obs.SpatialTree))
 
 	contents := []*mcp.Content{mcp.NewTextContent(displayText)}
 
@@ -459,8 +612,9 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 		contents = append(contents, mcp.NewImageContent(b64Images, mime))
 	}
 
-	// Also attach the element highlight screenshot if present.
-	if obs.ActionResult != nil && obs.ActionResult.ElementHighlight != "" {
+	// Also attach the element highlight screenshot if present (only when
+	// action screenshots are on: it is an image of what the outline states).
+	if s.actionScreenshots && obs.ActionResult != nil && obs.ActionResult.ElementHighlight != "" {
 		contents = append(contents, mcp.NewImageContent(obs.ActionResult.ElementHighlight, "image/png"))
 	}
 
@@ -476,31 +630,39 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 	return mcp.NewToolResponse(contents...), nil
 }
 
-// topElements renders the most relevant spatial nodes as a compact "Elements:
-// ..." list. Interactive nodes and named headings/links are shown first, up to
-// maxShown entries, so the agent gets actionable element ids without the full
-// JSON tree.
+// topElements renders the observed tree as an "Elements:" outline, one node
+// per line in page order: every interactive node plus every node carrying a
+// name or visible text. Each actionable line ends in ref=<node_ref>, which the
+// agent passes back as handle_id. The tree is already capped by the observe
+// node budget, so every node that survived it is listed.
 func topElements(tree []protocol.SpatialNode) string {
-	const maxShown = 6
-	shown := 0
 	var b strings.Builder
-	b.WriteString("\nElements:")
+	b.WriteString("\nElements: (pass a ref as handle_id to act on that element)")
+	listed := 0
 	for _, n := range tree {
-		if shown >= maxShown {
-			break
-		}
-		if !n.Interactive && n.Name == "" {
+		if !n.Interactive && n.Name == "" && n.Text == "" {
 			continue
 		}
-		label := n.Name
-		if label == "" {
-			label = n.NodeID
+		listed++
+		b.WriteString("\n- ")
+		b.WriteString(n.Role)
+		if name := strings.TrimSpace(n.Name); name != "" {
+			fmt.Fprintf(&b, " %q", name)
 		}
-		fmt.Fprintf(&b, " [%s %q id=%s]", n.Role, label, n.NodeID)
-		shown++
+		if n.Value != "" {
+			fmt.Fprintf(&b, " value=%q", n.Value)
+		}
+		if n.Text != "" {
+			b.WriteString(": ")
+			b.WriteString(n.Text)
+		}
+		if n.NodeRef != "" && (n.Interactive || n.Name != "") {
+			b.WriteString(" ref=")
+			b.WriteString(n.NodeRef)
+		}
 	}
-	if remaining := len(tree) - shown; remaining > 0 {
-		fmt.Fprintf(&b, " (+%d more)", remaining)
+	if listed == 0 {
+		b.WriteString(" none")
 	}
 	return b.String()
 }

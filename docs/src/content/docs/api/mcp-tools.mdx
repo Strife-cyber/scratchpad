@@ -17,6 +17,17 @@ scratchpad-cli mcp --engine-url ws://localhost:8080/ws --name "scratchpad-mcp" -
 ```
 
 This starts an MCP server over stdio. Configure your AI agent to launch this as an MCP tool.
+The bridge connects to the engine server (`make run`) on startup. If the server is
+not up yet, the bridge still starts and connects on the first tool call; until
+then tool calls fail with a message saying how to start it.
+
+| Environment variable | Purpose |
+|----------------------|---------|
+| `SCRATCHPAD_URL` | Engine WebSocket URL when `--engine-url` is not given (default `ws://localhost:8080/ws`) |
+| `SCRATCHPAD_TOKEN` | Sent as `Authorization: Bearer` when the server was started with a token. Only sent over `wss://` or to a loopback address; a plaintext `ws://` URL to another host is refused |
+| `SCRATCHPAD_MCP_SCREENSHOTS` | `always` attaches a page screenshot (and the element highlight) to every action and `browser_navigate` response. By default only `browser_observe` and `browser_screenshot` return images; action responses carry the text outline |
+| `SCRATCHPAD_MCP_TOOLS` | Optional tool groups to register, comma-separated: `android` (the `android_*` tools), `advanced` (`browser_action`, `browser_switch_to_iframe`, `browser_switch_to_main_frame`), or `all`. Off by default to keep the tool list small |
+| `CHROME_PATH` | Set on the **server**: the Chrome/Chromium binary to launch |
 
 ## Tools
 
@@ -28,7 +39,7 @@ Loads a URL in the browser (or launches an Android app):
 |-----------|------|----------|-------------|
 | `url` | string | Yes | URL to navigate to or Android package name |
 
-**Returns:** ObservationResponse (text description + screenshot)
+**Returns:** Text summary of the page state. A screenshot is attached only when `SCRATCHPAD_MCP_SCREENSHOTS=always`.
 
 ### browser_observe
 
@@ -38,11 +49,11 @@ Captures the current page state:
 |-----------|------|----------|-------------|
 | _(none)_ | | | No parameters needed |
 
-**Returns:** Text summary of page state + full JSON + JPEG screenshot as image content.
+**Returns:** Text summary of page state + screenshot as image content. `include_raw_json: true` appends the full JSON observation.
 
 ### browser_action
 
-Executes any action on the current page. Selector-based actions (click, type, hover, double_click, right_click, drag_drop) **auto-wait** for the target element — the engine polls at 50ms intervals until the element is visible and enabled, up to the configured timeout.
+Opt-in (`SCRATCHPAD_MCP_TOOLS=advanced`). Executes any action on the current page. Selector-based actions (click, type, hover, double_click, right_click, drag_drop) **auto-wait** for the target element — the engine polls at 50ms intervals until the element is visible and enabled, up to the configured timeout.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -157,7 +168,27 @@ Add to your `claude_desktop_config.json`:
 
 ## Tool Response Structure
 
-Each tool returns an `ObservationResponse` containing:
-- Text description of the page state
-- The full JSON response as a text content block
-- The page screenshot as an image content block (for `browser_observe`)
+Browser tools return a text summary; `browser_observe` (and every action when
+`SCRATCHPAD_MCP_SCREENSHOTS=always`) also attaches the page screenshot:
+
+```text
+State: document complete
+Page: http://localhost:3000/login | Login | web
+Action: ✅ click (57ms)
+Nodes: 12
+Elements: (pass a ref as handle_id to act on that element)
+- heading "Sign in" ref=13
+- textbox "Username" value="alice" ref=4
+- button "Log in" ref=7
+- paragraph: Welcome, alice
+```
+
+Every interactive, named or text-bearing node is listed in page order. Pass a
+`ref` as `handle_id` to act on that element, or use the same role and name as a
+selector (`{"role":"textbox","name":"Username"}`). `browser_observe` with
+`include_raw_json: true` appends the full JSON observation.
+
+Engine errors (no element matched, navigation failed, …) come back as a result
+flagged `isError: true` whose text is the JSON error envelope (`code`,
+`message`, `hint`). Soft failures, such as a wait or assertion that did not
+pass, are normal results marked `❌` so the page state is still attached.

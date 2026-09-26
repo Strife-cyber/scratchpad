@@ -20,7 +20,20 @@ import (
 
 // ExecuteAction dispatches a single agent action to the Chrome instance.
 // Implements engine.Engine.
-func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionRequest) error {
+func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionRequest) (err error) {
+	// Pointer actions need a target; with none, the zero x/y would silently
+	// act on the page's top-left corner and report success.
+	switch req.Action {
+	case protocol.ActionClick, protocol.ActionDoubleClick, protocol.ActionRightClick, protocol.ActionHover:
+		if req.HandleID == "" && (req.Selector == nil || req.Selector.IsEmpty()) && req.X == 0 && req.Y == 0 {
+			return fmt.Errorf("%w: %s needs a selector, a handle_id, or x/y coordinates", protocol.ErrInvalidRequest, req.Action)
+		}
+	}
+
+	// A result left over from an earlier action that was never observed (for
+	// example one that failed) must not be reported as this action's result.
+	e.lastActionResult = nil
+
 	timeout := time.Duration(req.TimeoutMS) * time.Millisecond
 	if req.TimeoutMS == 0 {
 		timeout = 10 * time.Second
@@ -38,6 +51,17 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 	start := time.Now()
 	var heal *protocol.SelectorHeal
 	defer func() {
+		// A failed action is recorded as a failure (never a success), so an
+		// observation taken after it reports what went wrong and any heal
+		// attempt.
+		if err != nil {
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   false,
+				Error:     err.Error(),
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
+		}
 		// Only set lastActionResult if it hasn't already been set by
 		// action-specific code (e.g. wait uses its own timing).
 		if e.lastActionResult == nil {

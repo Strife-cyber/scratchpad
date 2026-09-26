@@ -2,11 +2,13 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"scratchpad/internal/middleware"
 	"scratchpad/internal/protocol"
 
 	"github.com/gorilla/websocket"
@@ -112,6 +114,79 @@ func TestNewMcpServer_ConnectFailure(t *testing.T) {
 	}
 }
 
+// The bridge must present SCRATCHPAD_TOKEN to a token-protected engine, and
+// say so plainly when it is missing.
+func TestNewMcpServer_SendsToken(t *testing.T) {
+	srv := startTestWSServer(t, "tok-session", nil)
+	defer srv.Close()
+	guarded := httptest.NewServer(middleware.Auth("s3cret", srv.Config.Handler))
+	defer guarded.Close()
+	wsURL := "ws" + strings.TrimPrefix(guarded.URL, "http")
+
+	t.Setenv("SCRATCHPAD_TOKEN", "")
+	if _, err := NewMcpServer(wsURL); err == nil || !strings.Contains(err.Error(), "SCRATCHPAD_TOKEN") {
+		t.Fatalf("missing token: err = %v, want a SCRATCHPAD_TOKEN hint", err)
+	}
+
+	t.Setenv("SCRATCHPAD_TOKEN", "s3cret")
+	server, err := NewMcpServer(wsURL)
+	if err != nil {
+		t.Fatalf("with token: %v", err)
+	}
+	server.Close()
+}
+
+// A lazy bridge starts with no engine and connects on the first tool call;
+// while the engine is down each call fails with the actionable dial error.
+func TestLazyMcpServer_ConnectsOnFirstCall(t *testing.T) {
+	eng := startTestWSServer(t, "lazy-session", func([]byte) []byte { return observationResponseJSON(t) })
+	defer eng.Close()
+	wsURL := "ws" + strings.TrimPrefix(eng.URL, "http")
+
+	down := NewLazyMcpServer("ws://127.0.0.1:1/ws")
+	if _, err := down.sendEnvelope(protocol.Envelope{Type: protocol.MsgTypeObserve}); err == nil ||
+		!strings.Contains(err.Error(), "start the server") {
+		t.Fatalf("engine down: err = %v, want the start-the-server hint", err)
+	}
+
+	s := NewLazyMcpServer(wsURL)
+	defer s.Close()
+	if s.SessionID() != "" {
+		t.Fatalf("lazy bridge connected eagerly (session %q)", s.SessionID())
+	}
+	if _, err := s.sendEnvelope(protocol.Envelope{Type: protocol.MsgTypeObserve}); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if s.SessionID() != "lazy-session" {
+		t.Errorf("active session = %q, want lazy-session", s.SessionID())
+	}
+}
+
+// The bearer token may only travel over TLS or to this machine.
+func TestCheckTokenTransport(t *testing.T) {
+	for _, c := range []struct {
+		url string
+		ok  bool
+	}{
+		{"ws://localhost:8080/ws", true},
+		{"ws://127.0.0.1:8080/ws", true},
+		{"ws://[::1]:8080/ws", true},
+		{"wss://engine.example.com/ws", true},
+		{"ws://engine.example.com/ws", false},
+		{"ws://192.168.1.20:8080/ws", false},
+	} {
+		if err := checkTokenTransport(c.url); (err == nil) != c.ok {
+			t.Errorf("checkTokenTransport(%q) = %v, want ok=%v", c.url, err, c.ok)
+		}
+	}
+
+	// dial must refuse before any network I/O when a token is set.
+	t.Setenv("SCRATCHPAD_TOKEN", "s3cret")
+	if _, err := dial("ws://192.0.2.1:8080/ws", ""); err == nil || !strings.Contains(err.Error(), "refusing to send SCRATCHPAD_TOKEN") {
+		t.Errorf("dial with token over remote ws:// = %v, want a refusal", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // sendEnvelope / readResponse tests
 // ---------------------------------------------------------------------------
@@ -168,20 +243,17 @@ func TestReadResponse_Error(t *testing.T) {
 
 	// Send an envelope first so the server has something to respond to.
 	env := protocol.Envelope{Type: protocol.MsgTypeObserve}
-	resp, err := server.sendEnvelope(env)
-	if err != nil {
-		t.Fatalf("sendEnvelope failed: %v", err)
-	}
-	if resp == nil {
-		t.Fatal("expected non-nil response even on error")
+	_, err = server.sendEnvelope(env)
+	// Engine errors come back as a typed error so the MCP result is flagged
+	// isError:true.
+	var engErr *EngineError
+	if !errors.As(err, &engErr) {
+		t.Fatalf("expected an EngineError, got: %v", err)
 	}
 
 	// The error envelope must be passed through verbatim: the machine code and
 	// request_id (which the old reformatted summary dropped) must survive.
-	if len(resp.Content) == 0 || resp.Content[0].TextContent == nil {
-		t.Fatal("expected a text content block carrying the verbatim envelope")
-	}
-	body := resp.Content[0].TextContent.Text
+	body := err.Error()
 	if !strings.Contains(body, `"code":"selector_no_match"`) {
 		t.Errorf("verbatim envelope must preserve the machine code, got: %s", body)
 	}
@@ -217,12 +289,15 @@ func TestReadResponse_ErrorWithScreenshot(t *testing.T) {
 
 	// Send an envelope first so the server has something to respond to.
 	env := protocol.Envelope{Type: protocol.MsgTypeObserve}
-	resp, err := server.sendEnvelope(env)
-	if err != nil {
-		t.Fatalf("sendEnvelope failed: %v", err)
+	_, err = server.sendEnvelope(env)
+	var engErr *EngineError
+	if !errors.As(err, &engErr) {
+		t.Fatalf("expected an EngineError, got: %v", err)
 	}
-	if resp == nil {
-		t.Fatal("expected non-nil response")
+	// The error text stays the compact envelope: the base64 screenshot is
+	// dropped because an MCP error result cannot carry an image.
+	if !strings.Contains(err.Error(), "element obscured") || strings.Contains(err.Error(), "c29tZWJhc2U2NGRhdGE=") {
+		t.Errorf("error text = %s", err.Error())
 	}
 }
 

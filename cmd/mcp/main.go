@@ -12,12 +12,16 @@ import (
 
 func main() {
 	engineURL := "ws://localhost:8080/ws"
+	if u := os.Getenv("SCRATCHPAD_URL"); u != "" {
+		engineURL = u
+	}
 
 	// 1. Connect the adapter to your engine
 	adapter, err := mcp.NewMcpServer(engineURL)
 	if err != nil {
-		slog.Error("Engine connection failed", "err", err)
-		os.Exit(1)
+		// Keep serving: the first tool call connects once the engine is up.
+		slog.Warn("engine not reachable yet; will connect on the first tool call", "err", err)
+		adapter = mcp.NewLazyMcpServer(engineURL)
 	}
 
 	// 2. Initialize the Server with the Stdio Transport and Options

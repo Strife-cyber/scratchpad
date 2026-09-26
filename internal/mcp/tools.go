@@ -15,7 +15,7 @@ import (
 
 // NavigateArgs loads a URL into the active session.
 type NavigateArgs struct {
-	URL string `json:"url"`
+	URL string `json:"url" jsonschema:"required"`
 }
 
 // ObserveArgs configures which parts of a page observation are captured and
@@ -88,17 +88,17 @@ type DismissModalArgs struct {
 
 type CheckArgs struct {
 	Selector protocol.Selector `json:"selector"`
-	HandleID string            `json:"handle_id,omitempty"`
+	HandleID string            `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 }
 
 type UncheckArgs struct {
 	Selector protocol.Selector `json:"selector"`
-	HandleID string            `json:"handle_id,omitempty"`
+	HandleID string            `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 }
 
 type SubmitFormArgs struct {
 	Selector protocol.Selector `json:"selector"`
-	HandleID string            `json:"handle_id,omitempty"`
+	HandleID string            `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 }
 
 type FillFormArgs struct {
@@ -120,7 +120,7 @@ type FillFormArgs struct {
 // coordinate fallback. The engine auto-waits up to timeout_ms for the element.
 type ClickArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
-	HandleID  string             `json:"handle_id,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
@@ -129,7 +129,7 @@ type ClickArgs struct {
 // HoverArgs targets an element to hover. Provide a selector, or x/y fallback.
 type HoverArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
-	HandleID  string             `json:"handle_id,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
@@ -139,8 +139,8 @@ type HoverArgs struct {
 // selector is given). The engine clicks the element to focus it first.
 type TypeArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
-	HandleID  string             `json:"handle_id,omitempty"`
-	Text      string             `json:"text"`
+	HandleID  string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
+	Text      string             `json:"text" jsonschema:"required"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
 }
 
@@ -149,7 +149,7 @@ type TypeArgs struct {
 // (defaults to viewport centre).
 type ScrollArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
-	HandleID  string             `json:"handle_id,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	DeltaX    int                `json:"delta_x"`
@@ -160,7 +160,7 @@ type ScrollArgs struct {
 // DoubleClickArgs targets an element to double-click. Selector, or x/y.
 type DoubleClickArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
-	HandleID  string             `json:"handle_id,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
@@ -169,7 +169,7 @@ type DoubleClickArgs struct {
 // RightClickArgs targets an element to right-click (context menu). Selector, or x/y.
 type RightClickArgs struct {
 	Selector  *protocol.Selector `json:"selector,omitempty"`
-	HandleID  string             `json:"handle_id,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 	X         int                `json:"x,omitempty"`
 	Y         int                `json:"y,omitempty"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
@@ -178,7 +178,7 @@ type RightClickArgs struct {
 // DragDropArgs drags the source element onto the target element.
 type DragDropArgs struct {
 	Selector       *protocol.Selector `json:"selector"`
-	HandleID       string             `json:"handle_id,omitempty"`
+	HandleID       string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 	TargetSelector *protocol.Selector `json:"target_selector"`
 	TimeoutMS      int                `json:"timeout_ms,omitempty"`
 }
@@ -187,7 +187,7 @@ type DragDropArgs struct {
 // (by value) or option_text (by visible label).
 type SelectOptionArgs struct {
 	Selector    *protocol.Selector `json:"selector"`
-	HandleID    string             `json:"handle_id,omitempty"`
+	HandleID    string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 	OptionValue string             `json:"option_value,omitempty"`
 	OptionText  string             `json:"option_text,omitempty"`
 	TimeoutMS   int                `json:"timeout_ms,omitempty"`
@@ -206,13 +206,13 @@ type PressKeyComboArgs struct {
 
 // ExecuteJSArgs runs arbitrary JavaScript in the page.
 type ExecuteJSArgs struct {
-	JS string `json:"js"`
+	JS string `json:"js" jsonschema:"required"`
 }
 
 // ScrollIntoViewArgs scrolls an element into the centre of the viewport.
 type ScrollIntoViewArgs struct {
 	Selector  *protocol.Selector `json:"selector"`
-	HandleID  string             `json:"handle_id,omitempty"`
+	HandleID  string             `json:"handle_id,omitempty" jsonschema_description:"ref of an element from the last observation (ref=N)"`
 	TimeoutMS int                `json:"timeout_ms,omitempty"`
 }
 
@@ -293,7 +293,11 @@ func tool[T any](s *Server, name, description string, build func(args T) protoco
 func actionTool[T any](s *Server, name, description string, build func(args T) protocol.ActionRequest) toolDef {
 	var zero T
 	def := tool(s, name, description, func(args T) protocol.Envelope {
-		return protocol.Envelope{Type: protocol.MsgTypeAction, Data: mustJSON(build(args))}
+		req := build(args)
+		if req.Observe == nil {
+			req.Observe = s.actionObserve()
+		}
+		return protocol.Envelope{Type: protocol.MsgTypeAction, Data: mustJSON(req)}
 	})
 	def.action = build(zero).Action
 	return def
@@ -389,7 +393,7 @@ func (s *Server) toolDefs() []toolDef {
 			tool(s, "browser_navigate", "Load a URL into the browser.\n\nExample: browser_navigate with {\"url\":\"https://example.com\"} navigates to the URL.", func(a NavigateArgs) protocol.Envelope {
 				return protocol.Envelope{
 					Type: protocol.MsgTypeNavigate,
-					Data: mustJSON(protocol.InitializeRequest{URL: a.URL}),
+					Data: mustJSON(protocol.InitializeRequest{URL: a.URL, Observe: s.actionObserve()}),
 				}
 			}),
 			observeTool(s),
@@ -438,12 +442,6 @@ func (s *Server) toolDefs() []toolDef {
 			actionTool(s, "browser_type", "Type text into an element (clicking it to focus first), or the focused element when no selector is given.\n\nExample: browser_type with {\"selector\":{\"css\":\"#search\"},\"text\":\"cats\"} types \"cats\" into the search box.", func(a TypeArgs) protocol.ActionRequest {
 				return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, HandleID: a.HandleID, Text: a.Text, TimeoutMS: a.TimeoutMS}
 			}),
-			actionTool(s, "browser_fill", "Alias for browser_type: fill a field with text.\n\nExample: browser_fill with {\"selector\":{\"css\":\"#email\"},\"text\":\"a@b.com\"} fills the email field.", func(a TypeArgs) protocol.ActionRequest {
-				return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, HandleID: a.HandleID, Text: a.Text, TimeoutMS: a.TimeoutMS}
-			}),
-			actionTool(s, "browser_press_sequentially", "Alias for browser_type: type text one character at a time.\n\nExample: browser_press_sequentially with {\"selector\":{\"css\":\"#otp\"},\"text\":\"123456\"} types the code.", func(a TypeArgs) protocol.ActionRequest {
-				return protocol.ActionRequest{Action: protocol.ActionType, Selector: a.Selector, HandleID: a.HandleID, Text: a.Text, TimeoutMS: a.TimeoutMS}
-			}),
 			actionTool(s, "browser_scroll", "Scroll the page or an element by delta_x/delta_y (positive scrolls down/right).\n\nExample: browser_scroll with {\"delta_x\":0,\"delta_y\":500} scrolls down 500px.", func(a ScrollArgs) protocol.ActionRequest {
 				return protocol.ActionRequest{Action: protocol.ActionScroll, Selector: a.Selector, HandleID: a.HandleID, X: a.X, Y: a.Y, DeltaX: a.DeltaX, DeltaY: a.DeltaY, TimeoutMS: a.TimeoutMS}
 			}),
@@ -466,9 +464,6 @@ func (s *Server) toolDefs() []toolDef {
 				}
 			}),
 			actionTool(s, "browser_execute_js", "Run arbitrary JavaScript in the page. The return value is captured and surfaced.\n\nExample: browser_execute_js with {\"js\":\"document.title\"} returns the page title.", func(a ExecuteJSArgs) protocol.ActionRequest {
-				return protocol.ActionRequest{Action: protocol.ActionExecuteJS, JS: a.JS}
-			}),
-			actionTool(s, "browser_eval", "Run JavaScript and return its result value.\n\nExample: browser_eval with {\"js\":\"document.querySelector('#price').innerText\"} returns the price text.", func(a ExecuteJSArgs) protocol.ActionRequest {
 				return protocol.ActionRequest{Action: protocol.ActionExecuteJS, JS: a.JS}
 			}),
 			actionTool(s, "browser_scroll_into_view", "Scroll an element into the centre of the viewport.\n\nExample: browser_scroll_into_view with {\"selector\":{\"css\":\"#footer\"}} scrolls the footer into view.", func(a ScrollIntoViewArgs) protocol.ActionRequest {

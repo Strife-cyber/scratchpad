@@ -81,8 +81,7 @@ func (s *Server) waitForEvent(args WaitEventArgs) (*mcp.ToolResponse, error) {
 	// Errors are sent as a bare ErrorResponse, not wrapped in an envelope.
 	var errResp protocol.ErrorResponse
 	if err := json.Unmarshal(msg, &errResp); err == nil && errResp.Type != "" && errResp.Message != "" {
-		data, _ := json.Marshal(errResp)
-		return mcp.NewToolResponse(mcp.NewTextContent(string(data))), nil
+		return nil, newEngineError(errResp)
 	}
 
 	// Successes ride a MsgTypeWaitEvent envelope; unwrap its Data payload.
