@@ -138,11 +138,8 @@ func TestParseNetworkAck(t *testing.T) {
 	}
 
 	errMsg := mustJSON(protocol.ErrorResponse{Type: "error", Code: "unsupported", Message: "needs Chrome"})
-	resp, err = parseNetworkAck(errMsg, "enabled")
-	if err != nil {
-		t.Fatalf("parseNetworkAck(error): %v", err)
-	}
-	if !strings.Contains(resp.Content[0].TextContent.Text, "needs Chrome") {
-		t.Errorf("error ack text = %q, want the typed error surfaced verbatim", resp.Content[0].TextContent.Text)
+	_, err = parseNetworkAck(errMsg, "enabled")
+	if err == nil || !strings.Contains(err.Error(), "needs Chrome") {
+		t.Errorf("error ack = %v, want the typed error surfaced verbatim as a tool error", err)
 	}
 }

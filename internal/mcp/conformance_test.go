@@ -199,6 +199,13 @@ type toolContent struct {
 // content block plus the count of image blocks, failing the test on any error.
 func (c *rpcClient) callTool(t *testing.T, name string, args any) (string, int) {
 	t.Helper()
+	text, images, _ := c.callToolResult(t, name, args)
+	return text, images
+}
+
+// callToolResult is callTool that also reports the result's isError flag.
+func (c *rpcClient) callToolResult(t *testing.T, name string, args any) (string, int, bool) {
+	t.Helper()
 	id := c.allocateID()
 	if err := c.send(map[string]any{
 		"jsonrpc": "2.0", "id": id, "method": "tools/call",
@@ -230,7 +237,7 @@ func (c *rpcClient) callTool(t *testing.T, name string, args any) (string, int) 
 			t.Fatalf("call %s: unexpected content type %q", name, cblk.Type)
 		}
 	}
-	return text.String(), images
+	return text.String(), images, res.IsError
 }
 
 // startConformanceBridge wires the real engine (headless Chrome via the WS
@@ -381,12 +388,15 @@ func TestMCPConformance_FailContract(t *testing.T) {
 
 	// Hard failure: click a selector that does not exist. The engine returns an
 	// ErrorResponse envelope; the bridge passes it through verbatim as JSON text
-	// (type/code/message/action) rather than a transport error. A short timeout
-	// keeps the auto-wait fast.
-	text, _ := client.callTool(t, "browser_click", map[string]any{
+	// (type/code/message/action) in a result flagged isError, rather than a
+	// transport error. A short timeout keeps the auto-wait fast.
+	text, _, isErr := client.callToolResult(t, "browser_click", map[string]any{
 		"selector":   map[string]any{"css": "#does-not-exist"},
 		"timeout_ms": 500,
 	})
+	if !isErr {
+		t.Error("failed browser_click result is not flagged isError")
+	}
 	for _, want := range []string{`"type"`, `"message"`, `"click"`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("failed browser_click did not surface typed error envelope (missing %q):\n%s", want, text)
@@ -395,11 +405,14 @@ func TestMCPConformance_FailContract(t *testing.T) {
 
 	// Soft failure: a wait that times out produces an observation whose
 	// ActionResult has Success=false, rendered as the "❌" marker.
-	text, _ = client.callTool(t, "browser_wait", map[string]any{
+	text, _, isErr = client.callToolResult(t, "browser_wait", map[string]any{
 		"condition":  "selector_visible",
 		"selector":   map[string]any{"css": "#never-appears"},
 		"timeout_ms": 500,
 	})
+	if isErr {
+		t.Error("a soft failure keeps the page state and must not be flagged isError")
+	}
 	if !strings.Contains(text, "❌") || !strings.Contains(text, "wait") {
 		t.Errorf("failed browser_wait did not surface soft failure (missing ❌/wait):\n%s", text)
 	}

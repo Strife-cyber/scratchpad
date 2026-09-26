@@ -337,6 +337,25 @@ func (sc *sessionConn) reconnect() error {
 	return nil
 }
 
+// EngineError is a typed engine error envelope returned from a tool handler.
+// Returning it as an error (rather than a normal response) is what makes
+// mcp-golang mark the tool result isError:true; its text is the envelope JSON
+// verbatim, so agents still see code, message and hint. mcp-golang v0.16.1
+// renders only the error text, so an error screenshot cannot be attached.
+type EngineError struct {
+	Envelope protocol.ErrorResponse
+}
+
+func newEngineError(resp protocol.ErrorResponse) *EngineError {
+	resp.Screenshot = "" // not renderable on the error path; keep the text small
+	return &EngineError{Envelope: resp}
+}
+
+func (e *EngineError) Error() string {
+	data, _ := json.Marshal(e.Envelope)
+	return string(data)
+}
+
 // parseResponse parses one raw engine message as either an ErrorResponse or an
 // ObservationResponse. Errors are returned as descriptive text so the AI agent
 // gets helpful feedback.
@@ -354,12 +373,7 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 	// image so it stays viewable.
 	var errResp protocol.ErrorResponse
 	if err := json.Unmarshal(message, &errResp); err == nil && errResp.Type != "" && errResp.Message != "" {
-		data, _ := json.Marshal(errResp)
-		contents := []*mcp.Content{mcp.NewTextContent(string(data))}
-		if errResp.Screenshot != "" {
-			contents = append(contents, mcp.NewImageContent(errResp.Screenshot, "image/jpeg"))
-		}
-		return mcp.NewToolResponse(contents...), nil
+		return nil, newEngineError(errResp)
 	}
 
 	// Fall back to ObservationResponse (success path).

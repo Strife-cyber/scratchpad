@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -191,20 +192,17 @@ func TestReadResponse_Error(t *testing.T) {
 
 	// Send an envelope first so the server has something to respond to.
 	env := protocol.Envelope{Type: protocol.MsgTypeObserve}
-	resp, err := server.sendEnvelope(env)
-	if err != nil {
-		t.Fatalf("sendEnvelope failed: %v", err)
-	}
-	if resp == nil {
-		t.Fatal("expected non-nil response even on error")
+	_, err = server.sendEnvelope(env)
+	// Engine errors come back as a typed error so the MCP result is flagged
+	// isError:true.
+	var engErr *EngineError
+	if !errors.As(err, &engErr) {
+		t.Fatalf("expected an EngineError, got: %v", err)
 	}
 
 	// The error envelope must be passed through verbatim: the machine code and
 	// request_id (which the old reformatted summary dropped) must survive.
-	if len(resp.Content) == 0 || resp.Content[0].TextContent == nil {
-		t.Fatal("expected a text content block carrying the verbatim envelope")
-	}
-	body := resp.Content[0].TextContent.Text
+	body := err.Error()
 	if !strings.Contains(body, `"code":"selector_no_match"`) {
 		t.Errorf("verbatim envelope must preserve the machine code, got: %s", body)
 	}
@@ -240,12 +238,15 @@ func TestReadResponse_ErrorWithScreenshot(t *testing.T) {
 
 	// Send an envelope first so the server has something to respond to.
 	env := protocol.Envelope{Type: protocol.MsgTypeObserve}
-	resp, err := server.sendEnvelope(env)
-	if err != nil {
-		t.Fatalf("sendEnvelope failed: %v", err)
+	_, err = server.sendEnvelope(env)
+	var engErr *EngineError
+	if !errors.As(err, &engErr) {
+		t.Fatalf("expected an EngineError, got: %v", err)
 	}
-	if resp == nil {
-		t.Fatal("expected non-nil response")
+	// The error text stays the compact envelope: the base64 screenshot is
+	// dropped because an MCP error result cannot carry an image.
+	if !strings.Contains(err.Error(), "element obscured") || strings.Contains(err.Error(), "c29tZWJhc2U2NGRhdGE=") {
+		t.Errorf("error text = %s", err.Error())
 	}
 }
 

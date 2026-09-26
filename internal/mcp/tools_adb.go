@@ -36,7 +36,7 @@ func (s *Server) androidToolDefs() []toolDef {
 					if err != nil {
 						// Surface the typed device_unavailable envelope (same code the
 						// HTTP layer returns) so agents see the stable code + hint.
-						return typedAndroidError(err), nil
+						return nil, typedAndroidError(err)
 					}
 					data, err := json.Marshal(map[string]any{"devices": devices})
 					if err != nil {
@@ -50,14 +50,13 @@ func (s *Server) androidToolDefs() []toolDef {
 }
 
 // typedAndroidError renders a host-side adb failure as the typed
-// device_unavailable envelope, mirroring typedSessionNotFound. A non-nil error
-// that isn't ErrDeviceUnavailable still maps to the same code since it means
-// adb itself is unreachable.
-func typedAndroidError(err error) *mcp.ToolResponse {
+// device_unavailable envelope tool error, mirroring typedSessionNotFound. A
+// non-nil error that isn't ErrDeviceUnavailable still maps to the same code
+// since it means adb itself is unreachable.
+func typedAndroidError(err error) error {
 	resp := protocol.ErrorResponseFromError(protocol.ErrDeviceUnavailable, protocol.ErrorLevelAction)
 	if err != nil {
 		resp.Message = err.Error()
 	}
-	data, _ := json.Marshal(resp)
-	return mcp.NewToolResponse(mcp.NewTextContent(string(data)))
+	return newEngineError(resp)
 }

@@ -356,7 +356,7 @@ func (s *Server) closeSessionRemote(id string, env protocol.Envelope) (*mcp.Tool
 	sc, err := dial(s.engineURL, id)
 	if err != nil {
 		if errors.Is(err, protocol.ErrSessionNotFound) {
-			return typedSessionNotFound(id), nil
+			return nil, typedSessionNotFound(id)
 		}
 		return nil, fmt.Errorf("mcp: close session %q: %w", id, err)
 	}
@@ -381,12 +381,11 @@ func closeAck(id string) *mcp.ToolResponse {
 	return mcp.NewToolResponse(mcp.NewTextContent(fmt.Sprintf("Session %q closed.", id)))
 }
 
-// typedSessionNotFound builds a ToolResponse carrying the typed
-// session_not_found envelope, so agents see the stable code and hint instead of
-// a local "no connection for session" error.
-func typedSessionNotFound(id string) *mcp.ToolResponse {
+// typedSessionNotFound builds the typed session_not_found envelope as a tool
+// error, so agents see the stable code and hint instead of a local "no
+// connection for session" error.
+func typedSessionNotFound(id string) error {
 	resp := protocol.ErrorResponseFromError(protocol.ErrSessionNotFound, protocol.ErrorLevelAction)
 	resp.Message = fmt.Sprintf("close session: no session with id %q", id)
-	data, _ := json.Marshal(resp)
-	return mcp.NewToolResponse(mcp.NewTextContent(string(data)))
+	return newEngineError(resp)
 }

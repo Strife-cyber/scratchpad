@@ -181,5 +181,9 @@ Elements: (pass a ref as handle_id to act on that element)
 Every interactive, named or text-bearing node is listed in page order. Pass a
 `ref` as `handle_id` to act on that element, or use the same role and name as a
 selector (`{"role":"textbox","name":"Username"}`). `browser_observe` with
-`include_raw_json: true` appends the full JSON observation. Errors are returned
-as the JSON error envelope (`code`, `message`, `hint`).
+`include_raw_json: true` appends the full JSON observation.
+
+Engine errors (no element matched, navigation failed, …) come back as a result
+flagged `isError: true` whose text is the JSON error envelope (`code`,
+`message`, `hint`). Soft failures, such as a wait or assertion that did not
+pass, are normal results marked `❌` so the page state is still attached.

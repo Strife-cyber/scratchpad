@@ -164,8 +164,7 @@ func parseNetworkAck(msg []byte, successMsg string) (*mcp.ToolResponse, error) {
 	}
 	var errResp protocol.ErrorResponse
 	if json.Unmarshal(msg, &errResp) == nil && errResp.Type != "" && errResp.Message != "" {
-		data, _ := json.Marshal(errResp)
-		return mcp.NewToolResponse(mcp.NewTextContent(string(data))), nil
+		return nil, newEngineError(errResp)
 	}
 	return nil, fmt.Errorf("mcp: unexpected network response: %s", string(msg))
 }
