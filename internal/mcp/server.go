@@ -39,6 +39,14 @@ const (
 type Server struct {
 	engineURL string
 
+	// actionScreenshots attaches a page screenshot (and the element highlight)
+	// to every action and navigate response. Off by default: the element
+	// outline already reports the effect of an action, and each image costs
+	// the agent far more context than the text. browser_observe and
+	// browser_screenshot always return images. Enabled with
+	// SCRATCHPAD_MCP_SCREENSHOTS=always.
+	actionScreenshots bool
+
 	// activeSessionID is the session plain browser_* tools target. It is set on
 	// connect and updated by session_create / session_attach.
 	activeSessionID string
@@ -68,7 +76,11 @@ type sessionConn struct {
 // session handshake, and makes that first session the active one. Returns once
 // the session is ready.
 func NewMcpServer(engineURL string) (*Server, error) {
-	s := &Server{engineURL: engineURL, conns: make(map[string]*sessionConn)}
+	s := &Server{
+		engineURL:         engineURL,
+		conns:             make(map[string]*sessionConn),
+		actionScreenshots: os.Getenv(screenshotsEnv) == "always",
+	}
 	sc, err := dial(engineURL, "")
 	if err != nil {
 		return nil, err
@@ -77,6 +89,21 @@ func NewMcpServer(engineURL string) (*Server, error) {
 	s.conns[sc.id] = sc
 	s.activeSessionID = sc.id
 	return s, nil
+}
+
+// screenshotsEnv set to "always" re-enables screenshots on action and navigate
+// responses.
+const screenshotsEnv = "SCRATCHPAD_MCP_SCREENSHOTS"
+
+// actionObserve is the observe request attached to action and navigate
+// envelopes: nil (full default observation) when action screenshots are on,
+// otherwise an observation without the screenshot.
+func (s *Server) actionObserve() *protocol.ObserveRequest {
+	if s.actionScreenshots {
+		return nil
+	}
+	off := false
+	return &protocol.ObserveRequest{Screenshot: &off}
 }
 
 // SessionID returns the id of the currently active session.
@@ -541,8 +568,9 @@ func (s *Server) parseResponse(sc *sessionConn, message []byte, req *protocol.Ob
 		contents = append(contents, mcp.NewImageContent(b64Images, mime))
 	}
 
-	// Also attach the element highlight screenshot if present.
-	if obs.ActionResult != nil && obs.ActionResult.ElementHighlight != "" {
+	// Also attach the element highlight screenshot if present (only when
+	// action screenshots are on: it is an image of what the outline states).
+	if s.actionScreenshots && obs.ActionResult != nil && obs.ActionResult.ElementHighlight != "" {
 		contents = append(contents, mcp.NewImageContent(obs.ActionResult.ElementHighlight, "image/png"))
 	}
 

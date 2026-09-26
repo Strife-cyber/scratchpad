@@ -293,7 +293,11 @@ func tool[T any](s *Server, name, description string, build func(args T) protoco
 func actionTool[T any](s *Server, name, description string, build func(args T) protocol.ActionRequest) toolDef {
 	var zero T
 	def := tool(s, name, description, func(args T) protocol.Envelope {
-		return protocol.Envelope{Type: protocol.MsgTypeAction, Data: mustJSON(build(args))}
+		req := build(args)
+		if req.Observe == nil {
+			req.Observe = s.actionObserve()
+		}
+		return protocol.Envelope{Type: protocol.MsgTypeAction, Data: mustJSON(req)}
 	})
 	def.action = build(zero).Action
 	return def
@@ -389,7 +393,7 @@ func (s *Server) toolDefs() []toolDef {
 			tool(s, "browser_navigate", "Load a URL into the browser.\n\nExample: browser_navigate with {\"url\":\"https://example.com\"} navigates to the URL.", func(a NavigateArgs) protocol.Envelope {
 				return protocol.Envelope{
 					Type: protocol.MsgTypeNavigate,
-					Data: mustJSON(protocol.InitializeRequest{URL: a.URL}),
+					Data: mustJSON(protocol.InitializeRequest{URL: a.URL, Observe: s.actionObserve()}),
 				}
 			}),
 			observeTool(s),

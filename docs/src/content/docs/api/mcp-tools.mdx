@@ -23,6 +23,7 @@ The engine server (`make run`) must already be running; the bridge connects to i
 |----------------------|---------|
 | `SCRATCHPAD_URL` | Engine WebSocket URL when `--engine-url` is not given (default `ws://localhost:8080/ws`) |
 | `SCRATCHPAD_TOKEN` | Sent as `Authorization: Bearer` when the server was started with a token |
+| `SCRATCHPAD_MCP_SCREENSHOTS` | `always` attaches a page screenshot (and the element highlight) to every action and `browser_navigate` response. By default only `browser_observe` and `browser_screenshot` return images; action responses carry the text outline |
 | `SCRATCHPAD_MCP_TOOLS` | Optional tool groups to register, comma-separated: `android` (the `android_*` tools), `advanced` (`browser_action`, `browser_switch_to_iframe`, `browser_switch_to_main_frame`), or `all`. Off by default to keep the tool list small |
 | `CHROME_PATH` | Set on the **server**: the Chrome/Chromium binary to launch |
 
@@ -165,7 +166,8 @@ Add to your `claude_desktop_config.json`:
 
 ## Tool Response Structure
 
-Browser tools return a text summary plus the page screenshot as an image block:
+Browser tools return a text summary; `browser_observe` (and every action when
+`SCRATCHPAD_MCP_SCREENSHOTS=always`) also attaches the page screenshot:
 
 ```text
 State: document complete
