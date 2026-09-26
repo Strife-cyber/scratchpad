@@ -16,6 +16,7 @@ import (
 
 	"scratchpad/internal/api"
 	"scratchpad/internal/docs"
+	"scratchpad/internal/endpoint"
 	"scratchpad/internal/engine"
 	"scratchpad/internal/middleware"
 	"scratchpad/internal/sandbox"
@@ -41,7 +42,9 @@ func main() {
 	observeThrottleMS := flag.Int("observe-throttle-ms", 0,
 		"minimum spacing between observations on a session (ms; 0 = unlimited)")
 	bindFlag := flag.String("bind", "",
-		"listen address host:port (default "+defaultBind+"; overrides SCRATCHPAD_BIND; non-loopback requires a token or --allow-shared-sessions)")
+		"listen address: host:port, or a host alone to combine with --port (default "+defaultHost+"; overrides SCRATCHPAD_BIND; non-loopback requires a token or --allow-shared-sessions)")
+	portFlag := flag.String("port", "",
+		"listen port (default 8080; overrides SCRATCHPAD_PORT, which clients also use for their default URLs)")
 	tokenFlag := flag.String("token", "",
 		"bearer token required on all /api, /ws, /docs, /trace_viewer routes (overrides SCRATCHPAD_TOKEN; empty = auth off)")
 	corsFlag := flag.String("cors", "",
@@ -120,7 +123,7 @@ func main() {
 	// ---- Auth, binding, and hardening (improvement-plan item 35) ----------
 	token := resolveToken(*tokenFlag, os.Getenv("SCRATCHPAD_TOKEN"))
 
-	bindAddr, err := resolveBind(*bindFlag, os.Getenv(bindEnv))
+	bindAddr, err := resolveBind(*bindFlag, os.Getenv(bindEnv), *portFlag, os.Getenv(endpoint.PortEnv))
 	if err != nil {
 		logger.Error("Invalid bind address", "err", err)
 		os.Exit(1)
@@ -183,12 +186,13 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	}
 
+	httpBase, wsBase := displayBases(bindAddr, *certFile != "" && *keyFile != "")
 	logger.Info("Listening",
 		"addr", bindAddr,
-		"docs", "http://localhost/docs",
-		"ws", "ws://localhost/ws",
-		"ws_android", "ws://localhost/ws/android",
-		"metrics", "http://localhost/metrics",
+		"docs", httpBase+"/docs",
+		"ws", wsBase+"/ws",
+		"ws_android", wsBase+"/ws/android",
+		"metrics", httpBase+"/metrics",
 		"auth", token != "",
 	)
 

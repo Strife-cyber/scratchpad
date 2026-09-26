@@ -12,31 +12,57 @@ import (
 
 func TestResolveBind(t *testing.T) {
 	cases := []struct {
-		name, flag, env, want string
-		wantErr               bool
+		name, bind, bindEnv, port, portEnv, want string
+		wantErr                                  bool
 	}{
-		{"defaults to loopback", "", "", "127.0.0.1:8080", false},
-		{"flag wins over env", "0.0.0.0:9000", ":9999", "0.0.0.0:9000", false},
-		{"env used when flag empty", "", "0.0.0.0:9000", "0.0.0.0:9000", false},
-		{"bare port accepted", ":8080", "", ":8080", false},
-		{"host without port rejected", "localhost", "", "", true},
+		{"defaults to loopback", "", "", "", "", "127.0.0.1:8080", false},
+		{"flag wins over env", "0.0.0.0:9000", ":9999", "", "", "0.0.0.0:9000", false},
+		{"env used when flag empty", "", "0.0.0.0:9000", "", "", "0.0.0.0:9000", false},
+		{"bare port accepted", ":8080", "", "", "", ":8080", false},
+		{"port flag alone", "", "", "9100", "", "127.0.0.1:9100", false},
+		{"port env alone", "", "", "", "9200", "127.0.0.1:9200", false},
+		{"port flag wins over env", "", "", "9100", "9200", "127.0.0.1:9100", false},
+		{"host alone gets default port", "localhost", "", "", "", "localhost:8080", false},
+		{"host plus port", "0.0.0.0", "", "9300", "", "0.0.0.0:9300", false},
+		{"ipv6 host plus port", "::1", "", "9300", "", "[::1]:9300", false},
+		{"bind port matching port is fine", ":9400", "", "9400", "", ":9400", false},
+		{"bind port disagreeing with port rejected", ":9400", "", "9500", "", "", true},
+		{"invalid port rejected", "", "", "http", "", "", true},
+		{"out of range port rejected", "", "", "", "70000", "", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := resolveBind(c.flag, c.env)
+			got, err := resolveBind(c.bind, c.bindEnv, c.port, c.portEnv)
 			if c.wantErr {
 				if err == nil {
-					t.Fatalf("resolveBind(%q,%q): want error, got %q", c.flag, c.env, got)
+					t.Fatalf("want error, got %q", got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("resolveBind(%q,%q): %v", c.flag, c.env, err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 			if got != c.want {
-				t.Errorf("resolveBind(%q,%q) = %q, want %q", c.flag, c.env, got, c.want)
+				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestDisplayBases(t *testing.T) {
+	for _, c := range []struct {
+		addr     string
+		tls      bool
+		http, ws string
+	}{
+		{"127.0.0.1:9100", false, "http://127.0.0.1:9100", "ws://127.0.0.1:9100"},
+		{":8080", false, "http://localhost:8080", "ws://localhost:8080"},
+		{"0.0.0.0:443", true, "https://localhost:443", "wss://localhost:443"},
+	} {
+		h, w := displayBases(c.addr, c.tls)
+		if h != c.http || w != c.ws {
+			t.Errorf("displayBases(%q, %v) = %s, %s; want %s, %s", c.addr, c.tls, h, w, c.http, c.ws)
+		}
 	}
 }
 

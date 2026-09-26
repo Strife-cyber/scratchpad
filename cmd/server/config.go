@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
+
+	"scratchpad/internal/endpoint"
 )
 
 // Server networking configuration (improvement-plan item 35).
@@ -16,28 +19,84 @@ import (
 // RCE-adjacent hole. --allow-shared-sessions is the explicit opt-in that lifts
 // that refusal (with a warning) for trusted networks.
 
-// defaultBind is the loopback-only default listen address.
-const defaultBind = "127.0.0.1:8080"
+// defaultHost is the loopback-only default listen host.
+const defaultHost = "127.0.0.1"
 
 // bindEnv is the environment variable that overrides the listen address.
 const bindEnv = "SCRATCHPAD_BIND"
 
-// resolveBind returns the listen address, preferring the --bind flag, then
-// SCRATCHPAD_BIND, then the loopback default. A bare port (":8080") is
-// accepted but listens on all interfaces, so validateBind treats it as
-// non-loopback; a host without a port is rejected so the intent is unambiguous.
-func resolveBind(flagVal, envVal string) (string, error) {
-	addr := flagVal
+// resolveBind returns the listen address from the --bind flag (else
+// SCRATCHPAD_BIND) and the --port flag (else SCRATCHPAD_PORT).
+//
+//   - Neither set: 127.0.0.1:8080.
+//   - Only a port: 127.0.0.1:<port>.
+//   - A host without a port ("0.0.0.0", "::1"): that host on the port, or 8080.
+//   - A host:port (":9000", "0.0.0.0:9000"): used as is; a port given as well
+//     must match it, so the two can never silently disagree.
+//
+// A bare ":port" listens on all interfaces, so validateBind treats it as
+// non-loopback.
+func resolveBind(flagBind, envBind, flagPort, envPort string) (string, error) {
+	addr := flagBind
 	if addr == "" {
-		addr = envVal
+		addr = envBind
 	}
+	portStr := flagPort
+	if portStr == "" {
+		portStr = envPort
+	}
+	port := 0
+	if portStr != "" {
+		p, err := endpoint.ParsePort(portStr)
+		if err != nil {
+			return "", err
+		}
+		port = p
+	}
+	withPort := func(host string) string {
+		p := port
+		if p == 0 {
+			p = endpoint.DefaultPort
+		}
+		return net.JoinHostPort(host, strconv.Itoa(p))
+	}
+
 	if addr == "" {
-		addr = defaultBind
+		return withPort(defaultHost), nil
 	}
-	if !strings.Contains(addr, ":") {
-		return "", fmt.Errorf("invalid bind %q: expected host:port (e.g. 127.0.0.1:8080, :8080)", addr)
+	_, bindPort, err := net.SplitHostPort(addr)
+	if err != nil {
+		// No port in the bind address: a bare host (IPv6 with or without
+		// brackets included).
+		return withPort(strings.Trim(addr, "[]")), nil
+	}
+	if port != 0 && bindPort != strconv.Itoa(port) {
+		return "", fmt.Errorf("bind address %q and port %d disagree: give the port once, in --bind or in --port/%s",
+			addr, port, endpoint.PortEnv)
 	}
 	return addr, nil
+}
+
+// displayBases returns the http(s):// and ws(s):// base URLs for reaching a
+// server listening on addr, for the startup log. A wildcard or empty host is
+// shown as localhost.
+func displayBases(addr string, tls bool) (httpBase, wsBase string) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		host, port = addr, ""
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "localhost"
+	}
+	hostPort := host
+	if port != "" {
+		hostPort = net.JoinHostPort(host, port)
+	}
+	if tls {
+		return "https://" + hostPort, "wss://" + hostPort
+	}
+	return "http://" + hostPort, "ws://" + hostPort
 }
 
 // validateBind applies the security policy: a non-loopback bind requires either
