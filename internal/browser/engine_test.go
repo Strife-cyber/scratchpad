@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"testing"
 
 	"github.com/chromedp/cdproto/accessibility"
@@ -85,7 +86,7 @@ func TestAxValueToString_Empty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBoundsFromBackendNode_ZeroID(t *testing.T) {
-	_, ok := boundsFromBackendNode(nil, 0)
+	_, ok := boundsFromBackendNode(context.TODO(), 0)
 	if ok {
 		t.Error("expected false for backendID == 0")
 	}

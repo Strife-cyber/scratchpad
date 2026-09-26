@@ -60,7 +60,6 @@ func BenchmarkComputeDiff_Empty(b *testing.B) {
 // --- 100 nodes: 50 unchanged, 25 added, 25 removed -------------------------
 
 func BenchmarkComputeDiff_100Nodes(b *testing.B) {
-	const n = 100
 	common := genNodes(50, "common", 0)
 	onlyOld := genNodes(25, "onlyOld", 0)
 	onlyNew := genNodes(25, "onlyNew", 0)
@@ -79,7 +78,6 @@ func BenchmarkComputeDiff_100Nodes(b *testing.B) {
 // --- 1000 nodes: 500 unchanged, 250 added, 250 removed ---------------------
 
 func BenchmarkComputeDiff_1000Nodes(b *testing.B) {
-	const n = 1000
 	common := genNodes(500, "common", 0)
 	onlyOld := genNodes(250, "onlyOld", 0)
 	onlyNew := genNodes(250, "onlyNew", 0)

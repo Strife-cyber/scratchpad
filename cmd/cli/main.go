@@ -312,7 +312,7 @@ func runCmd(args []string) {
 	)
 
 	_ = userAgents
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	if strings.TrimSpace(*inputPath) == "" {
 		log.Fatal("missing -i <suite.yml|suite.json>")

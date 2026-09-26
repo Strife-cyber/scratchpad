@@ -829,9 +829,6 @@ func (e *ChromeEngine) waitForElement(ctx context.Context, sel protocol.Selector
 
 // buildWaitError assembles a descriptive error for waitForElement failures.
 func (e *ChromeEngine) buildWaitError(ctx context.Context, sel protocol.Selector, matches []ElementHandle, queryErr error, timeout time.Duration, reason string) error {
-	hint := sel.Describe()
-	hint += " (selector " + sel.Describe() + ")"
-
 	visibleCount := 0
 	enabledCount := 0
 	for _, m := range matches {
@@ -921,23 +918,6 @@ func (e *ChromeEngine) highlightElement(ctx context.Context, cssSelector string)
 		}
 	}
 	return "", nil
-}
-
-// waitForStability waits up to 500ms for the page to settle (network idle +
-// a 100ms quiet period). Similar to Playwright's auto-waiting-after-action.
-func (e *ChromeEngine) waitForStability() {
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if atomic.LoadInt32(&e.inFlightCount) == 0 {
-			// Network idle, wait a brief quiet period to confirm no new
-			// requests are triggered by side effects (e.g. JS reactions).
-			time.Sleep(100 * time.Millisecond)
-			if atomic.LoadInt32(&e.inFlightCount) == 0 {
-				return
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
 }
 
 // ---------------------------------------------------------------------------

@@ -377,12 +377,12 @@ func (h *handler) GetConsole(w http.ResponseWriter, r *http.Request, id string) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{
+	// Best-effort: the headers are already sent, so an encode error has no
+	// other recipient.
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"sessionId": id,
 		"logs":      logs,
-	}); err != nil {
-		// best-effort; headers may already be sent
-	}
+	})
 }
 
 // Keep file referenced.

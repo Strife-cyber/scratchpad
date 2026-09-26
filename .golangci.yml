@@ -1,0 +1,9 @@
+version: "2"
+
+linters:
+  exclusions:
+    # The error-handling exclusions golangci-lint v1 applied by default
+    # (fmt.Fprint*, deferred Close, os.Remove*, ...): ignoring those errors
+    # is idiomatic, and v2 no longer excludes them unless asked.
+    presets:
+      - std-error-handling

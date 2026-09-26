@@ -1233,7 +1233,7 @@ func repToJUnit(rep Report) ([]byte, error) {
 	failures := 0
 	buf.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	buf.WriteString("<testsuite ")
-	buf.WriteString(fmt.Sprintf(`name="%s" tests="%d" failures="%d"`, "scratchpad", total, failures))
+	fmt.Fprintf(&buf, `name="%s" tests="%d" failures="%d"`, "scratchpad", total, failures)
 	buf.WriteString(">")
 	for _, s := range rep.Suites {
 		tc := testcase{
@@ -1246,7 +1246,7 @@ func repToJUnit(rep Report) ([]byte, error) {
 			failures++
 		}
 		buf.WriteString("<testcase ")
-		buf.WriteString(fmt.Sprintf(`name="%s" time="%.3f"`, xmlEscape(tc.Name), tc.Time))
+		fmt.Fprintf(&buf, `name="%s" time="%.3f"`, xmlEscape(tc.Name), tc.Time)
 		if tc.Failed {
 			buf.WriteString("<failure message=\"")
 			buf.WriteString(xmlEscape(tc.Message))

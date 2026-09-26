@@ -66,7 +66,7 @@ func dialWS(t *testing.T, url string) *websocket.Conn {
 // readHandshake reads the server's first message and returns the session id.
 func readHandshake(t *testing.T, c *websocket.Conn) string {
 	t.Helper()
-	c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, msg, err := c.ReadMessage()
 	if err != nil {
 		t.Fatalf("read handshake: %v", err)
@@ -106,7 +106,7 @@ func TestWS_SessionLimitRejected(t *testing.T) {
 	// Second connection at the cap: the server sends a typed envelope carrying
 	// the session_limit_reached code instead of a handshake.
 	conn2 := dialWS(t, wsURL(t, srv))
-	conn2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = conn2.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, msg, err := conn2.ReadMessage()
 	if err != nil {
 		t.Fatalf("read error envelope: %v", err)
@@ -189,7 +189,7 @@ func TestWS_GuardrailMaxActionDuration(t *testing.T) {
 
 func readMsg(t *testing.T, c *websocket.Conn) []byte {
 	t.Helper()
-	c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, msg, err := c.ReadMessage()
 	if err != nil {
 		t.Fatalf("read message: %v", err)
@@ -200,7 +200,7 @@ func readMsg(t *testing.T, c *websocket.Conn) []byte {
 func writeEnvelope(t *testing.T, c *websocket.Conn, env protocol.Envelope) {
 	t.Helper()
 	data, _ := json.Marshal(env)
-	c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if err := c.WriteMessage(websocket.TextMessage, data); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestSession_AttachReusesSession(t *testing.T) {
 	}
 
 	rebind, _ := json.Marshal(map[string]string{"sessionId": sessionX})
-	connB.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_ = connB.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if err := connB.WriteMessage(websocket.TextMessage, rebind); err != nil {
 		t.Fatalf("write rebind: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestSession_AttachUnknown_IsError(t *testing.T) {
 	readHandshake(t, conn)
 
 	rebind, _ := json.Marshal(map[string]string{"sessionId": "does-not-exist"})
-	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if err := conn.WriteMessage(websocket.TextMessage, rebind); err != nil {
 		t.Fatalf("write rebind: %v", err)
 	}

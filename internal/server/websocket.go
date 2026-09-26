@@ -240,9 +240,9 @@ func (ws *wsSession) run(connStart time.Time) {
 	}
 
 	// Ping/pong: reset the read deadline every time we receive a pong.
-	ws.conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_ = ws.conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 	ws.conn.SetPongHandler(func(string) error {
-		ws.conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+		_ = ws.conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 		return nil
 	})
 
@@ -618,7 +618,7 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 	// Server-wide concurrency cap (backpressure while waiting for a slot).
 	if !ws.acquireSlot(ctx) {
 		// Cancelled while waiting for a slot; emit a clean result.
-		ws.writeJSON(ws.cancelledObservation(req.ActionID, req.Action, 0))
+		_ = ws.writeJSON(ws.cancelledObservation(req.ActionID, req.Action, 0))
 		return
 	}
 	defer ws.releaseSlot()
@@ -662,7 +662,7 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 		slog.Info("websocket: action cancelled",
 			"session_id", ws.session.ID, "action", req.Action, "action_id", req.ActionID,
 			"duration_ms", dur.Milliseconds())
-		ws.writeJSON(ws.cancelledObservation(req.ActionID, req.Action, dur))
+		_ = ws.writeJSON(ws.cancelledObservation(req.ActionID, req.Action, dur))
 		return
 	}
 
@@ -1066,7 +1066,7 @@ const estimatedNodeBytes = 120
 // A nil or empty payload yields a nil request, which the engine treats as a
 // full observation.
 func (ws *wsSession) parseObserveRequest(raw json.RawMessage) *protocol.ObserveRequest {
-	if raw == nil || len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
 		return nil
 	}
 	var req protocol.ObserveRequest
@@ -1145,7 +1145,7 @@ func (ws *wsSession) sendObservation(actionID string, req *protocol.ObserveReque
 		_ = ws.session.Recorder.RecordObservation(browser.HashObservation(obs), "")
 	}
 
-	ws.writeJSON(obs)
+	_ = ws.writeJSON(obs)
 }
 
 // cancelledObservation returns an ObservationResponse carrying a clean,

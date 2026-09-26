@@ -81,11 +81,11 @@ func TestSwipeEndpoints_DistancePercent(t *testing.T) {
 
 func TestSwipeEndpoints_ClampsToViewport(t *testing.T) {
 	vp := protocol.Viewport{Width: 1000, Height: 2000}
-	_, _, ex, ey := swipeEndpoints(vp, "up", 400) // 400% clamped to 100%
+	_, _, _, ey := swipeEndpoints(vp, "up", 400) // 400% clamped to 100%
 	if ey < 0 {
 		t.Errorf("swipe end y %d went negative", ey)
 	}
-	_, _, ex, ey = swipeEndpoints(vp, "right", 300)
+	_, _, ex, _ := swipeEndpoints(vp, "right", 300)
 	if ex > vp.Width {
 		t.Errorf("swipe end x %d exceeded viewport width", ex)
 	}

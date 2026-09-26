@@ -473,7 +473,7 @@ func (e *ChromeEngine) evaluateAssertOnce(ctx context.Context, a *protocol.Asser
 			return fail(fmt.Sprintf("no network request matched pattern %q", urlPattern))
 		}
 		if !captured {
-			return fail(fmt.Sprintf("no response body captured for matched request (enable network interception to capture bodies)"))
+			return fail("no response body captured for matched request (enable network interception to capture bodies)")
 		}
 		if strings.Contains(body, want) {
 			return ok("response body contains expected content")

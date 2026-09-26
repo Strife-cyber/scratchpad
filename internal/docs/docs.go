@@ -50,11 +50,11 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 func swaggerUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(swaggerUIHTML))
+	_, _ = w.Write([]byte(swaggerUIHTML))
 }
 
 func swaggerJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(swaggerSpec)
+	_, _ = w.Write(swaggerSpec)
 }

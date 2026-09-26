@@ -190,7 +190,7 @@ func startDroppingWSServer(t *testing.T) *httptest.Server {
 		defer conn.Close()
 
 		hs, _ := json.Marshal(map[string]string{"sessionId": "sess-keep"})
-		conn.WriteMessage(websocket.TextMessage, hs)
+		_ = conn.WriteMessage(websocket.TextMessage, hs)
 
 		mu.Lock()
 		connCount++
@@ -215,13 +215,13 @@ func startDroppingWSServer(t *testing.T) *httptest.Server {
 		}
 		if json.Unmarshal(msg, &rb) == nil && rb.SessionID == "sess-keep" {
 			ack, _ := json.Marshal(map[string]any{"sessionId": "sess-keep", "attached": true})
-			conn.WriteMessage(websocket.TextMessage, ack)
+			_ = conn.WriteMessage(websocket.TextMessage, ack)
 		}
 		_, _, err = conn.ReadMessage()
 		if err != nil {
 			return
 		}
-		conn.WriteMessage(websocket.TextMessage, observationResponseJSON(t))
+		_ = conn.WriteMessage(websocket.TextMessage, observationResponseJSON(t))
 	}))
 }
 
@@ -271,7 +271,7 @@ func startCloseWSServer(t *testing.T, known func(string) bool) *httptest.Server 
 		defer conn.Close()
 
 		hs, _ := json.Marshal(map[string]string{"sessionId": "fresh-handshake"})
-		conn.WriteMessage(websocket.TextMessage, hs)
+		_ = conn.WriteMessage(websocket.TextMessage, hs)
 
 		for {
 			_, msg, err := conn.ReadMessage()
@@ -290,11 +290,11 @@ func startCloseWSServer(t *testing.T, known func(string) bool) *httptest.Server 
 						Code:    protocol.CodeSessionNotFound,
 						Message: fmt.Sprintf("attach: session %q not found", rb.SessionID),
 					})
-					conn.WriteMessage(websocket.TextMessage, errResp)
+					_ = conn.WriteMessage(websocket.TextMessage, errResp)
 					return
 				}
 				ack, _ := json.Marshal(map[string]any{"sessionId": rb.SessionID, "attached": true})
-				conn.WriteMessage(websocket.TextMessage, ack)
+				_ = conn.WriteMessage(websocket.TextMessage, ack)
 				continue
 			}
 
@@ -311,14 +311,14 @@ func startCloseWSServer(t *testing.T, known func(string) bool) *httptest.Server 
 					Code:    protocol.CodeSessionNotFound,
 					Message: fmt.Sprintf("close session: %v", protocol.ErrSessionNotFound),
 				})
-				conn.WriteMessage(websocket.TextMessage, errResp)
+				_ = conn.WriteMessage(websocket.TextMessage, errResp)
 				return
 			}
 			ack, _ := json.Marshal(map[string]any{
 				"type": protocol.MsgTypeCloseSession,
 				"data": map[string]any{"ok": true, "session_id": cr.SessionID},
 			})
-			conn.WriteMessage(websocket.TextMessage, ack)
+			_ = conn.WriteMessage(websocket.TextMessage, ack)
 			return
 		}
 	}))

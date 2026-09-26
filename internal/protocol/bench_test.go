@@ -223,7 +223,9 @@ func BenchmarkEnvelopeMarshal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		json.Marshal(benchEnvelope)
+		if _, err := json.Marshal(benchEnvelope); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -234,7 +236,9 @@ func BenchmarkEnvelopeUnmarshal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		json.Unmarshal(benchEnvelopeRaw, &env)
+		if err := json.Unmarshal(benchEnvelopeRaw, &env); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -243,7 +247,9 @@ func BenchmarkObservationMarshal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		json.Marshal(benchObservation)
+		if _, err := json.Marshal(benchObservation); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -254,7 +260,9 @@ func BenchmarkObservationUnmarshal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		json.Unmarshal(benchObservationRaw, &obs)
+		if err := json.Unmarshal(benchObservationRaw, &obs); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -263,7 +271,9 @@ func BenchmarkActionRequestMarshal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		json.Marshal(benchActionRequest)
+		if _, err := json.Marshal(benchActionRequest); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -274,7 +284,9 @@ func BenchmarkActionRequestUnmarshal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		json.Unmarshal(benchActionRaw, &req)
+		if err := json.Unmarshal(benchActionRaw, &req); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -283,7 +295,9 @@ func BenchmarkSpatialNodeMarshal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		json.Marshal(benchNode)
+		if _, err := json.Marshal(benchNode); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -294,6 +308,8 @@ func BenchmarkSpatialNodeUnmarshal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		json.Unmarshal(benchNodeRaw, &n)
+		if err := json.Unmarshal(benchNodeRaw, &n); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

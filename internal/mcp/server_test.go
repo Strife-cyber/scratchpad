@@ -37,7 +37,7 @@ func startTestWSServer(t *testing.T, handshakeSessionID string, fn func(msg []by
 
 		// Send handshake.
 		hs, _ := json.Marshal(map[string]string{"sessionId": handshakeSessionID})
-		conn.WriteMessage(websocket.TextMessage, hs)
+		_ = conn.WriteMessage(websocket.TextMessage, hs)
 
 		// Echo loop or custom handler.
 		for {
@@ -47,7 +47,7 @@ func startTestWSServer(t *testing.T, handshakeSessionID string, fn func(msg []by
 			}
 			if fn != nil {
 				resp := fn(msg)
-				conn.WriteMessage(websocket.TextMessage, resp)
+				_ = conn.WriteMessage(websocket.TextMessage, resp)
 			}
 		}
 	}))
@@ -69,21 +69,6 @@ func observationResponseJSON(t *testing.T) []byte {
 	data, err := json.Marshal(obs)
 	if err != nil {
 		t.Fatalf("marshal observation failed: %v", err)
-	}
-	return data
-}
-
-func errorResponseJSON(t *testing.T, level protocol.ErrorLevel, action, message, hint string) []byte {
-	t.Helper()
-	errResp := protocol.ErrorResponse{
-		Type:    level,
-		Message: message,
-		Action:  action,
-		Hint:    hint,
-	}
-	data, err := json.Marshal(errResp)
-	if err != nil {
-		t.Fatalf("marshal error response failed: %v", err)
 	}
 	return data
 }

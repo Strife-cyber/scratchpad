@@ -30,7 +30,9 @@ func TestEnvelopeGolden(t *testing.T) {
 
 	golden := filepath.Join("testdata", "envelope_navigate.golden.json")
 	if *update {
-		os.WriteFile(golden, data, 0644)
+		if err := os.WriteFile(golden, data, 0644); err != nil {
+			t.Fatal(err)
+		}
 		return
 	}
 
@@ -58,7 +60,9 @@ func TestErrorResponseFatalGolden(t *testing.T) {
 
 	golden := filepath.Join("testdata", "error_response_fatal.golden.json")
 	if *update {
-		os.WriteFile(golden, data, 0644)
+		if err := os.WriteFile(golden, data, 0644); err != nil {
+			t.Fatal(err)
+		}
 		return
 	}
 
@@ -89,7 +93,9 @@ func TestErrorResponseActionGolden(t *testing.T) {
 
 	golden := filepath.Join("testdata", "error_response_action.golden.json")
 	if *update {
-		os.WriteFile(golden, data, 0644)
+		if err := os.WriteFile(golden, data, 0644); err != nil {
+			t.Fatal(err)
+		}
 		return
 	}
 
@@ -120,7 +126,9 @@ func TestActionResultClickGolden(t *testing.T) {
 
 	golden := filepath.Join("testdata", "action_result_click.golden.json")
 	if *update {
-		os.WriteFile(golden, data, 0644)
+		if err := os.WriteFile(golden, data, 0644); err != nil {
+			t.Fatal(err)
+		}
 		return
 	}
 
@@ -151,7 +159,9 @@ func TestActionResultTypeGolden(t *testing.T) {
 
 	golden := filepath.Join("testdata", "action_result_type.golden.json")
 	if *update {
-		os.WriteFile(golden, data, 0644)
+		if err := os.WriteFile(golden, data, 0644); err != nil {
+			t.Fatal(err)
+		}
 		return
 	}
 
@@ -184,7 +194,9 @@ func TestDownloadInfoGolden(t *testing.T) {
 
 	golden := filepath.Join("testdata", "download_info.golden.json")
 	if *update {
-		os.WriteFile(golden, data, 0644)
+		if err := os.WriteFile(golden, data, 0644); err != nil {
+			t.Fatal(err)
+		}
 		return
 	}
 

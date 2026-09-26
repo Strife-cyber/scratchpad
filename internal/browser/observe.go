@@ -248,12 +248,10 @@ func (e *ChromeEngine) capturePageInfo(ctx context.Context) (*protocol.PageInfo,
 		dlgState = dlgType
 	}
 
-	loadStatus := readyState
+	loadStatus := "interactive"
 	switch readyState {
 	case "loading", "interactive", "complete":
 		loadStatus = readyState
-	default:
-		loadStatus = "interactive"
 	}
 
 	return &protocol.PageInfo{

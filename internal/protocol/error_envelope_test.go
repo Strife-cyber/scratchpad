@@ -40,7 +40,9 @@ func TestErrorResponseEnvelopeGolden(t *testing.T) {
 
 	golden := filepath.Join("testdata", "error_response_envelope.golden.json")
 	if *update {
-		os.WriteFile(golden, data, 0644)
+		if err := os.WriteFile(golden, data, 0644); err != nil {
+			t.Fatal(err)
+		}
 		return
 	}
 

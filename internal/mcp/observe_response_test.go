@@ -66,7 +66,7 @@ func TestParseResponse_ReconstructsDeltaFromBaseTree(t *testing.T) {
 		Type:  "delta",
 		Delta: &protocol.TreeDelta{Added: []protocol.SpatialNode{node("e")}, Removed: []string{"b"}},
 	}
-	resp, err = s.parseResponse(sc, obsBytes(t, delta2), nil)
+	_, err = s.parseResponse(sc, obsBytes(t, delta2), nil)
 	if err != nil {
 		t.Fatalf("parseResponse delta2: %v", err)
 	}

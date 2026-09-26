@@ -161,8 +161,7 @@ func BuildTraceBundle(traceDir, sessionID string, traceGz []byte) (string, error
 }
 
 func addZipEntry(zw *zip.Writer, name string, data []byte) error {
-	h := &zip.FileHeader{Name: name, Method: zip.Deflate}
-	h.SetModTime(time.Now())
+	h := &zip.FileHeader{Name: name, Method: zip.Deflate, Modified: time.Now()}
 	w, err := zw.CreateHeader(h)
 	if err != nil {
 		return err

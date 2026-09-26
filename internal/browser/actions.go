@@ -1020,7 +1020,7 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 		if strategy == "" {
 			strategy = "auto"
 		}
-		strategies := []string{}
+		var strategies []string
 		switch strategy {
 		case "press_escape":
 			strategies = []string{"press_escape"}
