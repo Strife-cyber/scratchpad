@@ -145,8 +145,15 @@ func prefetchBounds(
 			}
 		}()
 	}
+	// Stop queuing lookups once the observation is cancelled; each would
+	// otherwise still issue a doomed CDP call.
+queue:
 	for _, id := range ids {
-		work <- id
+		select {
+		case work <- id:
+		case <-ctx.Done():
+			break queue
+		}
 	}
 	close(work)
 	wg.Wait()
