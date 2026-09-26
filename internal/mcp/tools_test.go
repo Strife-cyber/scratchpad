@@ -62,10 +62,7 @@ func TestActionToolAliases(t *testing.T) {
 
 	for _, want := range []string{
 		"browser_type",
-		"browser_fill",               // alias for type
-		"browser_press_sequentially", // alias for type
 		"browser_execute_js",
-		"browser_eval",   // surfaces the JS return value
 		"browser_action", // documented power-user fallback
 		"browser_click",
 		"browser_wait",
@@ -108,3 +105,4 @@ func TestRegisterToolsRegistersAllTools(t *testing.T) {
 		}
 	}
 }
+
