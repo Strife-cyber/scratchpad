@@ -5,6 +5,12 @@ on:
   pull_request:
     branches: [main]
 
+# Every job only reads the repository; artifact and coverage uploads use
+# their own tokens. Without this block the GITHUB_TOKEN gets the repo's
+# default (often read/write) permissions.
+permissions:
+  contents: read
+
 jobs:
   unit:
     name: Unit Tests
@@ -93,10 +99,7 @@ jobs:
           go-version: '1.26'
       - name: golangci-lint
         # golangci-lint v1 (the last release is built with Go 1.24) refuses a
-        # Go 1.26 module; v2 is required. only-new-issues keeps the existing
-        # findings on main from failing every change while still linting the
-        # code each change touches.
+        # Go 1.26 module; v2 is required. Settings live in .golangci.yml.
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.14
-          only-new-issues: true
