@@ -94,6 +94,12 @@ type wsSession struct {
 	// see unsolicited frames; MsgTypeSubscribeEvents toggles it. Read by the
 	// eventPusher goroutine, written by the reader.
 	pushEvents atomic.Bool
+
+	// pusherSync lets handleSubscribeEvents wait until the eventPusher holds a
+	// subscription on the current session's bus: the pusher closes each
+	// received channel once subscribed, so the subscribe ack is only sent when
+	// every later event will be delivered.
+	pusherSync chan chan struct{}
 }
 
 // HandleWS returns an http.HandlerFunc that upgrades the connection to a
@@ -202,6 +208,8 @@ func HandleWS(mgr *sandbox.Manager, kind engine.Kind, opts Options) http.Handler
 			opts:    opts,
 			queue:   make(chan queueItem, 64),
 			closed:  make(chan struct{}),
+
+			pusherSync: make(chan chan struct{}),
 		}
 		ws.connCtx, ws.connCancel = context.WithCancel(context.Background())
 
@@ -850,6 +858,21 @@ func (ws *wsSession) handleSubscribeEvents(raw json.RawMessage) {
 		_ = json.Unmarshal(raw, &req)
 	}
 	ws.pushEvents.Store(req.Subscribe)
+	if req.Subscribe {
+		// Don't ack until the pusher is subscribed to the current session's
+		// bus, or events published right after the ack would be lost.
+		done := make(chan struct{})
+		select {
+		case ws.pusherSync <- done:
+		case <-ws.closed:
+			return
+		}
+		select {
+		case <-done:
+		case <-ws.closed:
+			return
+		}
+	}
 	slog.Debug("websocket: event push toggled",
 		"session_id", ws.session.ID, "request_id", ws.reqID, "enabled", req.Subscribe)
 	_ = ws.writeJSON(map[string]any{
@@ -872,6 +895,7 @@ func (ws *wsSession) handleSubscribeEvents(raw json.RawMessage) {
 func (ws *wsSession) eventPusher() {
 	var sub *sandbox.Subscription
 	subbed := (*sandbox.Session)(nil)
+	var synced chan struct{} // a pusherSync request answered once subscribed
 	defer func() {
 		if sub != nil {
 			sub.Cancel()
@@ -884,6 +908,9 @@ func (ws *wsSession) eventPusher() {
 			// No event bus to push from; nothing to do. (Every real session has
 			// a bus; nil only occurs in test helpers.)
 			select {
+			case done := <-ws.pusherSync:
+				close(done)
+				continue
 			case <-ws.closed:
 				return
 			}
@@ -895,8 +922,16 @@ func (ws *wsSession) eventPusher() {
 			sub = sess.Events.Subscribe(32)
 			subbed = sess
 		}
+		if synced != nil {
+			close(synced)
+			synced = nil
+		}
 
 		select {
+		case done := <-ws.pusherSync:
+			// Loop back to (re)subscribe to the current session, then answer.
+			synced = done
+			continue
 		case ev := <-sub.C:
 			if !ws.pushEvents.Load() {
 				continue
