@@ -28,19 +28,11 @@ import (
 // truncated, ObservationResponse.Truncated and FullNodeCount report the fact
 // and the full size.
 //
-// The AX capture is rebuilt on every call (see the invalidateAll below);
-// observeCache still holds the result so page info and the handle registry
-// share one snapshot.
+// The AX tree and page info are captured fresh on every call.
 // Implements engine.Engine.
 func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.ObservationResponse, error) {
 	req := engine.MergeObserveRequests(reqs)
 	obsStart := time.Now()
-
-	cache := e.obsCache
-	if cache == nil { // defensive: setupObserveCaching always runs in NewChromeEngine
-		cache = newObserveCache()
-		e.obsCache = cache
-	}
 
 	var (
 		buf         []byte
@@ -62,62 +54,38 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	e.lastAssertionResult = nil
 	e.lastActionResult = nil
 
-	// Every observation rebuilds the tree from a fresh AX snapshot. The DOM
-	// mutation events the cache listens for are only emitted for nodes a
-	// client has already requested through DOM.getDocument/requestChildNodes,
-	// and typed values, selected options, scrolling and :hover-driven layout
-	// emit none at all — so trusting the cache served stale trees (and stale
-	// click coordinates) after almost every action.
-	cache.invalidateAll()
-
-	// Decide how much CDP work the tree capture needs.
-	treeMode := cache.observeMode(e.currentNavID())
-
-	// Fresh page info requires the four Evaluate calls. They run only when the
-	// page navigated (full mode) or no cached page info exists yet; otherwise
-	// the cached values are reused.
-	needPageInfoCapture := req.WantPageInfo() && (treeMode == "full" || cache.cachedPageInfo() == nil)
-
+	// Every observation rebuilds the tree from a fresh AX snapshot. Caching it
+	// between calls is unsound: Chrome emits no event for typed values,
+	// selected options, scrolling or :hover-driven layout, and DOM mutation
+	// events only for nodes a client has already requested.
+	var depthByID map[accessibility.NodeID]int
 	actions := []chromedp.Action{}
-	if req.WantTree() || req.WantScreenshot() || needPageInfoCapture {
+	if req.WantTree() || req.WantScreenshot() || req.WantPageInfo() {
 		actions = append(actions, network.Enable(), accessibility.Enable(), dom.Enable())
 	}
 
-	// Page info first so buildFull/mergePartial capture any navID bump it makes.
-	if needPageInfoCapture {
+	// Page info first so the tree is built against any navID bump it makes.
+	if req.WantPageInfo() {
 		actions = append(actions,
 			chromedp.ActionFunc(func(ctx context.Context) error {
-				pi, err := e.capturePageInfo(ctx)
-				if err != nil {
-					return err
-				}
-				cache.setPageInfo(pi)
-				return nil
+				var err error
+				pageInfo, err = e.capturePageInfo(ctx)
+				return err
 			}),
 		)
 	}
 
 	if req.WantTree() {
-		switch treeMode {
-		case "full":
-			actions = append(actions,
-				chromedp.ActionFunc(func(ctx context.Context) error {
-					axNodes, err := accessibility.GetFullAXTree().Do(ctx)
-					if err != nil {
-						return err
-					}
-					return cache.buildFull(ctx, e.currentNavID(), axNodes)
-				}),
-			)
-		case "partial":
-			actions = append(actions,
-				chromedp.ActionFunc(func(ctx context.Context) error {
-					return cache.mergePartial(ctx, e.currentNavID())
-				}),
-			)
-		case "fast":
-			// Nothing to do — reuse the cached tree.
-		}
+		actions = append(actions,
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				axNodes, err := accessibility.GetFullAXTree().Do(ctx)
+				if err != nil {
+					return err
+				}
+				spatialTree, depthByID = buildSpatialTree(ctx, axNodes)
+				return nil
+			}),
+		)
 	}
 
 	if req.WantScreenshot() {
@@ -148,11 +116,7 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	}
 
 	if req.WantTree() {
-		tree, depthByID, cachedPI := cache.snapshot()
-		spatialTree = applyDepthLimit(tree, depthByID, req.DepthLimit())
-		if cachedPI != nil {
-			pageInfo = cachedPI
-		}
+		spatialTree = applyDepthLimit(spatialTree, depthByID, req.DepthLimit())
 	}
 
 	// Apply the node budget / interactive-only / text-stripping options.
@@ -176,10 +140,7 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	}
 	obs.SpatialTree = spatialTree
 	if req.WantPageInfo() {
-		if pageInfo == nil {
-			pageInfo = cache.cachedPageInfo()
-		}
-		// Dialog state is cheap and live — refresh it on the cached page info.
+		// Dialog state is tracked from CDP events, not captured by page info.
 		e.dialogMu.Lock()
 		dlgActive := e.dialogActive
 		dlgType := e.dialogType
@@ -223,7 +184,6 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	// It is naturally bounded in setupNetworkListener.
 
 	slog.Debug("observe complete",
-		"mode", treeMode,
 		"tree_nodes", len(spatialTree),
 		"truncated", truncated,
 		"total_ms", time.Since(obsStart).Milliseconds(),
