@@ -116,6 +116,9 @@ func (e *ChromeEngine) Observe(reqs ...*protocol.ObserveRequest) (*protocol.Obse
 	}
 
 	if req.WantTree() {
+		// Every ref in the full tree is actionable until the next navigation,
+		// including nodes the budget below leaves out of this response.
+		e.registerObservedHandles(spatialTree)
 		spatialTree = applyDepthLimit(spatialTree, depthByID, req.DepthLimit())
 	}
 

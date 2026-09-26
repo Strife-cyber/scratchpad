@@ -3,9 +3,12 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
+
+	"scratchpad/internal/protocol"
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
@@ -22,6 +25,12 @@ import (
 // that was re-rendered in place still works, and it is invalidated the moment
 // the page navigates (navigation_id changes), because backend node ids do not
 // survive a document switch.
+
+// errStaleHandle marks a node_ref that was not handed out on the current page:
+// never observed or matched, or from before a navigation. It never becomes
+// valid again, so actions fail on it at once instead of retrying until their
+// timeout.
+var errStaleHandle = errors.New("stale node_ref")
 
 // nodeHandle is a registered persistent handle. NodeRef is the decimal
 // backendNodeId (also the registry key); NavID is the navigation counter at
@@ -43,6 +52,20 @@ func (e *ChromeEngine) registerHandle(nodeRef string) {
 	e.handles[nodeRef] = nodeHandle{NodeRef: nodeRef, NavID: navID}
 }
 
+// registerObservedHandles registers the node_ref of every observed node, so
+// the refs an observation hands to the agent are exactly the ones actions
+// accept until the next navigation.
+func (e *ChromeEngine) registerObservedHandles(nodes []protocol.SpatialNode) {
+	navID := e.currentNavID()
+	e.handleMu.Lock()
+	defer e.handleMu.Unlock()
+	for _, n := range nodes {
+		if n.NodeRef != "" {
+			e.handles[n.NodeRef] = nodeHandle{NodeRef: n.NodeRef, NavID: navID}
+		}
+	}
+}
+
 // invalidateHandles drops every registered handle. Called whenever the
 // navigation counter bumps (top-frame navigation, SPA pushState/hash change,
 // URL change detected during observe).
@@ -60,26 +83,30 @@ func (e *ChromeEngine) handleCount() int {
 }
 
 // resolveHandleNode resolves a handle_id to a live RemoteObject for the DOM
-// element it refers to. It validates the id, rejects handles invalidated by a
-// navigation, resolves the backend node fresh, and re-registers the handle so
-// it stays tracked. The caller must releaseHandleNode the returned object.
+// element it refers to. It validates the id, accepts only handles handed out
+// on the current page (by an observation or a selector match; navigation
+// clears them), and resolves the backend node fresh. Backend node ids are only
+// meaningful within the document that produced them, so an unknown or
+// outdated ref is rejected rather than resolved against whatever page is
+// loaded now. The caller must releaseHandleNode the returned object.
 func (e *ChromeEngine) resolveHandleNode(ctx context.Context, handleID string) (*runtime.RemoteObject, error) {
 	backendID, err := strconv.ParseInt(handleID, 10, 64)
 	if err != nil || backendID <= 0 {
 		return nil, fmt.Errorf("handle %q is not a valid node_ref (decimal backendNodeId)", handleID)
 	}
 
-	// Reject handles that were registered under an older navigation. (Normally
-	// invalidateHandles clears them, but this is a belt-and-suspenders check for
-	// the window before the navigation event handler runs.)
 	e.handleMu.Lock()
 	h, ok := e.handles[handleID]
 	e.handleMu.Unlock()
-	if ok {
-		if cur := e.currentNavID(); h.NavID != cur {
-			return nil, fmt.Errorf("handle %q invalidated by navigation (registered at nav %d, current nav %d)",
-				handleID, h.NavID, cur)
-		}
+	if !ok {
+		return nil, fmt.Errorf("%w: %w: handle %q is not a ref from the current page (it may predate a navigation); observe again and use a current ref",
+			protocol.ErrElementNotFound, errStaleHandle, handleID)
+	}
+	// Registered under an older navigation. (invalidateHandles normally clears
+	// these; this covers the window before the navigation event handler runs.)
+	if cur := e.currentNavID(); h.NavID != cur {
+		return nil, fmt.Errorf("%w: %w: handle %q invalidated by navigation (registered at nav %d, current nav %d); observe again and use a current ref",
+			protocol.ErrElementNotFound, errStaleHandle, handleID, h.NavID, cur)
 	}
 
 	var obj *runtime.RemoteObject
@@ -95,9 +122,6 @@ func (e *ChromeEngine) resolveHandleNode(ctx context.Context, handleID string) (
 		return nil, fmt.Errorf("handle %q does not resolve to a live element", handleID)
 	}
 
-	// Now tracked for invalidation, even if the agent never saw it via
-	// findElementsOnce (e.g. it came from a SpatialNode observation).
-	e.registerHandle(handleID)
 	return obj, nil
 }
 
@@ -195,6 +219,9 @@ func (e *ChromeEngine) runRetryHandleAction(ctx context.Context, name string, ti
 	deadline := time.Now().Add(timeout)
 	for {
 		obj, err := e.resolveHandleNode(ctx, handleID)
+		if errors.Is(err, errStaleHandle) {
+			return fmt.Errorf("%s: %w", name, err)
+		}
 		if err != nil {
 			if time.Now().After(deadline) {
 				return fmt.Errorf("%s: %w", name, err)

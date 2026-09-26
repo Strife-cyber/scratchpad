@@ -2,8 +2,11 @@ package browser
 
 import (
 	"context"
+	"errors"
+	"scratchpad/internal/protocol"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The CDP-dependent parts of the handle registry (DOM.resolveNode,
@@ -71,5 +74,37 @@ func TestRegisterHandle_BindsCurrentNavigation(t *testing.T) {
 	e.handleMu.Unlock()
 	if h.NavID != 0 {
 		t.Fatalf("handle should be bound to nav 0, got %d", h.NavID)
+	}
+}
+
+// A ref that was never handed out on the current page (never observed or
+// matched, or cleared by a navigation) is rejected before any CDP call, as
+// element_not_found, and element-bound actions fail on it at once instead of
+// retrying until their timeout.
+func TestResolveHandleNode_RejectsUnknownRef(t *testing.T) {
+	e := &ChromeEngine{handles: make(map[string]nodeHandle)}
+	_, err := e.resolveHandleNode(context.Background(), "42")
+	if !errors.Is(err, errStaleHandle) || !errors.Is(err, protocol.ErrElementNotFound) {
+		t.Fatalf("unknown ref: err = %v, want errStaleHandle wrapping ErrElementNotFound", err)
+	}
+
+	e.registerObservedHandles([]protocol.SpatialNode{{NodeID: "a", NodeRef: "42"}, {NodeID: "b"}})
+	e.invalidateHandles() // navigation
+	start := time.Now()
+	err = e.runRetryHandleAction(context.Background(), "check", 5*time.Second, "42", "return true;")
+	if !errors.Is(err, errStaleHandle) {
+		t.Fatalf("stale ref after navigation: err = %v, want errStaleHandle", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("stale ref took %v to fail, want an immediate failure", d)
+	}
+}
+
+// Observations register the refs they hand out, bound to the current page.
+func TestRegisterObservedHandles(t *testing.T) {
+	e := &ChromeEngine{handles: make(map[string]nodeHandle)}
+	e.registerObservedHandles([]protocol.SpatialNode{{NodeID: "a", NodeRef: "7"}, {NodeID: "b", NodeRef: ""}})
+	if _, ok := e.handles["7"]; !ok || e.handleCount() != 1 {
+		t.Fatalf("registry = %v, want only ref 7", e.handles)
 	}
 }

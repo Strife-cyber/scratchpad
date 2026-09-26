@@ -4,8 +4,10 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"scratchpad/internal/protocol"
 )
@@ -185,5 +187,47 @@ func TestIntegration_RoleNameRoundTripEdgeCases(t *testing.T) {
 		if err != nil || len(matches) != 1 {
 			t.Errorf("role=%s name=%q matched %d elements (err %v), want 1", role, name, len(matches), err)
 		}
+	}
+}
+
+// TestIntegration_StaleRefRejectedAfterNavigation: a ref from before a
+// navigation is rejected immediately as element_not_found (it must never be
+// resolved against the new document), while the new page's refs work.
+func TestIntegration_StaleRefRejectedAfterNavigation(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	refOf := func(name string) string {
+		for _, n := range observe(t, e).SpatialTree {
+			if n.Role == "button" && n.Name == name {
+				return n.NodeRef
+			}
+		}
+		t.Fatalf("button %q not observed", name)
+		return ""
+	}
+	if err := e.Navigate(srv.URL + "/index.html"); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	old := refOf("Change Text")
+
+	if err := e.Navigate(srv.URL + "/index.html"); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	for _, act := range []string{protocol.ActionClick, protocol.ActionCheck} {
+		start := time.Now()
+		err := e.ExecuteAction(context.Background(), protocol.ActionRequest{Action: act, HandleID: old})
+		if !errors.Is(err, protocol.ErrElementNotFound) {
+			t.Errorf("%s with a pre-navigation ref: err = %v, want element_not_found", act, err)
+		}
+		if d := time.Since(start); d > 2*time.Second {
+			t.Errorf("%s with a pre-navigation ref took %v to fail", act, d)
+		}
+	}
+
+	action(t, e, protocol.ActionRequest{Action: protocol.ActionClick, HandleID: refOf("Change Text")})
+	if got := str(evalJS(t, e, `document.getElementById('mutable').textContent`)); got != "changed text" {
+		t.Errorf("click with a current ref: #mutable = %q", got)
 	}
 }
