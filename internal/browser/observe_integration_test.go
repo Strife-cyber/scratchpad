@@ -3,6 +3,7 @@
 package browser
 
 import (
+	"context"
 	"testing"
 
 	"scratchpad/internal/protocol"
@@ -111,5 +112,40 @@ func TestIntegration_ObservedRoleNameIsASelector(t *testing.T) {
 	}
 	if checked < 5 {
 		t.Fatalf("only %d named controls observed; fixture or observe changed", checked)
+	}
+}
+
+// TestIntegration_FailedActionLeavesNoResult guards the result slot: a failed
+// action must not leave a success result that the next observation (or the
+// next action's observation) reports as its own.
+func TestIntegration_FailedActionLeavesNoResult(t *testing.T) {
+	skipUnlessIntegration(t)
+	srv := startFixtureServer(t)
+	e := newIntegrationEngine(t)
+
+	if err := e.Navigate(srv.URL + "/index.html"); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	observe(t, e)
+
+	err := e.ExecuteAction(context.Background(), protocol.ActionRequest{
+		Action: protocol.ActionClick, Selector: &protocol.Selector{CSS: "#does-not-exist"}, TimeoutMS: 300,
+	})
+	if err == nil {
+		t.Fatal("click on a missing element succeeded")
+	}
+	if r := observe(t, e).ActionResult; r != nil {
+		t.Errorf("observation after a failed click reports result %+v, want none", *r)
+	}
+
+	err = e.ExecuteAction(context.Background(), protocol.ActionRequest{
+		Action: protocol.ActionClick, Selector: &protocol.Selector{CSS: "#does-not-exist"}, TimeoutMS: 300,
+	})
+	if err == nil {
+		t.Fatal("click on a missing element succeeded")
+	}
+	action(t, e, protocol.ActionRequest{Action: protocol.ActionType, Selector: &protocol.Selector{CSS: "#text-input"}, Text: "x"})
+	if r := observe(t, e).ActionResult; r == nil || r.Action != protocol.ActionType || !r.Success {
+		t.Errorf("result after type = %+v, want a successful type", r)
 	}
 }

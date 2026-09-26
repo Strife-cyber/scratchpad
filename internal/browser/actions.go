@@ -20,7 +20,11 @@ import (
 
 // ExecuteAction dispatches a single agent action to the Chrome instance.
 // Implements engine.Engine.
-func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionRequest) error {
+func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionRequest) (err error) {
+	// A result left over from an earlier action that was never observed (for
+	// example one that failed) must not be reported as this action's result.
+	e.lastActionResult = nil
+
 	timeout := time.Duration(req.TimeoutMS) * time.Millisecond
 	if req.TimeoutMS == 0 {
 		timeout = 10 * time.Second
@@ -38,6 +42,11 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 	start := time.Now()
 	var heal *protocol.SelectorHeal
 	defer func() {
+		// A failed action is reported through its error, never as a result.
+		if err != nil {
+			e.lastActionResult = nil
+			return
+		}
 		// Only set lastActionResult if it hasn't already been set by
 		// action-specific code (e.g. wait uses its own timing).
 		if e.lastActionResult == nil {
