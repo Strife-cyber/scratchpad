@@ -516,7 +516,7 @@ func (ws *wsSession) handleNavigate(raw json.RawMessage) {
 		return
 	}
 
-	ws.sendObservation("", nil)
+	ws.sendObservation("", req.Observe)
 }
 
 // handleSetContext switches the active context of a hybrid session
@@ -569,7 +569,7 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 			ws.writeError(errorResponse(err, ws.reqID, protocol.ErrorLevelWarning, req.Action, nil))
 			return
 		}
-		ws.sendObservation(req.ActionID, nil)
+		ws.sendObservation(req.ActionID, req.Observe)
 		return
 	}
 
@@ -665,7 +665,7 @@ func (ws *wsSession) handleAction(raw json.RawMessage) {
 		return
 	}
 
-	ws.sendObservation(req.ActionID, nil)
+	ws.sendObservation(req.ActionID, req.Observe)
 }
 
 // handleCancel cancels the in-flight action. An unknown action_id is a clean

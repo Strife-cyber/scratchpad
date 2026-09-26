@@ -696,6 +696,11 @@ type ActionRequest struct {
 	// Used by "start_recording", "stop_recording", "start_logcat" and
 	// "stop_logcat". Ignored by other actions.
 	Record *RecordOptions `json:"record,omitempty"`
+
+	// Observe, when set, shapes the observation sent back after this request
+	// (e.g. {"screenshot": false} to skip the screenshot). Nil keeps the full
+	// default observation.
+	Observe *ObserveRequest `json:"observe,omitempty"`
 }
 
 // ResolveTimeout returns the action timeout, defaulting to 10s when unset.
@@ -1134,6 +1139,11 @@ type InitializeRequest struct {
 	// body; the field is echoed here so clients that only speak the
 	// first-navigate message can still express the intent.
 	Platforms []string `json:"platforms,omitempty"`
+
+	// Observe, when set, shapes the observation sent back after this request
+	// (e.g. {"screenshot": false} to skip the screenshot). Nil keeps the full
+	// default observation.
+	Observe *ObserveRequest `json:"observe,omitempty"`
 }
 
 type Viewport struct {
