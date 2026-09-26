@@ -23,6 +23,7 @@ The engine server (`make run`) must already be running; the bridge connects to i
 |----------------------|---------|
 | `SCRATCHPAD_URL` | Engine WebSocket URL when `--engine-url` is not given (default `ws://localhost:8080/ws`) |
 | `SCRATCHPAD_TOKEN` | Sent as `Authorization: Bearer` when the server was started with a token |
+| `SCRATCHPAD_MCP_TOOLS` | Optional tool groups to register, comma-separated: `android` (the `android_*` tools), `advanced` (`browser_action`, `browser_switch_to_iframe`, `browser_switch_to_main_frame`), or `all`. Off by default to keep the tool list small |
 | `CHROME_PATH` | Set on the **server**: the Chrome/Chromium binary to launch |
 
 ## Tools
@@ -49,7 +50,7 @@ Captures the current page state:
 
 ### browser_action
 
-Executes any action on the current page. Selector-based actions (click, type, hover, double_click, right_click, drag_drop) **auto-wait** for the target element — the engine polls at 50ms intervals until the element is visible and enabled, up to the configured timeout.
+Opt-in (`SCRATCHPAD_MCP_TOOLS=advanced`). Executes any action on the current page. Selector-based actions (click, type, hover, double_click, right_click, drag_drop) **auto-wait** for the target element — the engine polls at 50ms intervals until the element is visible and enabled, up to the configured timeout.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

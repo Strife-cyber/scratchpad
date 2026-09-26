@@ -187,16 +187,68 @@ func dial(engineURL, attachID string) (*sessionConn, error) {
 // Tool registration
 // ---------------------------------------------------------------------------
 
+// Optional tool groups. Every tool definition costs the agent context on
+// every turn, so tools most sessions never use are registered only when
+// SCRATCHPAD_MCP_TOOLS names their group (comma-separated, or "all").
+const (
+	// toolGroupAndroid holds the android_* tools (device and app control).
+	toolGroupAndroid = "android"
+	// toolGroupAdvanced holds the raw browser_action fallback, whose schema
+	// alone is the size of a dozen narrow tools, and the iframe-scope tools,
+	// which only record the frame selector and do not scope lookups yet.
+	toolGroupAdvanced = "advanced"
+)
+
+// toolsEnv selects the optional tool groups to register.
+const toolsEnv = "SCRATCHPAD_MCP_TOOLS"
+
+// toolGroup returns the optional group a tool belongs to, or "" for the
+// tools that are always registered.
+func toolGroup(name string) string {
+	switch {
+	case strings.HasPrefix(name, "android_"):
+		return toolGroupAndroid
+	case name == "browser_action", name == "browser_switch_to_iframe", name == "browser_switch_to_main_frame":
+		return toolGroupAdvanced
+	}
+	return ""
+}
+
+// enabledToolGroups parses SCRATCHPAD_MCP_TOOLS ("android,advanced", "all").
+func enabledToolGroups(env string) map[string]bool {
+	groups := map[string]bool{"": true}
+	for _, g := range strings.Split(env, ",") {
+		g = strings.TrimSpace(strings.ToLower(g))
+		if g == "all" {
+			groups[toolGroupAndroid] = true
+			groups[toolGroupAdvanced] = true
+		} else if g != "" {
+			groups[g] = true
+		}
+	}
+	return groups
+}
+
 func (s *Server) RegisterTools(srv *mcp.Server) {
-	// Descriptor-driven registration: every tool (including the mega
-	// browser_action fallback) lives in the table returned by toolDefs()
-	// (see tools.go). Each entry carries its name, description-with-example,
-	// and a register closure, so this method stays a simple loop.
+	// Descriptor-driven registration: every tool lives in the table returned
+	// by toolDefs() (see tools.go). Each entry carries its name,
+	// description-with-example, and a register closure, so this method stays a
+	// simple loop; optional groups are skipped unless enabled.
+	enabled := enabledToolGroups(os.Getenv(toolsEnv))
+	skipped := 0
 	for _, td := range s.toolDefs() {
+		if !enabled[toolGroup(td.name)] {
+			skipped++
+			continue
+		}
 		if err := td.register(srv); err != nil {
 			// Never write to stdout: it is the MCP JSON-RPC channel.
 			slog.Error("mcp: failed to register tool", "tool", td.name, "err", err)
 		}
+	}
+	if skipped > 0 {
+		slog.Info("mcp: optional tools not registered; set "+toolsEnv+"=android,advanced (or all) to enable them",
+			"skipped", skipped)
 	}
 }
 

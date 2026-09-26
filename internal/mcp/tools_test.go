@@ -91,6 +91,7 @@ func TestActionToolDescriptionsHaveExamples(t *testing.T) {
 // TestRegisterToolsRegistersAllTools drives the whole descriptor table through
 // RegisterTool so JSON-schema generation and handler validation actually run.
 func TestRegisterToolsRegistersAllTools(t *testing.T) {
+	t.Setenv(toolsEnv, "all")
 	s := &Server{}
 	srv := mcp.NewServer(stubTransport{})
 	s.RegisterTools(srv)
@@ -106,3 +107,36 @@ func TestRegisterToolsRegistersAllTools(t *testing.T) {
 	}
 }
 
+// By default the optional groups stay unregistered: android_* tools, the raw
+// browser_action fallback and the iframe-scope stubs. Naming a group enables
+// just that group.
+func TestRegisterToolsOptionalGroups(t *testing.T) {
+	registered := func(env string) map[string]bool {
+		t.Setenv(toolsEnv, env)
+		s := &Server{}
+		srv := mcp.NewServer(stubTransport{})
+		s.RegisterTools(srv)
+		out := map[string]bool{}
+		for _, d := range s.toolDefs() {
+			out[d.name] = srv.CheckToolRegistered(d.name)
+		}
+		return out
+	}
+
+	def := registered("")
+	for _, name := range []string{"android_swipe", "browser_action", "browser_switch_to_iframe"} {
+		if def[name] {
+			t.Errorf("%s registered by default", name)
+		}
+	}
+	for _, name := range []string{"browser_click", "browser_navigate", "session_create"} {
+		if !def[name] {
+			t.Errorf("%s not registered by default", name)
+		}
+	}
+
+	android := registered("android")
+	if !android["android_swipe"] || android["browser_action"] {
+		t.Errorf("SCRATCHPAD_MCP_TOOLS=android: android_swipe=%v browser_action=%v", android["android_swipe"], android["browser_action"])
+	}
+}
