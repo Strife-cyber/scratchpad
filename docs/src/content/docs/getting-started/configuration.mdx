@@ -14,6 +14,32 @@ description: Server, CLI, and environment configuration reference
 | `SCRATCHPAD_VIDEO_DIR` | `./videos` | Directory for screen recording output files |
 | `SCRATCHPAD_TRACE_DIR` | `./traces` | Directory for CDP performance trace files |
 
+### Address and Port
+
+The server listens on `127.0.0.1:8080` by default.
+
+| Flag | Environment variable | Description |
+|------|----------------------|-------------|
+| `--port` | `SCRATCHPAD_PORT` | Listen port (default `8080`) |
+| `--bind` | `SCRATCHPAD_BIND` | Listen address: `host:port`, or a host alone (`0.0.0.0`, `::1`) combined with the port |
+
+Flags win over environment variables. If `--bind` already contains a port, a
+different `--port`/`SCRATCHPAD_PORT` is an error rather than being silently
+ignored. Binding anything other than loopback requires `--token` or
+`--allow-shared-sessions`.
+
+```bash
+scratchpad --port 9000                       # 127.0.0.1:9000
+SCRATCHPAD_PORT=9000 scratchpad              # same
+scratchpad --bind 0.0.0.0 --port 9000 --token "$SCRATCHPAD_TOKEN"
+```
+
+`SCRATCHPAD_PORT` is also read by the clients: the CLI (`run`, `doctor`,
+`timeline`, …) and the MCP bridge default to `localhost:$SCRATCHPAD_PORT`, so
+setting it once keeps the server and its clients in agreement. Their
+`--server`/`--engine-url` flags (and `SCRATCHPAD_URL` for the bridge) still
+override it.
+
 ### Platform Selection
 
 The server listens on two WebSocket endpoints:
@@ -46,7 +72,7 @@ scratchpad-cli run -i <suite.yml> [flags]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-i` | (required) | Path to YAML or JSON test suite file |
-| `-server` | `http://localhost:8080` | Scratchpad server URL |
+| `-server` | `http://localhost:$SCRATCHPAD_PORT` (8080) | Scratchpad server URL |
 | `-headless` | `true` | Run browser headless |
 | `-platform` | `"web"` | Target platform: `"web"` or `"android"` |
 | `-parallel` | `1` | Maximum parallel suite execution |
@@ -66,6 +92,6 @@ scratchpad-cli mcp [flags]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--engine-url` | `ws://localhost:8080/ws` | WebSocket engine URL |
+| `--engine-url` | `$SCRATCHPAD_URL`, else `ws://localhost:$SCRATCHPAD_PORT/ws` (8080) | WebSocket engine URL |
 | `--name` | `"Browser-Engine-MCP"` | MCP server name |
 | `--version` | `"1.0.0"` | MCP server version |

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"scratchpad/internal/endpoint"
 	"scratchpad/internal/testrunner"
 )
 
@@ -66,7 +67,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli doctor --fix")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli resume --profile ~/.scratchpad/persist")
 	fmt.Fprintln(os.Stderr, "  scratchpad-cli timeline <session_id> --json")
-	fmt.Fprintln(os.Stderr, "  scratchpad-cli mcp --engine-url ws://localhost:8080/ws")
+	fmt.Fprintln(os.Stderr, "  scratchpad-cli mcp --engine-url ws://localhost:9000/ws")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Exit codes:")
 	fmt.Fprintln(os.Stderr, "  0  success (or lint passed / dry-run valid)")
@@ -77,8 +78,8 @@ func usage() {
 func doctorCmd(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	var (
-		serverURL = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
-		port      = fs.Int("port", 8080, "server port to probe for conflicts")
+		serverURL = fs.String("server", endpoint.HTTPBase(), "scratchpad server base URL (default http://localhost:$SCRATCHPAD_PORT)")
+		port      = fs.Int("port", endpoint.Port(), "server port to probe for conflicts (default $SCRATCHPAD_PORT or 8080)")
 		docsDir   = fs.String("docs-dir", "docs", "documentation directory to check")
 		fix       = fs.Bool("fix", false, "attempt to fix automatable failures (create missing dirs)")
 		jsonOut   = fs.Bool("json", false, "emit a machine-readable JSON report")
@@ -117,7 +118,7 @@ func lintCmd(args []string) {
 func timelineCmd(args []string) {
 	fs := flag.NewFlagSet("timeline", flag.ExitOnError)
 	var (
-		serverURL = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		serverURL = fs.String("server", endpoint.HTTPBase(), "scratchpad server base URL (default http://localhost:$SCRATCHPAD_PORT)")
 		traceDir  = fs.String("trace-dir", "", "read the timeline from a local trace dir instead of the server")
 		jsonOut   = fs.Bool("json", false, "emit machine-readable JSON for AI consumption")
 	)
@@ -146,7 +147,7 @@ func timelineCmd(args []string) {
 func traceCmd(args []string) {
 	fs := flag.NewFlagSet("trace", flag.ExitOnError)
 	var (
-		serverURL = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		serverURL = fs.String("server", endpoint.HTTPBase(), "scratchpad server base URL (default http://localhost:$SCRATCHPAD_PORT)")
 		traceDir  = fs.String("trace-dir", "", "read the bundle from a local trace dir instead of the server")
 		jsonOut   = fs.Bool("json", false, "emit machine-readable JSON for AI consumption")
 	)
@@ -179,7 +180,7 @@ func recordCmd(args []string) {
 		fromSession = fs.String("from-session", "", "session id to read the recorded timeline from")
 		outPath     = fs.String("out", "", "write the suite to this file (default: stdout)")
 		sanitize    = fs.Bool("sanitize", false, "redact secrets with the built-in pattern list")
-		serverURL   = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		serverURL   = fs.String("server", endpoint.HTTPBase(), "scratchpad server base URL (default http://localhost:$SCRATCHPAD_PORT)")
 		traceDir    = fs.String("trace-dir", "", "read the timeline from a local trace dir instead of the server")
 	)
 	_ = fs.Parse(args)
@@ -228,7 +229,7 @@ func initCmd(args []string) {
 func resumeCmd(args []string) {
 	fs := flag.NewFlagSet("resume", flag.ExitOnError)
 	var (
-		serverURL = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		serverURL = fs.String("server", endpoint.HTTPBase(), "scratchpad server base URL (default http://localhost:$SCRATCHPAD_PORT)")
 		profile   = fs.String("profile", "", "Chrome user-data-dir to resume (persistent session)")
 	)
 	_ = fs.Parse(args)
@@ -294,7 +295,7 @@ func runCmd(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	var (
 		inputPath   = fs.String("i", "", "path to test suite YAML or JSON")
-		serverURL   = fs.String("server", "http://localhost:8080", "scratchpad server base URL")
+		serverURL   = fs.String("server", endpoint.HTTPBase(), "scratchpad server base URL (default http://localhost:$SCRATCHPAD_PORT)")
 		headless    = fs.Bool("headless", true, "override headless for session creation")
 		platform    = fs.String("platform", "web", "platform target: web|android")
 		parallel    = fs.Int("parallel", 1, "max parallel suite executions")

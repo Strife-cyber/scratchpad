@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"scratchpad/internal/endpoint"
 	"scratchpad/internal/mcp"
 
 	mcpg "github.com/metoro-io/mcp-golang"
@@ -15,12 +16,12 @@ import (
 // used for AI workflows.
 func RunMcp(args []string) {
 	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
-	defaultURL := "ws://localhost:8080/ws"
+	defaultURL := endpoint.WSURL()
 	if u := os.Getenv("SCRATCHPAD_URL"); u != "" {
 		defaultURL = u
 	}
 	var (
-		engineURL = fs.String("engine-url", defaultURL, "engine websocket URL (default $SCRATCHPAD_URL or ws://localhost:8080/ws)")
+		engineURL = fs.String("engine-url", defaultURL, "engine websocket URL (default $SCRATCHPAD_URL, else ws://localhost:$SCRATCHPAD_PORT/ws)")
 		name      = fs.String("name", "Browser-Engine-MCP", "mcp server name")
 		version   = fs.String("version", "1.0.0", "mcp server version")
 	)

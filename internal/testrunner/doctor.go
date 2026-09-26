@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"scratchpad/internal/endpoint"
+
 	"github.com/chromedp/chromedp"
 )
 
@@ -22,8 +24,8 @@ var ErrDoctorFailed = errors.New("doctor: one or more checks failed")
 
 // DoctorOptions configures the `scratchpad doctor` command.
 type DoctorOptions struct {
-	ServerURL string // server base URL (default http://localhost:8080)
-	Port      int    // server port to probe for conflicts (default 8080)
+	ServerURL string // server base URL (default http://localhost:$SCRATCHPAD_PORT)
+	Port      int    // server port to probe for conflicts (default $SCRATCHPAD_PORT or 8080)
 	DocsDir   string // documentation directory to check (default ./docs)
 	Fix       bool   // attempt to fix automatable failures (e.g. create dirs)
 	JSON      bool   // emit a machine-readable JSON report
@@ -66,10 +68,10 @@ type check struct {
 //	1 — one or more checks failed (inspect the checklist/JSON for details)
 func RunDoctor(opts DoctorOptions) error {
 	if opts.ServerURL == "" {
-		opts.ServerURL = "http://localhost:8080"
+		opts.ServerURL = endpoint.HTTPBase()
 	}
 	if opts.Port == 0 {
-		opts.Port = 8080
+		opts.Port = endpoint.Port()
 	}
 	if opts.DocsDir == "" {
 		opts.DocsDir = "docs"
@@ -252,7 +254,7 @@ func serverCheck(serverURL string) *check {
 	return &check{
 		name:  "server",
 		label: "Server reachability (/healthz)",
-		hint:  "start the engine server first: `make run` or `go run ./cmd/server` (binds :8080), then re-run doctor",
+		hint:  "start the engine server first: `make run` or `go run ./cmd/server` (binds 127.0.0.1:8080, or --port / SCRATCHPAD_PORT), then re-run doctor",
 		run: func() (string, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()

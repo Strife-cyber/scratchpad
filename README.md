@@ -103,6 +103,11 @@ Verify the server:
 curl http://localhost:8080/healthz   # → ok
 ```
 
+The server listens on `127.0.0.1:8080`. Change the port with `--port 9000` or
+`SCRATCHPAD_PORT=9000`; the CLI and MCP bridge read `SCRATCHPAD_PORT` too, so
+they follow it. `--bind` / `SCRATCHPAD_BIND` sets the address (see
+[Configuration](docs/src/content/docs/getting-started/configuration.mdx)).
+
 ### Endpoints
 
 | Endpoint | Purpose |

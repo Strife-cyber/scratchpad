@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 
+	"scratchpad/internal/endpoint"
 	"scratchpad/internal/mcp"
 
 	mcpg "github.com/metoro-io/mcp-golang"
@@ -11,7 +12,7 @@ import (
 )
 
 func main() {
-	engineURL := "ws://localhost:8080/ws"
+	engineURL := endpoint.WSURL()
 	if u := os.Getenv("SCRATCHPAD_URL"); u != "" {
 		engineURL = u
 	}
