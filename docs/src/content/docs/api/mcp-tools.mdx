@@ -39,7 +39,7 @@ Loads a URL in the browser (or launches an Android app):
 |-----------|------|----------|-------------|
 | `url` | string | Yes | URL to navigate to or Android package name |
 
-**Returns:** ObservationResponse (text description + screenshot)
+**Returns:** Text summary of the page state. A screenshot is attached only when `SCRATCHPAD_MCP_SCREENSHOTS=always`.
 
 ### browser_observe
 
@@ -49,7 +49,7 @@ Captures the current page state:
 |-----------|------|----------|-------------|
 | _(none)_ | | | No parameters needed |
 
-**Returns:** Text summary of page state + full JSON + JPEG screenshot as image content.
+**Returns:** Text summary of page state + screenshot as image content. `include_raw_json: true` appends the full JSON observation.
 
 ### browser_action
 
