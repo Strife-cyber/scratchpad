@@ -115,10 +115,10 @@ func TestIntegration_ObservedRoleNameIsASelector(t *testing.T) {
 	}
 }
 
-// TestIntegration_FailedActionLeavesNoResult guards the result slot: a failed
-// action must not leave a success result that the next observation (or the
-// next action's observation) reports as its own.
-func TestIntegration_FailedActionLeavesNoResult(t *testing.T) {
+// TestIntegration_FailedActionIsNotASuccess guards the result slot: a failed
+// action is observed as a failure, and never leaks into the next action's
+// result.
+func TestIntegration_FailedActionIsNotASuccess(t *testing.T) {
 	skipUnlessIntegration(t)
 	srv := startFixtureServer(t)
 	e := newIntegrationEngine(t)
@@ -134,8 +134,8 @@ func TestIntegration_FailedActionLeavesNoResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("click on a missing element succeeded")
 	}
-	if r := observe(t, e).ActionResult; r != nil {
-		t.Errorf("observation after a failed click reports result %+v, want none", *r)
+	if r := observe(t, e).ActionResult; r == nil || r.Success || r.Error == "" {
+		t.Errorf("observation after a failed click reports result %+v, want a failure with its error", r)
 	}
 
 	err = e.ExecuteAction(context.Background(), protocol.ActionRequest{

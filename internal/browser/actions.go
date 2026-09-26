@@ -51,10 +51,16 @@ func (e *ChromeEngine) ExecuteAction(ctx context.Context, req protocol.ActionReq
 	start := time.Now()
 	var heal *protocol.SelectorHeal
 	defer func() {
-		// A failed action is reported through its error, never as a result.
+		// A failed action is recorded as a failure (never a success), so an
+		// observation taken after it reports what went wrong and any heal
+		// attempt.
 		if err != nil {
-			e.lastActionResult = nil
-			return
+			e.lastActionResult = &protocol.ActionResult{
+				Action:    req.Action,
+				Success:   false,
+				Error:     err.Error(),
+				ElapsedMS: time.Since(start).Milliseconds(),
+			}
 		}
 		// Only set lastActionResult if it hasn't already been set by
 		// action-specific code (e.g. wait uses its own timing).
