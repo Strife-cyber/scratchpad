@@ -10,8 +10,8 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
           check-latest: true
@@ -31,15 +31,15 @@ jobs:
     name: Benchmarks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
           check-latest: true
       - name: Run benchmarks
         run: go test -bench=. -benchmem -count=3 ./... | tee bench.txt
       - name: Store benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: bench-results
           path: bench.txt
@@ -69,8 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [unit]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
           check-latest: true
@@ -87,8 +87,8 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - name: golangci-lint
@@ -96,7 +96,7 @@ jobs:
         # Go 1.26 module; v2 is required. only-new-issues keeps the existing
         # findings on main from failing every change while still linting the
         # code each change touches.
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.14
           only-new-issues: true
