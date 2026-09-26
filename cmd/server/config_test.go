@@ -51,7 +51,7 @@ func TestIsLoopback(t *testing.T) {
 	}{
 		{"127.0.0.1:8080", true},
 		{"localhost:8080", true},
-		{":8080", true}, // empty host resolves to loopback
+		{":8080", false}, // empty host listens on every interface
 		{"[::1]:8080", true},
 		{"0.0.0.0:8080", false},
 		{"192.168.1.10:8080", false},
@@ -85,6 +85,9 @@ func TestValidateBind(t *testing.T) {
 	}
 
 	// Non-loopback with neither token nor opt-in: refused.
+	if _, err := validateBind(":8080", "", false); err == nil {
+		t.Error("a bare :port binds every interface and must need a token too")
+	}
 	if _, err := validateBind("0.0.0.0:8080", "", false); err == nil {
 		t.Error("non-loopback with no token and no opt-in should be refused")
 	}
