@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -146,6 +147,28 @@ func (sc *sessionConn) closeConn() {
 	}
 }
 
+// checkTokenTransport refuses to send the bearer token in a plaintext
+// handshake to another machine: over ws:// the Authorization header crosses
+// the network in clear text. wss:// and loopback hosts are allowed.
+func checkTokenTransport(engineURL string) error {
+	u, err := url.Parse(engineURL)
+	if err != nil {
+		return fmt.Errorf("mcp: invalid engine URL %q: %w", engineURL, err)
+	}
+	if u.Scheme == "wss" {
+		return nil
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("mcp: refusing to send SCRATCHPAD_TOKEN over unencrypted %s to %s: use a wss:// URL "+
+		"(start the server with --cert/--key) or a loopback address", u.Scheme, host)
+}
+
 // dial opens a WS connection to engineURL and performs the session-ID
 // handshake. When attachID is non-empty the fresh session created by the
 // handshake is immediately released and the connection rebinds to attachID
@@ -155,6 +178,9 @@ func dial(engineURL, attachID string) (*sessionConn, error) {
 	dialer.HandshakeTimeout = 10 * time.Second
 	var header http.Header
 	if tok := os.Getenv("SCRATCHPAD_TOKEN"); tok != "" {
+		if err := checkTokenTransport(engineURL); err != nil {
+			return nil, err
+		}
 		header = http.Header{"Authorization": {"Bearer " + tok}}
 	}
 	conn, resp, err := dialer.Dial(engineURL, header)

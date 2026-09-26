@@ -162,6 +162,31 @@ func TestLazyMcpServer_ConnectsOnFirstCall(t *testing.T) {
 	}
 }
 
+// The bearer token may only travel over TLS or to this machine.
+func TestCheckTokenTransport(t *testing.T) {
+	for _, c := range []struct {
+		url string
+		ok  bool
+	}{
+		{"ws://localhost:8080/ws", true},
+		{"ws://127.0.0.1:8080/ws", true},
+		{"ws://[::1]:8080/ws", true},
+		{"wss://engine.example.com/ws", true},
+		{"ws://engine.example.com/ws", false},
+		{"ws://192.168.1.20:8080/ws", false},
+	} {
+		if err := checkTokenTransport(c.url); (err == nil) != c.ok {
+			t.Errorf("checkTokenTransport(%q) = %v, want ok=%v", c.url, err, c.ok)
+		}
+	}
+
+	// dial must refuse before any network I/O when a token is set.
+	t.Setenv("SCRATCHPAD_TOKEN", "s3cret")
+	if _, err := dial("ws://192.0.2.1:8080/ws", ""); err == nil || !strings.Contains(err.Error(), "refusing to send SCRATCHPAD_TOKEN") {
+		t.Errorf("dial with token over remote ws:// = %v, want a refusal", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // sendEnvelope / readResponse tests
 // ---------------------------------------------------------------------------

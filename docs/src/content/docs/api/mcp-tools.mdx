@@ -24,7 +24,7 @@ then tool calls fail with a message saying how to start it.
 | Environment variable | Purpose |
 |----------------------|---------|
 | `SCRATCHPAD_URL` | Engine WebSocket URL when `--engine-url` is not given (default `ws://localhost:8080/ws`) |
-| `SCRATCHPAD_TOKEN` | Sent as `Authorization: Bearer` when the server was started with a token |
+| `SCRATCHPAD_TOKEN` | Sent as `Authorization: Bearer` when the server was started with a token. Only sent over `wss://` or to a loopback address; a plaintext `ws://` URL to another host is refused |
 | `SCRATCHPAD_MCP_SCREENSHOTS` | `always` attaches a page screenshot (and the element highlight) to every action and `browser_navigate` response. By default only `browser_observe` and `browser_screenshot` return images; action responses carry the text outline |
 | `SCRATCHPAD_MCP_TOOLS` | Optional tool groups to register, comma-separated: `android` (the `android_*` tools), `advanced` (`browser_action`, `browser_switch_to_iframe`, `browser_switch_to_main_frame`), or `all`. Off by default to keep the tool list small |
 | `CHROME_PATH` | Set on the **server**: the Chrome/Chromium binary to launch |
