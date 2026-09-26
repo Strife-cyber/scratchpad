@@ -92,6 +92,11 @@ jobs:
         with:
           go-version: '1.26'
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # golangci-lint v1 (the last release is built with Go 1.24) refuses a
+        # Go 1.26 module; v2 is required. only-new-issues keeps the existing
+        # findings on main from failing every change while still linting the
+        # code each change touches.
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.14
+          only-new-issues: true
