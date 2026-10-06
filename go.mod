@@ -1,10 +1,10 @@
 module scratchpad
 
-go 1.26
+go 1.27
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20260427013145-5737772c319b
-	github.com/chromedp/chromedp v0.15.1
+	github.com/chromedp/cdproto v0.157.3
+	github.com/chromedp/chromedp v0.17.1
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
@@ -15,7 +15,6 @@ require (
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
-	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
@@ -27,5 +26,5 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
-	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )
